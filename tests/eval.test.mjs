@@ -164,7 +164,10 @@ describe("layer 3 case structure", () => {
     writeFileSync(at("forms", "graders", "c.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: 'grill'\n---\n");
     mkdirSync(at("mocks"), { recursive: true });
     mkdirSync(at("more", "graders"), { recursive: true });
-    writeFileSync(at("more", "prompt.md"), "---\nname: more\ndescription: valid key\nschema_version: \"1.0\"\n---\n\nGo.\n");
+    writeFileSync(at("more", "prompt.md"), "---\nname: more\ndescription: valid key\nschema_version: \"1.0\"\nplugins: [pstack]\nexpected_outcome: done\nartifact_publish: false\ngrowthbook_overrides: {}\n---\n\nGo.\n");
+    writeFileSync(at("more", "graders", "c.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: '\"skill\"\\s*:\\s*\"(?:[a-z]+:)?grill\"'\n---\n");
+    writeFileSync(at("more", "graders", "d.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: '(?i)grill'\n---\n");
+    writeFileSync(at("more", "graders", "e.md"), '---\ntype: tool_used\ntool: Skill\ninput_match: "\\\\bgrill\\\\b"\n---\n');
     writeFileSync(at("more", "graders", "a.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: '\\bgrill\\b'\n---\n");
     writeFileSync(at("more", "graders", "b.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: '\"skill\"\\s*:\\s*\"(?:grilll|grill)\"'\n---\n");
     expect(evalCaseProblems(root, new Set(["grill"])).sort()).toEqual([

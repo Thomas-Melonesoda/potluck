@@ -229,7 +229,13 @@ const GRADERS = new Set(["regex", "tool_used", "tool_order", "file_exists", "llm
 const PROMPT_KEYS = new Set(["name", "description", "tags", "runs", "max_turns", "timeout_seconds", "allowed_tools", "disallowed_tools", "model", "append_system_prompt", "env", "plugins", "expected_outcome", "schema_version", "artifact_publish", "growthbook_overrides"]);
 // Words a Skill grader's input_match uses that are regex or JSON, not a skill.
 const MATCH_WORDS = new Set(["skill", "s", "w", "d", "args", "pstack"]);
-const scalar = (value) => value.replace(/\s+#.*$/, "").trim().replace(/^(["'])(.*)\1$/, "$2");
+// A one-line YAML scalar: comment dropped, quotes removed, and a double-quoted
+// value's backslash escapes decoded, so "\\b" reads as \b.
+const scalar = (value) => {
+  const v = value.replace(/\s+#.*$/, "").trim();
+  if (/^".*"$/.test(v)) return v.slice(1, -1).replace(/\\(.)/g, "$1");
+  return v.replace(/^'(.*)'$/, "$1").replaceAll("''", "'");
+};
 export function evalCaseProblems(root = ROOT, skillNames = new Set()) {
   const dir = join(root, "plugins/pstack/evals");
   if (!existsSync(dir)) return [];
@@ -271,11 +277,12 @@ export function evalCaseProblems(root = ROOT, skillNames = new Set()) {
       if (keys(g[1]).includes("with_only")) problems.push(`${where}: with_only is not a grader key; use arm: with-only or arm: both`);
       if (type === "llm" && !g[2].trim()) problems.push(`${where}: an llm grader needs its criteria in the body`);
       if (type === "tool_used" && field(g[1], "tool") === "Skill" && skillNames.size) {
-        // Escapes such as \b or \s are regex, not words; every name in an
-        // alternation is checked, not only the last.
-        const match = (field(g[1], "input_match") ?? "").replace(/\\./g, " ");
-        const tail = match.split(/"\s*:\s*"/).at(-1) ?? match;
-        const words = (tail.match(/[a-z][a-z0-9-]*/g) ?? []).filter((w) => !MATCH_WORDS.has(w));
+        // Every word of the pattern that is not regex syntax or JSON is read as
+        // a skill name, so each alternative is checked. Escapes (\b, \s),
+        // character classes ([a-z]), and group and flag openers ((?:, (?i))
+        // are syntax, not words.
+        const match = (field(g[1], "input_match") ?? "").replace(/\\./g, " ").replace(/\[[^\]]*\]/g, " ").replace(/\(\?[a-z]*[:)]?/g, " ");
+        const words = (match.match(/[a-z][a-z0-9-]*/g) ?? []).filter((w) => !MATCH_WORDS.has(w));
         if (!words.length) problems.push(`${where}: cannot tell which skill this Skill grader expects`);
         for (const skill of new Set(words)) if (!skillNames.has(skill)) problems.push(`${where}: expects skill ${skill}, which is not a skill`);
       }
