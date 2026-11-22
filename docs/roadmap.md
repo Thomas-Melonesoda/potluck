@@ -31,11 +31,11 @@ Status values: **done**, **in progress**, **not started**.
 - Worktree cleanup (C3): [`worktree-backup.mjs`](../plugins/pstack/skills/poteto-mode/scripts/worktree-backup.mjs) backs a worktree up before removal (tracked edits to a local `backup/` branch, untracked and ignored files, and the raw copy of each changed or filtered tracked file, to a trash tarball kept 30 days, HEAD-only and reflog-only commits to branches), and the cleanup playbook runs it on every worktree and then deletes without asking. A worktree with a lock, an initialized submodule or a submodule repository in its git dir, an operation in progress, skip-worktree or assume-unchanged files on disk, unmerged paths, or no commit is held and reported instead, because removal there could lose work the backup cannot save ([#10](https://github.com/Thomas-Melonesoda/potluck/pull/10)).
 - pstack's usage guide (G1) is a synced component at [`docs/guide`](guide/README.md), with a Chinese translation at [`docs/guide-zh-CN`](guide-zh-CN/README.md) that a test keeps in step with each English page ([#12](https://github.com/Thomas-Melonesoda/potluck/pull/12), [#13](https://github.com/Thomas-Melonesoda/potluck/pull/13)). `automations/` and `make-bot-ui` stay out (G2, G3); no telemetry.
 
-## Stage 4: borrow from Matt Pocock and Addy Osmani (not started)
+## Stage 4: borrow from Matt Pocock and Addy Osmani (in progress)
 
 - New `grill` skill for new projects or unclear large features; prototype and wizard skills; glossary and decision-record formats.
 - `CONSTRAINTS.md` and an always-on quality floor run inside the merge gate.
-- Three eval layers: structure, trigger collisions (in CI), behavior (after upstream syncs).
+- Three eval layers: structure, trigger collisions (in CI), behavior (after upstream syncs). Layers 1 and 2 are done: [`tools/eval.mjs`](../tools/eval.mjs) with cases in [`evals/triggers.json`](../evals/triggers.json), run in CI ([#15](https://github.com/Thomas-Melonesoda/potluck/pull/15)).
 - A narrow git guardrail hook that blocks commands which would lose uncommitted or unpushed work.
 - A generated, read-only project overview alongside pstack's existing reports.
 
