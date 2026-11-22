@@ -3,12 +3,12 @@
 // pure function; the CLI runs against a fake `gh` on PATH that answers from a
 // fixture and records every call, so no test touches GitHub.
 import { afterAll, describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CONTEXT, refusals } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
+import { CONTEXT, FLOOR_GUARD, guardSource, refusals } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
 
 const script = join(import.meta.dir, "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs");
 const sha = "a".repeat(40);
@@ -52,13 +52,68 @@ describe("refusals", () => {
   });
 });
 
+test("the floor guard's code is the one js block in the synced floor-guard.md", () => {
+  const source = guardSource(FLOOR_GUARD);
+  expect(source).toContain("floor-guard");
+  expect(source).toContain("process.exit(1)");
+  expect(() => guardSource(join(import.meta.dir, "merge-gate.test.mjs"))).toThrow("expected one");
+});
+
 describe("merge-gate CLI against a fake gh", () => {
   const dirs = [];
   afterAll(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+  const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" };
+  const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", env: gitEnv }).trim();
+
+  // A checkout whose origin, a bare repo named o/r, holds main and the PR head
+  // at refs/pull/7/head, as GitHub does. `change` is the PR's one file.
+  // `change` is one PR file; `base` and `files` add files before and in the PR;
+  // `remove` deletes base files in the PR, `move` renames one; `pullRef: false`
+  // leaves refs/pull/7/head out, as if GitHub had no such PR.
+  function checkout(change = { path: "src/app.js", text: "export const answer = 42;\n" }, { base: baseFiles = {}, files = {}, remove = [], move = null, pullRef = true } = {}) {
+    const dir = mkdtempSync(join(tmpdir(), "potluck-gate-repo-"));
+    dirs.push(dir);
+    const remote = join(dir, "o", "r.git");
+    mkdirSync(join(dir, "o"));
+    git(dir, "init", "-q", "--bare", "-b", "main", remote);
+    const work = join(dir, "work");
+    git(dir, "clone", "-q", remote, work);
+    mkdirSync(join(work, "src"));
+    writeFileSync(join(work, "src/app.js"), "export const answer = 41;\n");
+    for (const [path, text] of Object.entries(baseFiles)) {
+      mkdirSync(join(work, path, ".."), { recursive: true });
+      writeFileSync(join(work, path), text);
+    }
+    git(work, "add", ".");
+    git(work, "commit", "-q", "-m", "base");
+    git(work, "push", "-q", "origin", "main");
+    const base = git(work, "rev-parse", "HEAD");
+    git(work, "switch", "-q", "-c", "feature");
+    mkdirSync(join(work, change.path, ".."), { recursive: true });
+    writeFileSync(join(work, change.path), change.text);
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(work, path, ".."), { recursive: true });
+      writeFileSync(join(work, path), text);
+    }
+    for (const path of remove) git(work, "rm", "-q", path);
+    if (move) git(work, "mv", move[0], move[1]);
+    git(work, "add", ".");
+    git(work, "commit", "-q", "-m", "change");
+    const head = git(work, "rev-parse", "HEAD");
+    if (pullRef) git(work, "push", "-q", "origin", "HEAD:refs/pull/7/head");
+    else git(work, "push", "-q", "origin", "HEAD:refs/heads/feature");
+    git(work, "switch", "-q", "main");
+    return { work, base, head };
+  }
 
   // The fake answers `pr view` with `view` (then `after` once a merge ran),
   // the statuses and check-runs endpoints with one page each, and records argv.
-  function fake({ view = open, after = { state: "MERGED", headRefOid: sha, mergeCommit: { oid: "c".repeat(40) } }, statuses = [pass], runs = [ci], fail = "" } = {}) {
+  // The gate runs in a fixture checkout, so the floor guard has a real PR to read.
+  function fake({ view: viewOver = {}, after: afterOver, statuses = [pass], runs = [ci], fail = "", change, setup = {} } = {}) {
+    const repoDir = checkout(change, setup);
+    const head = repoDir.head;
+    const view = { ...open, headRefOid: head, baseRefOid: repoDir.base, ...viewOver };
+    const after = { state: "MERGED", headRefOid: head, mergeCommit: { oid: "c".repeat(40) }, ...afterOver };
     const dir = mkdtempSync(join(tmpdir(), "potluck-gate-"));
     dirs.push(dir);
     mkdirSync(join(dir, "bin"));
@@ -82,17 +137,26 @@ else if (line.includes("POST")) process.stdout.write("{}");
 `,
       { mode: 0o755 },
     );
-    const run = (...args) => {
-      const r = spawnSync("node", [script, ...args], { encoding: "utf8", env: { ...process.env, PATH: `${join(dir, "bin")}:${process.env.PATH}` } });
+    const runAt = (cwd, ...args) => {
+      const filled = args.map((a) => (a === SHA ? head : a));
+      const r = spawnSync("node", [script, ...filled], { cwd, encoding: "utf8", env: { ...gitEnv, PATH: `${join(dir, "bin")}:${process.env.PATH}` } });
       return { ...r, json: r.stdout ? JSON.parse(r.stdout) : null };
     };
+    const run = (...args) => runAt(repoDir.work, ...args);
     const calls = () => readFileSync(join(dir, "calls"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-    return { run, calls };
+    const setView = (over) => {
+      const f = JSON.parse(readFileSync(join(dir, "fixture.json"), "utf8"));
+      f.view = { ...f.view, ...over };
+      writeFileSync(join(dir, "fixture.json"), JSON.stringify(f));
+    };
+    return { run, runAt, calls, head, work: repoDir.work, setView };
   }
-  const merge = ["merge", "--repo", "o/r", "--pr", "7", "--sha", sha];
+  // Stands for the fixture's PR head in a command line.
+  const SHA = "<head>";
+  const merge = ["merge", "--repo", "o/r", "--pr", "7", "--sha", SHA];
 
   test("merges with --match-head-commit and never --auto, then confirms the merge", () => {
-    const { run, calls } = fake();
+    const { run, calls, head: sha } = fake();
     const r = run(...merge);
     expect(r.status).toBe(0);
     expect(r.json).toEqual({ kind: "merged", repo: "o/r", pr: 7, sha, mergeCommit: "c".repeat(40) });
@@ -102,7 +166,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
   });
 
   test("--author-email is passed to the merge", () => {
-    const { run, calls } = fake();
+    const { run, calls, head: sha } = fake();
     run(...merge, "--author-email", "1+me@users.noreply.github.com");
     expect(calls().find((a) => a[1] === "merge")).toEqual([
       "pr", "merge", "7", "--repo", "o/r", "--squash", "--match-head-commit", sha, "--author-email", "1+me@users.noreply.github.com",
@@ -110,7 +174,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
   });
 
   test("refuses without merging when the verdict is missing", () => {
-    const { run, calls } = fake({ statuses: [] });
+    const { run, calls, head: sha } = fake({ statuses: [] });
     const r = run(...merge);
     expect(r.status).toBe(1);
     expect(r.json.kind).toBe("refused");
@@ -119,14 +183,14 @@ else if (line.includes("POST")) process.stdout.write("{}");
   });
 
   test("--dry-run reports would-merge and does not merge", () => {
-    const { run, calls } = fake();
+    const { run, calls, head: sha } = fake();
     const r = run(...merge, "--dry-run");
     expect(r.json.kind).toBe("would-merge");
     expect(calls().some((a) => a[1] === "merge")).toBe(false);
   });
 
   test("a merge GitHub did not confirm is reported as unconfirmed", () => {
-    const { run } = fake({ after: { state: "OPEN", headRefOid: sha, mergeCommit: null } });
+    const { run } = fake({ after: { state: "OPEN", mergeCommit: null } });
     const r = run(...merge);
     expect(r.status).toBe(1);
     expect(r.json.kind).toBe("unconfirmed");
@@ -134,7 +198,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
   });
 
   test("a gh failure after the merge request is unconfirmed, not refused", () => {
-    const { run } = fake({ fail: "state,mergeCommit,headRefOid" });
+    const { run, head: sha } = fake({ fail: "state,mergeCommit,headRefOid" });
     const r = run(...merge);
     expect(r.status).toBe(1);
     expect(r.json.kind).toBe("unconfirmed");
@@ -142,15 +206,175 @@ else if (line.includes("POST")) process.stdout.write("{}");
   });
 
   test("a gh failure while reading facts refuses instead of merging", () => {
-    const { run, calls } = fake({ fail: "check-runs" });
+    const { run, calls, head: sha } = fake({ fail: "check-runs" });
     const r = run(...merge);
     expect(r.status).toBe(1);
     expect(r.json.reasons[0]).toContain("gh failed:");
     expect(calls().some((a) => a[1] === "merge")).toBe(false);
   });
 
-  test("verdict writes the potluck/verdict status on that exact head", () => {
+  test("the floor guard refuses a PR that adds a suppression comment, and leaves no worktree behind", () => {
+    // Built in pieces, so this file does not itself add a suppression comment.
+    const { run, calls, work } = fake({ change: { path: "src/app.js", text: `// @ts-${"ignore"}\nexport const answer = 42;\n` } });
+    const r = run(...merge);
+    expect(r.status).toBe(1);
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[silenced-checker] src/app.js"))).toBe(true);
+    expect(calls().some((a) => a[1] === "merge")).toBe(false);
+    expect(git(work, "worktree", "list").split("\n")).toHaveLength(1);
+  });
+
+  test("the floor guard runs only in a checkout of the PR's repository", () => {
     const { run, calls } = fake();
+    const r = run("merge", "--repo", "x/y", "--pr", "7", "--sha", SHA);
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("floor guard could not run: origin of");
+    expect(calls().some((a) => a[1] === "merge")).toBe(false);
+  });
+
+  test("--dry-run runs the floor too", () => {
+    const { run } = fake({ change: { path: "src/app.js", text: `export function later() { throw new Error("Not ${"implemented"}"); }\n` } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[unfinished-work]"))).toBe(true);
+  });
+
+  test("Markdown that describes the floor's patterns passes, and CONSTRAINTS.md still counts", () => {
+    const docs = fake({ change: { path: "notes.md", text: `Never add @ts-${"ignore"} or leave a ${"TO"}DO.\n` } });
+    expect(docs.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+    const bar = fake({ change: { path: "CONSTRAINTS.md", text: `# Constraints\n\n## Exceptions\n\n| ID | Rule |\n|---|---|\n| W1 | no-${"explicit"}-any |\n` } });
+    const r = bar.run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[new-exception] CONSTRAINTS.md"))).toBe(true);
+  });
+
+  const TEST = "src/app.test.js";
+  const ASSERT = `test("adds", () => { ${"expect"}(1 + 1).toBe(2); });\n`;
+
+  test("a PR's own .gitattributes cannot hide a finding", () => {
+    const { run } = fake({ change: { path: ".gitattributes", text: "* -diff\n" }, setup: { base: { [TEST]: ASSERT }, files: { [TEST]: `${ASSERT}test.${"skip"}("later", () => {});\n` } } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[test-made-easier]"))).toBe(true);
+  });
+
+  test("renaming a test file away counts as deleting it", () => {
+    const { run } = fake({ change: { path: "src/note.js", text: "export {};\n" }, setup: { base: { [TEST]: ASSERT }, move: [TEST, "src/app.check.js"] } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[test-deleted] src/app.test.js"))).toBe(true);
+  });
+
+  test("a colon in a code file's name does not make its finding look like Markdown", () => {
+    const { run } = fake({ change: { path: "src/x.md:y.js", text: `// eslint-${"disable"}\nexport {};\n` } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[silenced-checker] src/x.md:y.js"))).toBe(true);
+  });
+
+  test("the checkout's own git config cannot switch the floor off", () => {
+    const { run, work } = fake({ setup: { base: { [TEST]: ASSERT }, files: { [TEST]: `${ASSERT}test.${"skip"}("later", () => {});\n` } } });
+    git(work, "config", "diff.external", "true");
+    git(work, "config", "color.ui", "always");
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[test-made-easier]"))).toBe(true);
+  });
+
+  test("a PR's .gitattributes cannot re-encode a test file on checkout to hide it", () => {
+    // The file is written as UTF-16LE with a BOM, as the attribute says, so git
+    // stores it as UTF-8 and a checkout under the PR's attributes would write
+    // it back as UTF-16, which the guard reads as binary.
+    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`${ASSERT}test.${"skip"}("later", () => {});\n`, "utf16le")]);
+    const { run } = fake({ change: { path: ".gitattributes", text: "*.test.js working-tree-encoding=UTF-16LE-BOM\n" }, setup: { base: { [TEST]: ASSERT }, files: { [TEST]: utf16 } } });
+    const r = run(...merge, "--dry-run");
+    // The fixture commits the attribute and the file together, so git converts
+    // the blob on add; either way the floor must see the change and refuse.
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.every((l) => l.startsWith("floor: ["))).toBe(true);
+  });
+
+  test("CI that never started on a repository with workflows refuses", () => {
+    const { run } = fake({ runs: [], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" } } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("no CI result on");
+  });
+
+  test("a PR that deletes the base's CI cannot merge without a CI result", () => {
+    const { run } = fake({ runs: [], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" }, remove: [".github/workflows/ci.yml"] } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("no CI result on");
+  });
+
+  test("deleting a committed binary file passes the binary check", () => {
+    const { run } = fake({ setup: { base: { ".DS_Store": Buffer.from([0, 1, 2, 3, 0]) }, remove: [".DS_Store"] } });
+    expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a NUL byte in an extension-less script is refused too", () => {
+    const { run } = fake({ change: { path: "bin/run", text: `#!/usr/bin/env node\n/*\0*/\n// eslint-${"disable"}\n` } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("[binary-source] bin/run");
+  });
+
+  test("a binary image passes the binary check", () => {
+    const { run } = fake({ change: { path: "logo.png", text: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3]) } });
+    expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a shallow checkout still runs the floor", () => {
+    const { runAt, work } = fake({ change: { path: "src/app.js", text: `// eslint-${"disable"}\nexport {};\n` } });
+    const shallowDir = join(work, "..", "shallow");
+    execFileSync("git", ["clone", "-q", "--depth", "1", `file://${join(work, "..", "o", "r.git")}`, shallowDir], { env: gitEnv });
+    const r = runAt(shallowDir, ...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[silenced-checker] src/app.js"))).toBe(true);
+  });
+
+  test("a NUL byte that makes a source file binary is refused, since the floor cannot read it", () => {
+    const { run } = fake({ setup: { base: { [TEST]: ASSERT }, files: { [TEST]: `/*\0*/\n${ASSERT}test.${"skip"}("later", () => {});\n` } } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("[binary-source] src/app.test.js");
+  });
+
+  test("a guard that exits 2 refuses: no merge base with the PR's base", () => {
+    const { run, work, setView } = fake();
+    git(work, "switch", "-q", "--orphan", "lonely");
+    writeFileSync(join(work, "lonely.txt"), "x\n");
+    git(work, "add", "lonely.txt");
+    git(work, "commit", "-q", "-m", "lonely");
+    const lonely = git(work, "rev-parse", "HEAD");
+    git(work, "switch", "-q", "main");
+    setView({ baseRefOid: lonely });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("floor guard could not run");
+  });
+
+  test("a guard that cannot run refuses: no PR ref to fetch", () => {
+    const { run } = fake({ setup: { pullRef: false } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("floor guard could not run");
+  });
+
+  test("the gate leaves the user's other worktrees alone, even one whose folder is missing for now", () => {
+    const { run, work } = fake();
+    const other = join(work, "..", "other");
+    git(work, "worktree", "add", "-q", "-b", "side", other);
+    const away = `${other}-away`;
+    renameSync(other, away);
+    run(...merge, "--dry-run");
+    renameSync(away, other);
+    expect(git(other, "status", "--short")).toBe("");
+  });
+
+  test("verdict writes the potluck/verdict status on that exact head", () => {
+    const { run, calls, head: sha } = fake();
     const r = run("verdict", "--repo", "o/r", "--sha", sha, "--state", "pass");
     expect(r.json).toEqual({ kind: "recorded", repo: "o/r", sha, state: "success" });
     const post = calls()[0];
