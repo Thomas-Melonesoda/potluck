@@ -55,6 +55,8 @@ export function renderDecisions(registry) {
     "- **Choice / 选择**: whose way potluck follows. / potluck 跟谁的做法。",
     "- **Ruling / 裁定**: the owner's ruling, paraphrased in English. / 项目负责人的裁定，英文转述。",
     "",
+    "A choice of Lauren's way or a compromise is a decision; the file may still hold pstack-claude's text until the stage that applies it, which [the roadmap](roadmap.md) tracks. / 选了 Lauren 的或折中，表示已经定了；在 [路线图](roadmap.md) 里对应的阶段完成前，文件内容可能还是 pstack-claude 的。",
+    "",
     `${entries.length} entries / 共 ${entries.length} 条.`,
   ];
   const groups = [

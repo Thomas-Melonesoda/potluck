@@ -17,12 +17,12 @@ Status values: **done**, **in progress**, **not started**.
 - gitleaks and [`tools/privacy-check.mjs`](../tools/privacy-check.mjs) run in the pre-commit hook and in CI over the full history.
 - Repository published; `main` blocks force pushes and deletion; private vulnerability reporting is on.
 
-## Stage 2: sync tooling and the decision register (not started)
+## Stage 2: sync tooling and the decision register (done, 2026-11-21)
 
-- `bun tools/sync.mjs revert <component> <path>`: restore a file to its upstream version with substitutions applied, drop its `forks.json` entry, rerun the denylist check.
-- `tools/upstream.json`: a `remote` per component, so Matt Pocock's and Addy Osmani's repositories can be upstreams.
-- `tools/forks.json` entries gain `upstream`, `choice`, `kind` (adds `borrow`), `row`, `why`, `ruling`, `decided`, `since`; only differences from upstream are recorded.
-- A script generates a read-only bilingual `docs/decisions.md` from `forks.json`.
+- `bun tools/sync.mjs revert <component> <path>` restores one file to its upstream version with substitutions and generator stamps, and drops its `forks.json` entry ([#5](https://github.com/Thomas-Melonesoda/potluck/pull/5)).
+- `tools/upstream.json`: a component may set its own `remote` ([#4](https://github.com/Thomas-Melonesoda/potluck/pull/4)).
+- `tools/forks.json` entries carry `source`, `choice`, `row`, `ruling`, `decided`, and `kind` gains `borrow` ([#6](https://github.com/Thomas-Melonesoda/potluck/pull/6)). pstack-claude's own `upstream` (proposal status) and `since` keep their meaning, so potluck's "which upstream" field is `source`. Every entry is filled from the step 3 review, and a test requires the whole register on each entry.
+- [`docs/decisions.md`](decisions.md) is generated from `forks.json` by `node tools/decisions.mjs`; a test fails when it is stale.
 
 ## Stage 3: align with pstack where pstack-claude differs (not started)
 
