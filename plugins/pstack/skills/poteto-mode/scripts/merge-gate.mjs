@@ -23,6 +23,9 @@
 //     other than CONSTRAINTS.md are dropped, since docs only describe these
 //     moves. A guard that cannot run refuses too. Run the gate from a checkout
 //     whose origin is the repo.
+//   - the project's docs/overview.md is current with its sources and every
+//     ticked Done when item names its proof (grill/scripts/overview.mjs
+//     --check), when the project has those sources
 // It merges with `gh pr merge --squash --match-head-commit <sha>`, never
 // `--auto`, so GitHub itself refuses if the head moves after the checks, and
 // it reads the PR back to confirm the merge.
@@ -114,6 +117,19 @@ const BINARY = /\.(?:png|jpe?g|gif|webp|avif|bmp|ico|icns|tiff?|psd|heic|pdf|wof
 
 const gitIn = (cwd, args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity, timeout: 300_000 });
 
+export const OVERVIEW = join(dirname(fileURLToPath(import.meta.url)), "../../grill/scripts/overview.mjs");
+
+// The project overview (design rows R2 and R4) must match the sources grill
+// writes, and no Done when item may be ticked without its proof. A project
+// with none of those sources needs no overview and passes.
+function overviewCheck(tree, env, workflows) {
+  const run = spawnSync(process.execPath, [OVERVIEW, "--root", tree, "--check"], { cwd: tree, env, encoding: "utf8", timeout: 120_000 });
+  if (run.status === 0) return { ok: true, reasons: [], workflows };
+  const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (run.status === 1) return { ok: false, reasons: lines.map((l) => `overview: ${l}`) };
+  return { ok: false, reasons: [`overview check could not run: ${lines[0] ?? `exit ${run.status ?? run.signal}`}`] };
+}
+
 // Runs the floor guard on the verified head. Returns { ok, reasons }.
 export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
   let top;
@@ -204,7 +220,7 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
     writeFileSync(script, source);
     const run = spawnSync(process.execPath, [script, "--base", base], { cwd: tree, env: { ...env, ...attrs }, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
     const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trimEnd()).filter(Boolean);
-    if (run.status === 0) return { ok: true, reasons: [], workflows };
+    if (run.status === 0) return overviewCheck(tree, env, workflows);
     if (run.status === 1) {
       // The guard reads every file. Markdown other than CONSTRAINTS.md only
       // describes these moves and cannot silence a checker, so its findings
@@ -221,7 +237,7 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
         if (file === undefined) return true;
         return !/\.(md|markdown)$/i.test(file) || /(^|\/)CONSTRAINTS\.md$/.test(file);
       });
-      if (findings.length && !kept.length) return { ok: true, reasons: [], workflows };
+      if (findings.length && !kept.length) return overviewCheck(tree, env, workflows);
       return { ok: false, reasons: (kept.length ? kept : lines).map((l) => `floor: ${l.trim()}`) };
     }
     return { ok: false, reasons: [`floor guard could not run: ${lines[0] ?? `exit ${run.status ?? run.signal}`}`] };
