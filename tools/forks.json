@@ -84,9 +84,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
-      "row": "B4, E1, E2, E3, E5, E6, E7, E8, E9, E10, E11, G1",
+      "row": "B4, E1, E2, E3, E5, E6, E7, E8, E9, E10, E11, G1, G8",
       "ruling": "Use all of Michael's front-door additions (group E), including the focused-fix exception (B4). Route new projects and unclear large features to grill, and skip it when nobody is present (G1, G8).",
-      "decided": "2026-11-21"
+      "decided": "2026-11-22"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/autopilot-full.md": {
       "kind": "policy",
