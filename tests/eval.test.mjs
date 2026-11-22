@@ -163,6 +163,13 @@ describe("layer 3 case structure", () => {
     writeFileSync(at("forms", "graders", "b.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: '\"skill\"\\s*:\\s*\"pstack:grilll\"'\nwith_only: true\n---\n");
     writeFileSync(at("forms", "graders", "c.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: 'grill'\n---\n");
     mkdirSync(at("mocks"), { recursive: true });
+    mkdirSync(at("more", "graders"), { recursive: true });
+    writeFileSync(at("more", "prompt.md"), "---\nname: more\ndescription: valid key\nschema_version: \"1.0\"\nplugins: [pstack]\nexpected_outcome: done\nartifact_publish: false\ngrowthbook_overrides: {}\n---\n\nGo.\n");
+    writeFileSync(at("more", "graders", "c.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: '\"skill\"\\s*:\\s*\"(?:[a-z]+:)?grill\"'\n---\n");
+    writeFileSync(at("more", "graders", "d.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: '(?i)grill'\n---\n");
+    writeFileSync(at("more", "graders", "e.md"), '---\ntype: tool_used\ntool: Skill\ninput_match: "\\\\bgrill\\\\b"\n---\n');
+    writeFileSync(at("more", "graders", "a.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: '\\bgrill\\b'\n---\n");
+    writeFileSync(at("more", "graders", "b.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: '\"skill\"\\s*:\\s*\"(?:grilll|grill)\"'\n---\n");
     expect(evalCaseProblems(root, new Set(["grill"])).sort()).toEqual([
       "plugins/pstack/evals/bad/graders/x.md: type must be one of regex, tool_used, tool_order, file_exists, llm, baseline",
       "plugins/pstack/evals/bad/graders/y.md: expects skill ghost, which is not a skill",
@@ -173,6 +180,7 @@ describe("layer 3 case structure", () => {
       "plugins/pstack/evals/forms/graders/b.md: expects skill grilll, which is not a skill",
       "plugins/pstack/evals/forms/graders/b.md: with_only is not a grader key; use arm: with-only or arm: both",
       "plugins/pstack/evals/forms/prompt.md: unknown frontmatter key maxturns",
+      "plugins/pstack/evals/more/graders/b.md: expects skill grilll, which is not a skill",
     ]);
     expect(evalCaseProblems(root, new Set(["grill"])).some((p) => p.includes("/good"))).toBe(false);
     rmSync(root, { recursive: true, force: true });
