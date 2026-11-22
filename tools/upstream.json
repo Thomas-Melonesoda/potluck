@@ -48,6 +48,12 @@
         "README.md",
         "assets/"
       ]
+    },
+    "guide": {
+      "upstreamPath": "pstack/docs/guide",
+      "localPath": "docs/guide",
+      "sha": "0b46ec399d55f2829e88822998f53b84944837d3",
+      "exclude": []
     }
   }
 }
