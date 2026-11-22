@@ -25,3 +25,10 @@ plugins/pstack/skills/statechart/scripts/node_modules/
 
 # Lake build output for the Lean models
 /lean/.lake/
+
+# Secrets and per-user settings never belong in this public repository;
+# tools/privacy-check.mjs blocks them even when forced past this list.
+.env
+.env.*
+!.env.example
+*.local.json

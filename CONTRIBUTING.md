@@ -33,6 +33,21 @@ bun tools/sync.mjs pstack <new-upstream-sha>
 
 When a clean merge matches the new upstream text and mode, the sync reports it as `updated`. Any existing fork declaration becomes stale in that same run, and removing the declaration does not block the update. A surviving port mode change still counts as a fork even when the text matches upstream.
 
+## Keep personal content and secrets out
+
+potluck is public from its first commit. Two checks guard every commit, locally and in CI:
+
+- [gitleaks](https://github.com/gitleaks/gitleaks) scans for secrets.
+- [`tools/privacy-check.mjs`](tools/privacy-check.mjs) blocks home directory paths with a real user name, personal vault names, `.env` files, and `*.local.json` files. If you keep a private terms file at `~/.config/potluck/private-terms.txt` (one term per line, plus an optional `vault: <dir>` line), it also blocks those terms and the names of your vault's notes. The file stays on your machine; CI runs the public rules only.
+
+Enable the hook once per clone, after installing gitleaks:
+
+```shell
+git config core.hooksPath .githooks
+```
+
+[`prek`](https://github.com/j178/prek) users get the same checks from `.pre-commit-config.yaml`. Do not bypass the hook with `--no-verify`; the CI jobs in [`security.yml`](.github/workflows/security.yml) scan the full history and will fail the pull request anyway.
+
 ## Before you open a PR
 
 Install the root dependencies and the copy of Pi the tests load, then run the generator and the tests:

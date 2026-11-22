@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# potluck pre-commit hook. Enable once per clone with:
+#   git config core.hooksPath .githooks
+# The same checks run in CI (.github/workflows/security.yml and ci.yml), so a
+# commit that skips this hook still cannot merge with a leak in it.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed. Install it from https://github.com/gitleaks/gitleaks/releases and retry." >&2
+  exit 1
+fi
+gitleaks git --pre-commit --staged --redact --no-banner --log-level warn
+
+node tools/privacy-check.mjs --staged
+
+if command -v bun >/dev/null 2>&1; then
+  bun tools/generate.mjs --check
+else
+  echo "pre-commit: bun not found; skipping the generated-files check (CI still runs it)." >&2
+fi

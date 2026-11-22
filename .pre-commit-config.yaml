@@ -11,3 +11,15 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: gitleaks
+        name: secret scan of staged changes
+        entry: gitleaks git --pre-commit --staged --redact --no-banner --log-level warn
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: privacy-check
+        name: personal content in staged changes
+        entry: node tools/privacy-check.mjs --staged
+        language: system
+        pass_filenames: false
+        always_run: true
