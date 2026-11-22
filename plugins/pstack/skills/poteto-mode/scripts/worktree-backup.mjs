@@ -49,12 +49,15 @@ function lockedReason(worktree) {
 // rounds of probing kept finding new ways for work to hide there, so any
 // initialized submodule holds the worktree for a person or a later pass. An
 // uninitialized one holds it too when its folder has files, since git does
-// not see files written there.
+// not see files written there. Submodules are read as gitlinks from the index
+// (`ls-files -s -z`, mode 160000), so a path with spaces stays whole and a
+// gitlink with no .gitmodules entry still counts; an initialized submodule's
+// folder always has files (its .git at least), so one test covers both.
 function riskySubmodules(worktree) {
-  return lines(git(worktree, ["submodule", "status", "--recursive"]))
-    .map((line) => ({ flag: line[0], path: line.slice(1).trim().split(/\s+/)[1] }))
-    .filter(({ flag, path }) => flag !== "-" || hasFiles(join(worktree, path)))
-    .map(({ path }) => path);
+  const paths = z(git(worktree, ["ls-files", "-s", "-z"]))
+    .filter((entry) => entry.startsWith("160000 "))
+    .map((entry) => entry.slice(entry.indexOf("\t") + 1));
+  return [...new Set(paths)].filter((path) => hasFiles(join(worktree, path)));
 }
 function hasFiles(dir) {
   try {

@@ -149,7 +149,7 @@ describe("worktree-backup", () => {
     expect(git(wt, "show", `${tip}~1:p.txt`)).toBe("only staged");
   });
 
-  function withSubmodule() {
+  function withSubmodule(path = "sub") {
     const ctx = setup();
     const { root, repo, git } = ctx;
     const lib = join(root, "lib");
@@ -159,7 +159,7 @@ describe("worktree-backup", () => {
     writeFileSync(join(lib, "lib.txt"), "l\n");
     git(lib, "add", ".");
     git(lib, "commit", "-q", "-m", "lib");
-    git(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, "sub");
+    git(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, path);
     git(repo, "commit", "-q", "-m", "add sub");
     const wt2 = join(root, "wt2");
     git(repo, "worktree", "add", "-q", "-b", "sub-feature", wt2);
@@ -197,6 +197,36 @@ describe("worktree-backup", () => {
     mkdirSync(join(wt2, "sub"), { recursive: true });
     writeFileSync(join(wt2, "sub/notes.txt"), "mine\n");
     expect(run2().json.kind).toBe("hold");
+  });
+
+  test("a submodule path with a space stays whole, initialized or not", () => {
+    const { wt2, git, run2 } = withSubmodule("my sub");
+    expect(run2().json.kind).toBe("nothing-to-back-up");
+    mkdirSync(join(wt2, "my sub"), { recursive: true });
+    writeFileSync(join(wt2, "my sub/notes.txt"), "mine\n");
+    expect(run2().json).toMatchObject({ kind: "hold", reason: "submodules removal could lose work in: my sub" });
+    rmSync(join(wt2, "my sub/notes.txt"));
+    git(wt2, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init");
+    expect(run2().json).toMatchObject({ kind: "hold", reason: "submodules removal could lose work in: my sub" });
+  });
+
+  test("a gitlink with no .gitmodules entry holds when its folder has files, and does not crash", () => {
+    const { root, repo, git } = setup();
+    const emb = join(repo, "emb");
+    mkdirSync(emb);
+    git(emb, "init", "-q", "-b", "main");
+    writeFileSync(join(emb, "e.txt"), "e\n");
+    git(emb, "add", ".");
+    git(emb, "commit", "-q", "-m", "emb");
+    git(repo, "add", "emb");
+    git(repo, "commit", "-q", "-m", "embed");
+    const wt2 = join(root, "wt2");
+    git(repo, "worktree", "add", "-q", "-b", "emb-feature", wt2);
+    mkdirSync(join(wt2, "emb"), { recursive: true });
+    writeFileSync(join(wt2, "emb/notes.txt"), "mine\n");
+    const r = spawnSync("node", [script, wt2, "--trash", join(root, "trash"), "--date", "2026-11-21"], { encoding: "utf8", env });
+    expect(r.status).toBe(3);
+    expect(JSON.parse(r.stdout)).toMatchObject({ kind: "hold", reason: "submodules removal could lose work in: emb" });
   });
 
   test("an ignored file or a local commit inside an initialized submodule holds the worktree", () => {
