@@ -478,6 +478,72 @@
       "pattern": "a `/visualize` chart for numbers",
       "replacement": "a chart rendered from the data for numbers",
       "rationale": "/visualize is a Cursor command with no Claude Code equivalent"
+    },
+    {
+      "regex": "In a Cursor chat, run:\n\n```text\n\\/add-plugin pstack\n```\n\nCursor confirms the plugin is installed\\.\n\nIn Claude Code, run `\\/plugin marketplace add cursor\\/plugins`, then `\\/plugin install pstack@cursor-plugins`\\. Claude Code prefixes plugin commands, so each command in this guide takes a `pstack:` prefix there, such as `\\/pstack:setup-pstack`, which writes its model rule to `~\\/\\.claude\\/rules\\/pstack-models\\.md`\\. The \\[Claude Code adapter\\]\\(\\.\\.\\/harness\\/claude-code\\.md\\) covers the other differences\\.",
+      "files": "^01-setup\\.md$",
+      "replacement": "Install potluck for your agent with the steps in [the README](../../README.md#install). On Claude Code, plugin commands take a `pstack:` prefix, so each command in this guide reads like `/pstack:setup-pstack` there. Codex invokes skills as `$<name>`, and each runtime's mapping under `skills/poteto-mode/references/` covers the other differences.",
+      "rationale": "potluck guide: upstream's install steps are Cursor's and cursor/plugins'; potluck installs from its own marketplace (a regex, so the rule does not spell the bare ~/.claude path the config-dir test forbids)"
+    },
+    {
+      "pattern": "To keep `/poteto-mode` on for the whole chat, pick it from the `/` menu with Option+Enter (Mac) or Alt+Enter (Windows) instead of Enter. That makes it a [Custom Mode](https://cursor.com/docs/skills#using-a-skill-as-a-custom-mode), which stays in context on every turn until you exit it. Custom Modes are available in the Agents Window and the CLI. Plain Enter attaches the skill to one message, and it fades as the chat moves on.",
+      "replacement": "On Claude Code, Codex, and the other runtimes with a routing hook, the SessionStart hook keeps routing each task to `poteto-mode` for the whole session, so you do not invoke it again.",
+      "rationale": "potluck guide: Cursor Custom Modes have no equivalent; the port's SessionStart hook does the same job",
+      "files": "^01-setup\\.md$"
+    },
+    {
+      "pattern": "The cleanest isolation is a [cloud subagent](https://cursor.com/docs/subagents#cloud-subagents). Each one gets its own VM and branch, so it can install dependencies, run your app, and record video of the result without touching your machine. Type `/in-cloud` before the task, or ask the parent chat to hand work to cloud subagents.",
+      "replacement": "The cleanest isolation is a background subagent in its own worktree. Each one gets its own checkout and branch, so it can install dependencies, run your app, and check the result without touching your working tree. Ask the parent chat to hand the work to such subagents.",
+      "rationale": "potluck guide: Cursor cloud subagents become background subagents in their own worktree, as elsewhere in the port",
+      "files": "^02-poteto-mode\\.md$"
+    },
+    {
+      "pattern": "`/loop` is Cursor's built-in wake mechanism, not a pstack skill.",
+      "replacement": "`/loop` is the agent's built-in wake mechanism (Claude Code's `/loop`; each runtime's mapping names its own), not a pstack skill.",
+      "rationale": "potluck guide: /loop is not Cursor-specific in the port",
+      "files": "^07-overnight\\.md$"
+    },
+    {
+      "pattern": "or that you're about to go offline or restart Cursor.",
+      "replacement": "or that you're about to go offline or restart your agent app.",
+      "rationale": "potluck guide: the host application is not Cursor",
+      "files": "^07-overnight\\.md$"
+    },
+    {
+      "pattern": "A [Cursor Project](https://cursor.com/blog/projects) gives one coordinator agent a persistent thread. The coordinator doesn't write code. It directs subagents, which run in the cloud by default, so the work continues when your laptop is closed. Start your prompts to the coordinator with `/poteto-mode`, and the subagents it spawns follow the playbooks. Each agent it starts reads [`worker.md`](../../skills/poteto-mode/worker.md) first, so workers hold to the kickoff's bar, decide reversible calls instead of asking you, and open PRs ready for review.",
+      "replacement": "For a long program, run the [Autopilot-full playbook](../../plugins/pstack/skills/poteto-mode/playbooks/autopilot-full.md) from one coordinating chat. It keeps the program's objective and decision trail under `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/orchestrate/<slug>/`, so a fresh chat can pick the work up. Each agent it starts reads [`worker.md`](../../plugins/pstack/skills/poteto-mode/worker.md) first, so workers hold to the kickoff's bar, decide reversible calls instead of asking you, and open PRs ready for review.",
+      "rationale": "potluck guide: Cursor Projects have no equivalent; Autopilot-full and its store do the coordination",
+      "files": "^07-overnight\\.md$"
+    },
+    {
+      "pattern": "pstack ships this as a dormant [automation pack](../../automations/benny/README.md) for Slack issue reports. One automation triages each report. The other reproduces confirmed bugs and may prepare a small draft fix. Point an agent at its [`FOR_AGENTS.md`](../../automations/benny/FOR_AGENTS.md) and name the target repository to set it up.",
+      "replacement": "Upstream pstack ships this as a dormant automation pack for Slack issue reports, with one automation that triages each report and another that reproduces confirmed bugs. potluck does not carry `automations/` yet.",
+      "rationale": "potluck guide: automations/ is excluded from the port for now (design row G2), so its links would break",
+      "files": "^07-overnight\\.md$"
+    },
+    {
+      "pattern": "`/deslop` ships in the `cursor-team-kit` plugin, not in pstack. If you don't have it, ask for the same outcome in plain words: remove narrating comments, unsupported guards, dead compatibility paths, and unrelated edits.",
+      "replacement": "`/deslop` ships with potluck, carried over from Cursor's `cursor-team-kit`.",
+      "rationale": "potluck guide: the port ships deslop as one of its own skills",
+      "files": "^05-build-and-clean\\.md$"
+    },
+    {
+      "pattern": "## Build a bot UI with `/make-bot-ui`\n\nOne situational skill is for Grok Bot users. [`/make-bot-ui`](../../skills/make-bot-ui/SKILL.md) builds a small page whose buttons wake a bot over a webhook routine. For example, you could swipe through a review queue and have each swipe ask the bot to act on that item. A server on your machine holds the webhook's sender key, so the key never reaches the browser or the chat. The skill also covers exposing the page on Tailscale.\n\n",
+      "replacement": "",
+      "rationale": "potluck guide: make-bot-ui is excluded from the port (design row G3), so its section and link would point at nothing",
+      "files": "^09-make-it-yours\\.md$"
+    },
+    {
+      "pattern": "](../../skills/",
+      "replacement": "](../../plugins/pstack/skills/",
+      "rationale": "potluck guide: the guide lives at docs/guide/, two levels above the plugin's skills",
+      "files": "^(?:0\\d|10)-[a-z-]+\\.md$|^README\\.md$"
+    },
+    {
+      "pattern": "](../../agents/",
+      "replacement": "](../../plugins/pstack/agents/",
+      "rationale": "potluck guide: the guide lives at docs/guide/, two levels above the plugin's agents",
+      "files": "^(?:0\\d|10)-[a-z-]+\\.md$|^README\\.md$"
     }
   ],
   "denylist": [

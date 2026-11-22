@@ -245,6 +245,7 @@ A localized bug with a demonstrated cause can use the [focused-fix exception](pl
 
 ## Details
 
+- [Lauren Tan's pstack guide](docs/guide/README.md): what each skill and playbook is for, with recipes
 - [Skills and slash commands](docs/reference.md#slash-commands)
 - [Runtime setup](docs/reference.md#runtime-support)
 - [Models and dependencies](docs/reference.md#configuration-and-dependencies)
