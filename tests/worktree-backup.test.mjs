@@ -175,11 +175,35 @@ describe("worktree-backup", () => {
     expect(run2().json.kind).toBe("nothing-to-back-up");
   });
 
+  test("any initialized submodule holds the worktree, even one that looks clean", () => {
+    const { wt2, git, run2 } = withSubmodule();
+    git(wt2, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init");
+    expect(run2().json).toMatchObject({ kind: "hold", reason: "submodules removal could lose work in: sub" });
+  });
+
+  test("a submodule commit only its own reflog reaches holds the worktree", () => {
+    const { wt2, git, run2 } = withSubmodule();
+    git(wt2, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init");
+    const sub = join(wt2, "sub");
+    writeFileSync(join(sub, "lib.txt"), "lost?\n");
+    git(sub, "commit", "-q", "-am", "only in the reflog");
+    git(wt2, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init");
+    writeFileSync(join(wt2, "notes.txt"), "n\n");
+    expect(run2().json.kind).toBe("hold");
+  });
+
+  test("a file in an uninitialized submodule's folder holds the worktree", () => {
+    const { wt2, run2 } = withSubmodule();
+    mkdirSync(join(wt2, "sub"), { recursive: true });
+    writeFileSync(join(wt2, "sub/notes.txt"), "mine\n");
+    expect(run2().json.kind).toBe("hold");
+  });
+
   test("an ignored file or a local commit inside an initialized submodule holds the worktree", () => {
     const { wt2, git, run2 } = withSubmodule();
     git(wt2, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init");
     writeFileSync(join(wt2, "sub/.env"), "SECRET=fixture\n");
-    expect(run2().json).toMatchObject({ kind: "hold", reason: "submodules with work that removal would lose: sub" });
+    expect(run2().json).toMatchObject({ kind: "hold", reason: "submodules removal could lose work in: sub" });
     rmSync(join(wt2, "sub/.env"));
     git(join(wt2, "sub"), "switch", "-q", "-c", "local-work");
     writeFileSync(join(wt2, "sub/new.txt"), "n\n");
@@ -196,7 +220,7 @@ describe("worktree-backup", () => {
     writeFileSync(join(sub, "lib.txt"), "changed\n");
     git(sub, "commit", "-q", "-am", "detached submodule work");
     git(wt2, "add", "sub");
-    expect(run2().json).toMatchObject({ kind: "hold", reason: "submodules with work that removal would lose: sub" });
+    expect(run2().json).toMatchObject({ kind: "hold", reason: "submodules removal could lose work in: sub" });
   });
 
   test("a stash inside an initialized submodule holds the worktree", () => {

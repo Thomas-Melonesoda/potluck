@@ -13,9 +13,9 @@
 //     <trash>/<date>/, never in git
 //   - commits that only the worktree's HEAD or HEAD reflog reaches, as branches
 //     `backup/<name>-<date>-head` and `backup/<name>-<date>-reflog-<sha>`
-// It refuses (exit 3, "hold") a worktree that is locked, has an initialized
-// submodule holding work removal would lose, or has no commit yet, and it
-// writes nothing for them. Trash entries older than --keep-days (default 30, or
+// It refuses (exit 3, "hold") a worktree that is locked, has any initialized
+// submodule (or files in an uninitialized submodule's folder), has unmerged
+// paths, or has no commit yet, and it writes nothing for them. Trash entries older than --keep-days (default 30, or
 // $POTLUCK_TRASH_DAYS) are deleted on each run. Backup branches stay local:
 // never push them.
 //
@@ -44,27 +44,23 @@ function lockedReason(worktree) {
   return null;
 }
 
-// Initialized submodules whose removal would lose something: a moved,
-// staged, or conflicted pointer in the parent; any change, untracked or
-// ignored file, or stash inside; or a commit on its HEAD or branches that no
-// remote has. An uninitialized submodule (status "-") holds nothing.
+// Submodules removal could lose work in. A submodule keeps its own objects,
+// reflog, stashes, and ignored files under this worktree's git dir, and three
+// rounds of probing kept finding new ways for work to hide there, so any
+// initialized submodule holds the worktree for a person or a later pass. An
+// uninitialized one holds it too when its folder has files, since git does
+// not see files written there.
 function riskySubmodules(worktree) {
-  const parentSees = new Set(
-    lines(git(worktree, ["status", "--porcelain", "--ignore-submodules=none", "--untracked-files=no"])).map((line) => line.slice(3)),
-  );
   return lines(git(worktree, ["submodule", "status", "--recursive"]))
     .map((line) => ({ flag: line[0], path: line.slice(1).trim().split(/\s+/)[1] }))
-    .filter(({ flag }) => flag !== "-")
-    .filter(({ flag, path }) => flag === "+" || flag === "U" || parentSees.has(path) || atRisk(join(worktree, path)))
+    .filter(({ flag, path }) => flag !== "-" || hasFiles(join(worktree, path)))
     .map(({ path }) => path);
 }
-function atRisk(dir) {
+function hasFiles(dir) {
   try {
-    if (git(dir, ["status", "--porcelain", "--ignored=matching", "--untracked-files=all"]).trim()) return true;
-    if (git(dir, ["stash", "list"]).trim()) return true;
-    return git(dir, ["log", "--oneline", "HEAD", "--branches", "--not", "--remotes"]).trim() !== "";
+    return readdirSync(dir).length > 0;
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -112,7 +108,7 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
   const locked = lockedReason(worktree);
   if (locked) return { kind: "hold", worktree, reason: `locked: ${locked}` };
   const submodules = riskySubmodules(worktree);
-  if (submodules.length) return { kind: "hold", worktree, reason: `submodules with work that removal would lose: ${submodules.join(", ")}` };
+  if (submodules.length) return { kind: "hold", worktree, reason: `submodules removal could lose work in: ${submodules.join(", ")}` };
   try {
     git(worktree, ["rev-parse", "--verify", "--quiet", "HEAD"]);
   } catch {
