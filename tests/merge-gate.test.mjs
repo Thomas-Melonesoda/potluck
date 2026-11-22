@@ -4,7 +4,7 @@
 // fixture and records every call, so no test touches GitHub.
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -67,7 +67,10 @@ describe("merge-gate CLI against a fake gh", () => {
 
   // A checkout whose origin, a bare repo named o/r, holds main and the PR head
   // at refs/pull/7/head, as GitHub does. `change` is the PR's one file.
-  function checkout(change = { path: "src/app.js", text: "export const answer = 42;\n" }) {
+  // `change` is one PR file; `base` and `files` add files before and in the PR;
+  // `remove` deletes base files in the PR, `move` renames one; `pullRef: false`
+  // leaves refs/pull/7/head out, as if GitHub had no such PR.
+  function checkout(change = { path: "src/app.js", text: "export const answer = 42;\n" }, { base: baseFiles = {}, files = {}, remove = [], move = null, pullRef = true } = {}) {
     const dir = mkdtempSync(join(tmpdir(), "potluck-gate-repo-"));
     dirs.push(dir);
     const remote = join(dir, "o", "r.git");
@@ -77,16 +80,27 @@ describe("merge-gate CLI against a fake gh", () => {
     git(dir, "clone", "-q", remote, work);
     mkdirSync(join(work, "src"));
     writeFileSync(join(work, "src/app.js"), "export const answer = 41;\n");
+    for (const [path, text] of Object.entries(baseFiles)) {
+      mkdirSync(join(work, path, ".."), { recursive: true });
+      writeFileSync(join(work, path), text);
+    }
     git(work, "add", ".");
     git(work, "commit", "-q", "-m", "base");
     git(work, "push", "-q", "origin", "main");
     const base = git(work, "rev-parse", "HEAD");
     git(work, "switch", "-q", "-c", "feature");
     writeFileSync(join(work, change.path), change.text);
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(work, path, ".."), { recursive: true });
+      writeFileSync(join(work, path), text);
+    }
+    for (const path of remove) git(work, "rm", "-q", path);
+    if (move) git(work, "mv", move[0], move[1]);
     git(work, "add", ".");
     git(work, "commit", "-q", "-m", "change");
     const head = git(work, "rev-parse", "HEAD");
-    git(work, "push", "-q", "origin", "HEAD:refs/pull/7/head");
+    if (pullRef) git(work, "push", "-q", "origin", "HEAD:refs/pull/7/head");
+    else git(work, "push", "-q", "origin", "HEAD:refs/heads/feature");
     git(work, "switch", "-q", "main");
     return { work, base, head };
   }
@@ -94,8 +108,8 @@ describe("merge-gate CLI against a fake gh", () => {
   // The fake answers `pr view` with `view` (then `after` once a merge ran),
   // the statuses and check-runs endpoints with one page each, and records argv.
   // The gate runs in a fixture checkout, so the floor guard has a real PR to read.
-  function fake({ view: viewOver = {}, after: afterOver, statuses = [pass], runs = [ci], fail = "", change } = {}) {
-    const repoDir = checkout(change);
+  function fake({ view: viewOver = {}, after: afterOver, statuses = [pass], runs = [ci], fail = "", change, setup = {} } = {}) {
+    const repoDir = checkout(change, setup);
     const head = repoDir.head;
     const view = { ...open, headRefOid: head, baseRefOid: repoDir.base, ...viewOver };
     const after = { state: "MERGED", headRefOid: head, mergeCommit: { oid: "c".repeat(40) }, ...afterOver };
@@ -225,6 +239,57 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const r = bar.run(...merge, "--dry-run");
     expect(r.json.kind).toBe("refused");
     expect(r.json.reasons.some((l) => l.includes("[new-exception] CONSTRAINTS.md"))).toBe(true);
+  });
+
+  const TEST = "src/app.test.js";
+  const ASSERT = `test("adds", () => { ${"expect"}(1 + 1).toBe(2); });\n`;
+
+  test("a PR's own .gitattributes cannot hide a finding", () => {
+    const { run } = fake({ change: { path: ".gitattributes", text: "* -diff\n" }, setup: { base: { [TEST]: ASSERT }, files: { [TEST]: `${ASSERT}test.${"skip"}("later", () => {});\n` } } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[test-made-easier]"))).toBe(true);
+  });
+
+  test("renaming a test file away counts as deleting it", () => {
+    const { run } = fake({ change: { path: "src/note.js", text: "export {};\n" }, setup: { base: { [TEST]: ASSERT }, move: [TEST, "src/app.check.js"] } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[test-deleted] src/app.test.js"))).toBe(true);
+  });
+
+  test("a colon in a code file's name does not make its finding look like Markdown", () => {
+    const { run } = fake({ change: { path: "src/x.md:y.js", text: `// eslint-${"disable"}\nexport {};\n` } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[silenced-checker] src/x.md:y.js"))).toBe(true);
+  });
+
+  test("the checkout's own git config cannot switch the floor off", () => {
+    const { run, work } = fake({ setup: { base: { [TEST]: ASSERT }, files: { [TEST]: `${ASSERT}test.${"skip"}("later", () => {});\n` } } });
+    git(work, "config", "diff.external", "true");
+    git(work, "config", "color.ui", "always");
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[test-made-easier]"))).toBe(true);
+  });
+
+  test("a guard that cannot run refuses: no PR ref to fetch", () => {
+    const { run } = fake({ setup: { pullRef: false } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("floor guard could not run");
+  });
+
+  test("the gate leaves the user's other worktrees alone, even one whose folder is missing for now", () => {
+    const { run, work } = fake();
+    const other = join(work, "..", "other");
+    git(work, "worktree", "add", "-q", "-b", "side", other);
+    const away = `${other}-away`;
+    renameSync(other, away);
+    run(...merge, "--dry-run");
+    renameSync(away, other);
+    expect(git(other, "status", "--short")).toBe("");
   });
 
   test("verdict writes the potluck/verdict status on that exact head", () => {

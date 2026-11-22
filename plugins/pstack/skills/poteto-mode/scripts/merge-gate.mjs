@@ -15,8 +15,9 @@
 //     (a head with no CI passes this one)
 //   - the quality floor passes on that head (design rows D5 and A8): Addy
 //     Osmani's floor guard, taken unchanged from the synced
-//     constraint-driven-development skill, runs on a temporary worktree of the
-//     verified head against the PR's base. It refuses a change that lowers the
+//     constraint-driven-development skill, runs in a throwaway clone of the
+//     verified head (sharing the checkout's objects, none of its config)
+//     against the PR's base. It refuses a change that lowers the
 //     bar: a weakened CONSTRAINTS.md, a test made easier, a new suppression
 //     comment, a stub or empty catch, a new exception row. Findings in Markdown
 //     other than CONSTRAINTS.md are dropped, since docs only describe these
@@ -138,28 +139,50 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
   }
   const scratch = mkdtempSync(join(tmpdir(), "potluck-floor-"));
   const tree = join(scratch, "tree");
-  let added = false;
+  // The guard runs in a throwaway clone that shares the checkout's objects but
+  // none of its config, hooks, or worktrees, with global and system config off.
+  // Attributes come from the base commit, so a PR's own .gitattributes cannot
+  // mark files -diff or binary; renames are off, so a renamed test file shows
+  // as deleted; colour and path quoting are off, so the guard reads plain names.
+  const env = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_COUNT: "4",
+    GIT_CONFIG_KEY_0: "diff.renames", GIT_CONFIG_VALUE_0: "false",
+    GIT_CONFIG_KEY_1: "color.ui", GIT_CONFIG_VALUE_1: "never",
+    GIT_CONFIG_KEY_2: "color.diff", GIT_CONFIG_VALUE_2: "never",
+    GIT_CONFIG_KEY_3: "core.quotePath", GIT_CONFIG_VALUE_3: "false",
+  };
+  const isolated = (args) => execFileSync("git", ["-C", tree, ...args], { encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity, timeout: 300_000 });
   try {
-    gitIn(top, ["fetch", "--quiet", "--no-tags", "origin", `refs/pull/${pr}/head`, `refs/heads/${view.baseRefName}`]);
+    gitIn(top, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", `refs/pull/${pr}/head`, `refs/heads/${view.baseRefName}`]);
     gitIn(top, ["cat-file", "-e", `${sha}^{commit}`]);
     const base = view.baseRefOid && /^[0-9a-f]{40}$/.test(view.baseRefOid) ? view.baseRefOid : null;
     if (!base) return { ok: false, reasons: ["floor guard could not run: GitHub gave no base commit for the PR"] };
     gitIn(top, ["cat-file", "-e", `${base}^{commit}`]);
-    gitIn(top, ["worktree", "add", "--quiet", "--detach", tree, sha]);
-    added = true;
+    execFileSync("git", ["clone", "--quiet", "--shared", "--no-checkout", top, tree], { env, stdio: ["ignore", "pipe", "pipe"], timeout: 300_000 });
+    isolated(["checkout", "--quiet", "--detach", sha]);
+    const changed = isolated(["diff", "--name-only", "-z", base, "HEAD"]).split("\0").filter(Boolean);
     const script = join(scratch, "floor-guard.mjs");
     writeFileSync(script, source);
-    const run = spawnSync(process.execPath, [script, "--base", base], { cwd: tree, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
+    const run = spawnSync(process.execPath, [script, "--base", base], { cwd: tree, env: { ...env, GIT_ATTR_SOURCE: base }, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
     const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trimEnd()).filter(Boolean);
     if (run.status === 0) return { ok: true, reasons: [] };
     if (run.status === 1) {
       // The guard reads every file. Markdown other than CONSTRAINTS.md only
       // describes these moves and cannot silence a checker, so its findings
       // are dropped (the owner's ruling, 2026-11-22); a change to
-      // CONSTRAINTS.md still counts.
+      // CONSTRAINTS.md still counts. A finding names its file before ": ";
+      // it is matched against the changed paths, longest first, so a colon
+      // or space in a name cannot shift the cut, and a finding whose file is
+      // not a changed path is kept.
       const findings = lines.filter((l) => /^\[[a-z-]+\] /.test(l.trim()));
+      const byLength = [...changed].sort((a, b) => b.length - a.length);
       const kept = findings.filter((l) => {
-        const file = /^\[[a-z-]+\] ([^:]+):/.exec(l.trim())?.[1] ?? "";
+        const rest = l.trim().replace(/^\[[a-z-]+\] /, "");
+        const file = byLength.find((p) => rest.startsWith(`${p}: `) || rest.startsWith(`${p}\t: `));
+        if (file === undefined) return true;
         return !/\.(md|markdown)$/i.test(file) || /(^|\/)CONSTRAINTS\.md$/.test(file);
       });
       if (findings.length && !kept.length) return { ok: true, reasons: [] };
@@ -170,19 +193,7 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
     const detail = String(error?.stderr || error?.message || error).trim().split("\n")[0];
     return { ok: false, reasons: [`floor guard could not run: ${detail}`] };
   } finally {
-    if (added) {
-      try {
-        gitIn(top, ["worktree", "remove", "--force", tree]);
-      } catch {
-        // The temporary tree is pruned below with the scratch folder.
-      }
-    }
     rmSync(scratch, { recursive: true, force: true });
-    try {
-      gitIn(top, ["worktree", "prune"]);
-    } catch {
-      // Nothing to prune is not an error.
-    }
   }
 }
 
