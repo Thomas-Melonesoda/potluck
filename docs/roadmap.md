@@ -24,11 +24,12 @@ Status values: **done**, **in progress**, **not started**.
 - `tools/forks.json` entries carry `source`, `choice`, `row`, `ruling`, `decided`, and `kind` gains `borrow` ([#6](https://github.com/Thomas-Melonesoda/potluck/pull/6)). pstack-claude's own `upstream` (proposal status) and `since` keep their meaning, so potluck's "which upstream" field is `source`. Every entry is filled from the step 3 review, and a test requires the whole register on each entry.
 - [`docs/decisions.md`](decisions.md) is generated from `forks.json` by `node tools/decisions.mjs`; a test fails when it is stale.
 
-## Stage 3: align with pstack where pstack-claude differs (not started)
+## Stage 3: align with pstack where pstack-claude differs (done, 2026-11-22)
 
-- Merging and autopilot: the lead agent merges on a clean verdict without waiting for a human; a deterministic merge gate (verdict commit status, CI, quality floor, `--match-head-commit`); two fix rounds per PR, then the root agent decides.
-- Evidence, parallel worktrees, session pickup, foreground routing, review and cleanup: follow pstack-claude, with automatic backups before worktree cleanup.
-- Bring in pstack's usage guide, bilingual; leave `automations/` out for now; no telemetry.
+- Merging and autopilot (A1, A3, A6, A8, A11, C4): each owner merges its own verified PR without waiting for a person, through the deterministic merge gate [`merge-gate.mjs`](../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs) (the verifier's `potluck/verdict` commit status, green CI, `--match-head-commit`, never `--auto`); two fix-forwards per PR, then the root agent picks a fresh owner, a split, or a parked draft; an owner rebases a conflict-free branch itself ([#8](https://github.com/Thomas-Melonesoda/potluck/pull/8), [#9](https://github.com/Thomas-Melonesoda/potluck/pull/9), [#11](https://github.com/Thomas-Melonesoda/potluck/pull/11)). The quality floor inside the gate moves to stage 4 with `CONSTRAINTS.md`.
+- Evidence, parallel worktrees, session pickup, foreground routing, and review follow pstack-claude (the B, D, E, and F rows in [decisions](decisions.md)). Principle skills (E4) load by model invocation in every harness; Claude Code and Muse hide them from the `/` menu, while Pi, opencode, and Kimi list them.
+- Worktree cleanup (C3): [`worktree-backup.mjs`](../plugins/pstack/skills/poteto-mode/scripts/worktree-backup.mjs) backs a worktree up before removal (tracked edits to a local `backup/` branch, untracked and ignored files to a trash tarball kept 30 days, HEAD-only and reflog-only commits to branches), and the cleanup playbook then deletes without asking. A worktree with an initialized submodule, unmerged paths, a lock, or no commit is held and reported instead, because removal there could lose work the backup cannot see ([#10](https://github.com/Thomas-Melonesoda/potluck/pull/10)).
+- pstack's usage guide (G1) is a synced component at [`docs/guide`](guide/README.md), with a Chinese translation at [`docs/guide-zh-CN`](guide-zh-CN/README.md) that a test keeps in step with each English page ([#12](https://github.com/Thomas-Melonesoda/potluck/pull/12), [#13](https://github.com/Thomas-Melonesoda/potluck/pull/13)). `automations/` and `make-bot-ui` stay out (G2, G3); no telemetry.
 
 ## Stage 4: borrow from Matt Pocock and Addy Osmani (not started)
 
