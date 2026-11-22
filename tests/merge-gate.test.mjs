@@ -3,12 +3,12 @@
 // pure function; the CLI runs against a fake `gh` on PATH that answers from a
 // fixture and records every call, so no test touches GitHub.
 import { afterAll, describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CONTEXT, refusals } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
+import { CONTEXT, FLOOR_GUARD, guardSource, refusals } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
 
 const script = join(import.meta.dir, "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs");
 const sha = "a".repeat(40);
@@ -52,13 +52,53 @@ describe("refusals", () => {
   });
 });
 
+test("the floor guard's code is the one js block in the synced floor-guard.md", () => {
+  const source = guardSource(FLOOR_GUARD);
+  expect(source).toContain("floor-guard");
+  expect(source).toContain("process.exit(1)");
+  expect(() => guardSource(join(import.meta.dir, "merge-gate.test.mjs"))).toThrow("expected one");
+});
+
 describe("merge-gate CLI against a fake gh", () => {
   const dirs = [];
   afterAll(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+  const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" };
+  const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", env: gitEnv }).trim();
+
+  // A checkout whose origin, a bare repo named o/r, holds main and the PR head
+  // at refs/pull/7/head, as GitHub does. `change` is the PR's one file.
+  function checkout(change = { path: "src/app.js", text: "export const answer = 42;\n" }) {
+    const dir = mkdtempSync(join(tmpdir(), "potluck-gate-repo-"));
+    dirs.push(dir);
+    const remote = join(dir, "o", "r.git");
+    mkdirSync(join(dir, "o"));
+    git(dir, "init", "-q", "--bare", "-b", "main", remote);
+    const work = join(dir, "work");
+    git(dir, "clone", "-q", remote, work);
+    mkdirSync(join(work, "src"));
+    writeFileSync(join(work, "src/app.js"), "export const answer = 41;\n");
+    git(work, "add", ".");
+    git(work, "commit", "-q", "-m", "base");
+    git(work, "push", "-q", "origin", "main");
+    const base = git(work, "rev-parse", "HEAD");
+    git(work, "switch", "-q", "-c", "feature");
+    writeFileSync(join(work, change.path), change.text);
+    git(work, "add", ".");
+    git(work, "commit", "-q", "-m", "change");
+    const head = git(work, "rev-parse", "HEAD");
+    git(work, "push", "-q", "origin", "HEAD:refs/pull/7/head");
+    git(work, "switch", "-q", "main");
+    return { work, base, head };
+  }
 
   // The fake answers `pr view` with `view` (then `after` once a merge ran),
   // the statuses and check-runs endpoints with one page each, and records argv.
-  function fake({ view = open, after = { state: "MERGED", headRefOid: sha, mergeCommit: { oid: "c".repeat(40) } }, statuses = [pass], runs = [ci], fail = "" } = {}) {
+  // The gate runs in a fixture checkout, so the floor guard has a real PR to read.
+  function fake({ view: viewOver = {}, after: afterOver, statuses = [pass], runs = [ci], fail = "", change } = {}) {
+    const repoDir = checkout(change);
+    const head = repoDir.head;
+    const view = { ...open, headRefOid: head, baseRefOid: repoDir.base, ...viewOver };
+    const after = { state: "MERGED", headRefOid: head, mergeCommit: { oid: "c".repeat(40) }, ...afterOver };
     const dir = mkdtempSync(join(tmpdir(), "potluck-gate-"));
     dirs.push(dir);
     mkdirSync(join(dir, "bin"));
@@ -83,16 +123,19 @@ else if (line.includes("POST")) process.stdout.write("{}");
       { mode: 0o755 },
     );
     const run = (...args) => {
-      const r = spawnSync("node", [script, ...args], { encoding: "utf8", env: { ...process.env, PATH: `${join(dir, "bin")}:${process.env.PATH}` } });
+      const filled = args.map((a) => (a === SHA ? head : a));
+      const r = spawnSync("node", [script, ...filled], { cwd: repoDir.work, encoding: "utf8", env: { ...gitEnv, PATH: `${join(dir, "bin")}:${process.env.PATH}` } });
       return { ...r, json: r.stdout ? JSON.parse(r.stdout) : null };
     };
     const calls = () => readFileSync(join(dir, "calls"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-    return { run, calls };
+    return { run, calls, head, work: repoDir.work };
   }
-  const merge = ["merge", "--repo", "o/r", "--pr", "7", "--sha", sha];
+  // Stands for the fixture's PR head in a command line.
+  const SHA = "<head>";
+  const merge = ["merge", "--repo", "o/r", "--pr", "7", "--sha", SHA];
 
   test("merges with --match-head-commit and never --auto, then confirms the merge", () => {
-    const { run, calls } = fake();
+    const { run, calls, head: sha } = fake();
     const r = run(...merge);
     expect(r.status).toBe(0);
     expect(r.json).toEqual({ kind: "merged", repo: "o/r", pr: 7, sha, mergeCommit: "c".repeat(40) });
@@ -102,7 +145,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
   });
 
   test("--author-email is passed to the merge", () => {
-    const { run, calls } = fake();
+    const { run, calls, head: sha } = fake();
     run(...merge, "--author-email", "1+me@users.noreply.github.com");
     expect(calls().find((a) => a[1] === "merge")).toEqual([
       "pr", "merge", "7", "--repo", "o/r", "--squash", "--match-head-commit", sha, "--author-email", "1+me@users.noreply.github.com",
@@ -110,7 +153,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
   });
 
   test("refuses without merging when the verdict is missing", () => {
-    const { run, calls } = fake({ statuses: [] });
+    const { run, calls, head: sha } = fake({ statuses: [] });
     const r = run(...merge);
     expect(r.status).toBe(1);
     expect(r.json.kind).toBe("refused");
@@ -119,14 +162,14 @@ else if (line.includes("POST")) process.stdout.write("{}");
   });
 
   test("--dry-run reports would-merge and does not merge", () => {
-    const { run, calls } = fake();
+    const { run, calls, head: sha } = fake();
     const r = run(...merge, "--dry-run");
     expect(r.json.kind).toBe("would-merge");
     expect(calls().some((a) => a[1] === "merge")).toBe(false);
   });
 
   test("a merge GitHub did not confirm is reported as unconfirmed", () => {
-    const { run } = fake({ after: { state: "OPEN", headRefOid: sha, mergeCommit: null } });
+    const { run } = fake({ after: { state: "OPEN", mergeCommit: null } });
     const r = run(...merge);
     expect(r.status).toBe(1);
     expect(r.json.kind).toBe("unconfirmed");
@@ -134,7 +177,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
   });
 
   test("a gh failure after the merge request is unconfirmed, not refused", () => {
-    const { run } = fake({ fail: "state,mergeCommit,headRefOid" });
+    const { run, head: sha } = fake({ fail: "state,mergeCommit,headRefOid" });
     const r = run(...merge);
     expect(r.status).toBe(1);
     expect(r.json.kind).toBe("unconfirmed");
@@ -142,15 +185,50 @@ else if (line.includes("POST")) process.stdout.write("{}");
   });
 
   test("a gh failure while reading facts refuses instead of merging", () => {
-    const { run, calls } = fake({ fail: "check-runs" });
+    const { run, calls, head: sha } = fake({ fail: "check-runs" });
     const r = run(...merge);
     expect(r.status).toBe(1);
     expect(r.json.reasons[0]).toContain("gh failed:");
     expect(calls().some((a) => a[1] === "merge")).toBe(false);
   });
 
-  test("verdict writes the potluck/verdict status on that exact head", () => {
+  test("the floor guard refuses a PR that adds a suppression comment, and leaves no worktree behind", () => {
+    // Built in pieces, so this file does not itself add a suppression comment.
+    const { run, calls, work } = fake({ change: { path: "src/app.js", text: `// @ts-${"ignore"}\nexport const answer = 42;\n` } });
+    const r = run(...merge);
+    expect(r.status).toBe(1);
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[silenced-checker] src/app.js"))).toBe(true);
+    expect(calls().some((a) => a[1] === "merge")).toBe(false);
+    expect(git(work, "worktree", "list").split("\n")).toHaveLength(1);
+  });
+
+  test("the floor guard runs only in a checkout of the PR's repository", () => {
     const { run, calls } = fake();
+    const r = run("merge", "--repo", "x/y", "--pr", "7", "--sha", SHA);
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("floor guard could not run: origin of");
+    expect(calls().some((a) => a[1] === "merge")).toBe(false);
+  });
+
+  test("--dry-run runs the floor too", () => {
+    const { run } = fake({ change: { path: "src/app.js", text: `export function later() { throw new Error("Not ${"implemented"}"); }\n` } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[unfinished-work]"))).toBe(true);
+  });
+
+  test("Markdown that describes the floor's patterns passes, and CONSTRAINTS.md still counts", () => {
+    const docs = fake({ change: { path: "notes.md", text: `Never add @ts-${"ignore"} or leave a ${"TO"}DO.\n` } });
+    expect(docs.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+    const bar = fake({ change: { path: "CONSTRAINTS.md", text: `# Constraints\n\n## Exceptions\n\n| ID | Rule |\n|---|---|\n| W1 | no-${"explicit"}-any |\n` } });
+    const r = bar.run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[new-exception] CONSTRAINTS.md"))).toBe(true);
+  });
+
+  test("verdict writes the potluck/verdict status on that exact head", () => {
+    const { run, calls, head: sha } = fake();
     const r = run("verdict", "--repo", "o/r", "--sha", sha, "--state", "pass");
     expect(r.json).toEqual({ kind: "recorded", repo: "o/r", sha, state: "success" });
     const post = calls()[0];

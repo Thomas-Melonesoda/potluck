@@ -199,7 +199,7 @@ The single biggest mistake is running everything everywhere. A check that stalls
 | BUILD | after each edit | Types, lint, secrets, the floor | under 5s, changed file only |
 | VERIFY | at self-proof, before the PR | Related tests, coverage on changed lines | under 90s |
 | REVIEW | the verification swarm on the PR | Everything, plus the guards below | minutes |
-| SHIP | before the merge, in CI | Direction checks, no regressions | CI |
+| SHIP | before the merge: CI, and potluck's merge gate, which runs the floor guard | Direction checks, no regressions | CI |
 
 Two rules that keep this tolerable:
 
