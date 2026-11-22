@@ -81,6 +81,13 @@
       "exclude": [
         "agents/"
       ]
+    },
+    "constraint-driven-development": {
+      "remote": "https://github.com/addyosmani/agent-skills",
+      "upstreamPath": "skills/constraint-driven-development",
+      "localPath": "plugins/pstack/skills/constraint-driven-development",
+      "sha": "8c99fa36d90068c82d547f7c12a9d67a3e95f4ee",
+      "exclude": []
     }
   }
 }
