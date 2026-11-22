@@ -53,6 +53,6 @@ Pick something real but small, and describe it the way you'd describe it to a co
 
 Watch the todo list. Its first items are the matched playbook's steps copied in, the Feature playbook for this prompt.
 
-From here you can type normal follow-ups. On Claude Code, Codex, and the other runtimes with a routing hook, the SessionStart hook keeps routing each task to `poteto-mode` for the whole session, so you do not invoke it again.
+From here you can type normal follow-ups. On Claude Code, Codex, and the other runtimes with a session-start hook, that hook tells the agent to route each multi-file change, design choice, and bug with an unknown cause through `poteto-mode` for the whole session, so you do not invoke it again for those. A small contained edit or a question is handled directly; start the message with `/poteto-mode` to route it anyway.
 
 Next: [Route work through `/poteto-mode`](./02-poteto-mode.md).

@@ -441,6 +441,8 @@ describe("denylistHits", () => {
       "Rules in .cursor/rules/ apply.",
       "One Cursor cloud agent per PR owns build.",
       "arm a `/goal` with the full program objective.",
+      "Pick it as a Custom Mode to keep it on.",
+      "Hand the task to cloud agents.",
     ]) {
       const { text } = applySubstitutions(line, RULES.substitutions);
       expect(denylistHits("playbook.md", text, RULES.denylist)).toHaveLength(1);

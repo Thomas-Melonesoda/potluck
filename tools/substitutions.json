@@ -487,8 +487,8 @@
     },
     {
       "pattern": "To keep `/poteto-mode` on for the whole chat, pick it from the `/` menu with Option+Enter (Mac) or Alt+Enter (Windows) instead of Enter. That makes it a [Custom Mode](https://cursor.com/docs/skills#using-a-skill-as-a-custom-mode), which stays in context on every turn until you exit it. Custom Modes are available in the Agents Window and the CLI. Plain Enter attaches the skill to one message, and it fades as the chat moves on.",
-      "replacement": "On Claude Code, Codex, and the other runtimes with a routing hook, the SessionStart hook keeps routing each task to `poteto-mode` for the whole session, so you do not invoke it again.",
-      "rationale": "potluck guide: Cursor Custom Modes have no equivalent; the port's SessionStart hook does the same job",
+      "replacement": "On Claude Code, Codex, and the other runtimes with a session-start hook, that hook tells the agent to route each multi-file change, design choice, and bug with an unknown cause through `poteto-mode` for the whole session, so you do not invoke it again for those. A small contained edit or a question is handled directly; start the message with `/poteto-mode` to route it anyway.",
+      "rationale": "potluck guide: Cursor Custom Modes have no equivalent; the port's session-start hook routes the larger tasks it names",
       "files": "^01-setup\\.md$"
     },
     {
@@ -532,6 +532,42 @@
       "replacement": "",
       "rationale": "potluck guide: make-bot-ui is excluded from the port (design row G3), so its section and link would point at nothing",
       "files": "^09-make-it-yours\\.md$"
+    },
+    {
+      "pattern": "and a Custom Mode keeps `/poteto-mode` in context on every turn. [Set up pstack](./01-setup.md#run-your-first-task) shows how to start one.",
+      "replacement": "and the session-start hook keeps routing larger tasks through `/poteto-mode` for the whole session. [Set up pstack](./01-setup.md#run-your-first-task) says which tasks it routes.",
+      "rationale": "potluck guide: Cursor Custom Modes have no equivalent; the port's session-start hook does the routing",
+      "files": "^02-poteto-mode\\.md$"
+    },
+    {
+      "pattern": "- Give each body of work its own Project, such as a feature, a migration, a perf push, or a tech-debt cleanup. Several can run side by side.\n- Drag related chats into the Project, finished ones included. They become context for every agent in it.",
+      "replacement": "- Give each body of work its own coordinating chat and orchestrate slug, such as a feature, a migration, a perf push, or a tech-debt cleanup. Several can run side by side.\n- Have a new coordinator pull in related past chats with `/recall`, finished ones included, so their decisions carry over.",
+      "rationale": "potluck guide: Cursor Projects have no equivalent; a coordinator per program and /recall do that job",
+      "files": "^07-overnight\\.md$"
+    },
+    {
+      "pattern": "One prompt can carry a whole Project, from research through execution:",
+      "replacement": "One prompt can carry a whole program, from research through execution:",
+      "rationale": "potluck guide: Cursor Projects have no equivalent",
+      "files": "^07-overnight\\.md$"
+    },
+    {
+      "pattern": "an isolated worktree or cloud agent,",
+      "replacement": "an isolated worktree or background agent,",
+      "rationale": "potluck guide: Cursor cloud agents become background agents in their own worktree",
+      "files": "^07-overnight\\.md$"
+    },
+    {
+      "pattern": "Run them as cloud agents, or say \"own worktree per attempt\".",
+      "replacement": "Give each its own worktree: say \"own worktree per attempt\".",
+      "rationale": "potluck guide: Cursor cloud agents become agents in their own worktree",
+      "files": "^10-recipes-and-pitfalls\\.md$"
+    },
+    {
+      "pattern": "and Projects and automations that scale past one agent.",
+      "replacement": "and coordinated programs and automations that scale past one agent.",
+      "rationale": "potluck guide: Cursor Projects have no equivalent; Autopilot-full coordinates programs",
+      "files": "^README\\.md$"
     },
     {
       "pattern": "](../../skills/",
@@ -662,6 +698,14 @@
     {
       "token": "restart Cursor",
       "hint": "Cursor is the host application upstream; say restart Claude Code, or add a substitution rule for the phrase"
+    },
+    {
+      "token": "Custom Mode",
+      "hint": "Cursor's Custom Mode; the port's session-start hook does the routing, so add a substitution rule for the sentence"
+    },
+    {
+      "regex": "(?<!Cursor )\\bcloud agents?\\b",
+      "hint": "Cursor's cloud agents; the port runs background agents in their own worktree, so add a substitution rule for the sentence"
     }
   ]
 }
