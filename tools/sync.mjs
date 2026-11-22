@@ -228,7 +228,29 @@ function clones(scratch) {
 }
 
 const FORK_FIELDS = ["kind", "why", "since", "upstream"];
-const FORK_KINDS = new Set(["port-feature", "policy"]);
+const FORK_KINDS = new Set(["port-feature", "policy", "borrow"]);
+// potluck's decision register on each entry. Optional here, so pstack-claude's
+// registry and fixtures still parse; tests/fork-register.test.mjs requires
+// them on every entry of potluck's own tools/forks.json. `upstream` above stays
+// pstack-claude's field (whether the fork was proposed upstream); `source`
+// names which upstream the file comes from.
+export const REGISTER_VALUES = {
+  source: ["lauren", "michael", "matt", "addy", "ours"],
+  choice: ["lauren", "michael", "compromise"],
+};
+const REGISTER_FIELDS = ["source", "choice", "row", "ruling", "decided"];
+const ROW = /^[A-Z]\d{0,2}(, [A-Z]\d{0,2})*$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Fails naming the field when a present register field has a wrong value.
+function checkRegister(entry, fail) {
+  for (const [field, allowed] of Object.entries(REGISTER_VALUES)) {
+    if (field in entry && !allowed.includes(entry[field])) fail(`${field} "${entry[field]}" is not one of ${allowed.join(", ")}`);
+  }
+  if ("row" in entry && !(typeof entry.row === "string" && ROW.test(entry.row))) fail(`row "${entry.row}" is not like "A1" or "A1, A11"`);
+  if ("ruling" in entry && typeof entry.ruling !== "string") fail("ruling must be a string");
+  if ("decided" in entry && !(typeof entry.decided === "string" && DATE.test(entry.decided))) fail(`decided "${entry.decided}" is not a YYYY-MM-DD date`);
+}
 const UPSTREAM_LINK = /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/(pull|issues)\/\d+$/;
 
 // tools/forks.json maps each component to the repo-relative paths it forks on
@@ -255,11 +277,12 @@ export function parseForks(registry, components) {
         };
         if (!path.startsWith(prefix)) fail(`not under ${spec.localPath}`);
         if (!isObject(entry)) fail("must be an object");
-        const unknown = Object.keys(entry).filter((field) => !FORK_FIELDS.includes(field));
+        const unknown = Object.keys(entry).filter((field) => !FORK_FIELDS.includes(field) && !REGISTER_FIELDS.includes(field));
         if (unknown.length) fail(`unknown field ${unknown.map((f) => `"${f}"`).join(", ")}`);
         const missing = FORK_FIELDS.filter((field) => entry[field] == null);
         if (missing.length) fail(`missing field ${missing.map((f) => `"${f}"`).join(", ")}`);
-        if (!FORK_KINDS.has(entry.kind)) fail(`unknown kind "${entry.kind}"; use port-feature or policy`);
+        if (!FORK_KINDS.has(entry.kind)) fail(`unknown kind "${entry.kind}"; use port-feature, policy, or borrow`);
+        checkRegister(entry, fail);
         if (typeof entry.why !== "string" || !entry.why.trim()) fail("why must be a sentence");
         if (!/^\d+\.\d+\.\d+$/.test(entry.since)) fail(`since "${entry.since}" is not a version`);
         if (entry.upstream !== "not-proposed" && !UPSTREAM_LINK.test(entry.upstream)) {
