@@ -1,6 +1,6 @@
 ---
 name: grill
-description: "Turn an unclear idea into decisions and checkable outputs before anything is built. Use for a new project, or a large feature whose intent is unclear, while the user is present: 'I have an idea', 'I want to build', 'help me work out what to make', 'grill me', 'not sure what I want yet'. Asks only what a person can answer (what to build, for whom, what done looks like, what counts as wrong), each question with a recommended answer and a default, then writes the feature files, glossary, constraints, and the user's rulings. Not for bug fixes, small changes, or requests that are already clear."
+description: "Turn an unclear idea into decisions and checkable outputs before anything is built. Use for a new project, or a large feature whose intent is unclear, while the user is present: 'I have an idea', 'I want to build', 'start a new project', 'help me figure out what to build', 'grill me', 'not sure what I want yet'. Asks only what a person can answer (what to build, for whom, what done looks like, what counts as wrong), each question with a recommended answer and a default, then writes the feature files, glossary, constraints, and the user's rulings. Not for bug fixes, small changes, or requests that are already clear."
 ---
 
 # Grill
@@ -25,7 +25,7 @@ Four kinds of question, in plain product language:
 - **Done**: what the user would see that tells them it works.
 - **Wrong**: what would make them call it broken, unsafe, or too slow.
 
-Technical choices (data shapes, modules, libraries, where code lives) are not questions for the user. Note them for **architect**, which runs once grill is done.
+Technical choices (data shapes, modules, libraries, where code lives) are not questions for the user. List them under `## Open technical questions` in the feature file they belong to, for **architect**, which runs once grill is done.
 
 ## How to ask
 
@@ -44,19 +44,19 @@ Word each question so "yes" accepts your recommended answer, and "I don't know" 
 
 Do not block on a fact. A running lookup is an unsettled prerequisite, so only the questions downstream of it wait; ask the rest now.
 
-**Quality questions.** When the tree reaches how good is good enough, ask the four questions of **constraint-driven-development** (which checks to enforce, block or warn, numbers or measure-and-hold, the slowest check to tolerate), each with its default.
+**Quality questions.** When the tree reaches how good is good enough, ask the four questions of **constraint-driven-development** (which checks to enforce, block or warn, numbers or measure-and-hold, the slowest check to tolerate), each with its default, as part of grill's rounds rather than one at a time. Put each in product terms ("should a broken check stop the work, or only warn you?"), and when the user has no view, take the default.
 
-**A question nobody can answer from words.** When the user cannot say how a flow should feel or what a screen should look like until they try it, use **prototype**: a clickable page for logic, or a few very different variants for a screen. The user tries it, then answers. The prototype goes on a throwaway branch; only the decision it settled goes into the outputs.
+**A question nobody can answer from words.** When the user cannot say how a flow should feel or what a screen should look like until they try it, use **prototype**: a clickable page for logic, or a few very different variants for a screen. The user tries it, then answers. The prototype goes on a throwaway branch; the decision it settled goes into the outputs, with a pointer to that branch.
 
 ## What it writes
 
-These files are the project's sources. Later agents read them as the truth, and potluck's generated overview is built from them. Create each one the first time it has something in it.
+These files are the project's sources. Later agents read them as the truth. Create each one the first time it has something in it.
 
 | File | What goes in it |
 | --- | --- |
-| `docs/features/<feature>.md` | One per feature, from the user's point of view: what it is, who it is for, how they reach it, and a **Done when** list of checkboxes. Each item is something a person or a test can judge true or false. An item is ticked only with its proof on the same line (`Proof:` and the test, command, or verification note that showed it); a tick without proof fails the overview check. A verification skill's feature map later links each of its feature files to the matching file here. |
+| `docs/features/<feature>.md` | One per feature, from the user's point of view: what it is, who it is for, how they reach it, and a **Done when** list. Each item is something a person or a test can judge true or false, written as a checkbox, and ticked only with its proof on the same line (`Proof:` and the test, command, or verification note that showed it); a tick without proof fails the overview check. These are the project's feature entries; a verification skill, if the project gets one, keeps its own map of how to drive each feature, and does not replace them. |
 | `GLOSSARY.md` | The project's terms, in the format of **domain-modeling**, written down as each one is settled. When the user's word clashes with a term already there, say so at once. |
-| `CONSTRAINTS.md` | The quality bar, in the format of **constraint-driven-development**: every line names the command that judges it. |
+| `CONSTRAINTS.md` | The quality bar, in the format of **constraint-driven-development**: every enforced rule names the command that judges it. |
 | `docs/adr/NNNN-<slug>.md` | A decision record, only when all three of **domain-modeling**'s conditions hold: hard to reverse, surprising without context, and the result of a real trade-off. |
 | `docs/rulings.md` | Each decision the user made: the date, the question, and their answer in their own words. A recommended answer accepted with "yes" is written as accepted. |
 
@@ -82,4 +82,4 @@ How a user gets to it: the Lists tab, then a list's Share button.
 
 ## When it is done
 
-The frontier is empty: every branch of the tree visited, nothing left silently assumed. Read back the decisions in a few lines and ask whether that is it. Only when the user confirms does grill end: write `docs/overview.md` with `scripts/overview.mjs --write`, commit it with the sources, and show the user the overview. Then hand the work to **poteto-mode**, whose playbook builds to these files and does not ask the user again; questions that come up later are decided from the files, the defaults, and the principles.
+The frontier is empty: every branch of the tree visited, nothing left silently assumed. Read back the decisions in a few lines and ask whether that is it. Only when the user confirms does grill end: write `docs/overview.md` with `scripts/overview.mjs --write`, commit it with the sources, and show the user the overview. Then hand the work to **poteto-mode**: the Feature playbook for one feature, or **figure-it-out** for a new project or a program of work. The user's confirmation stands in for any checkpoint that playbook would otherwise stop at (an irreversible action, such as a deploy or deleting data, still pauses as poteto-mode says), so it builds to these files and does not ask the user again; questions that come up later are decided from the files, the defaults, and the principles.
