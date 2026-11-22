@@ -105,6 +105,17 @@ describe("the hook on a real repository", () => {
     expect(hook("git checkout -b fresh").status).toBe(0);
   });
 
+  test("checkout of a branch that exists only on the remote passes, since git creates it locally", () => {
+    const { git, work, hook } = repo();
+    git(work, "switch", "-q", "-c", "feat");
+    git(work, "push", "-q", "-u", "origin", "feat");
+    git(work, "switch", "-q", "main");
+    git(work, "branch", "-q", "-D", "feat");
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    expect(hook("git checkout feat").status).toBe(0);
+    expect(hook("git checkout no-such-thing").status).toBe(0);
+  });
+
   test("during a merge conflict, taking one side passes and the message says to finish or abort", () => {
     const { git, work, hook, commit } = repo();
     git(work, "switch", "-q", "-c", "side");
@@ -137,6 +148,7 @@ describe("the hook on a real repository", () => {
       "git reset --hard>/dev/null",
       "git reset \\\n  --hard",
       "xargs git checkout --",
+      `sh -c "bash -c 'git reset --hard'"`,
     ]) expect(hook(c).status, c).toBe(2);
     expect(hook(`git --work-tree=${work} --git-dir=${work}/.git reset --hard`, root).status).toBe(2);
     expect(hook("git push --force --force-with-lease").status).toBe(2);

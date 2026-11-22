@@ -104,15 +104,16 @@ const SHELLS = /(^|\/)(?:ba|z|da|k)?sh$/;
 
 // The commands a simple command runs: itself, or the script it hands to
 // `sh -c` or `eval`.
-function expand(words) {
+function expand(words, depth = 0) {
   let i = 0;
   while (i < words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]) || PREFIXES.has(words[i]))) i++;
   if (words[i] === "timeout") i += 2;
   const head = words[i];
-  if (head === "eval") return commands(words.slice(i + 1).join(" "));
+  const inner = (script) => (depth < 4 ? commands(script).flatMap((w) => expand(w, depth + 1)) : []);
+  if (head === "eval") return inner(words.slice(i + 1).join(" "));
   if (SHELLS.test(head ?? "")) {
     const flag = words.findIndex((w, k) => k > i && /^-[a-z]*c[a-z]*$/.test(w));
-    if (flag > 0 && words[flag + 1] !== undefined) return commands(words[flag + 1]);
+    if (flag > 0 && words[flag + 1] !== undefined) return inner(words[flag + 1]);
     return [];
   }
   return [words.slice(i)];
@@ -225,6 +226,16 @@ export function check(command, cwd) {
   return null;
 }
 
+function namesFile(dir, path) {
+  if (existsSync(resolveDir(dir, path))) return true;
+  try {
+    git(dir, ["ls-files", "--error-unmatch", "--", path]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function checkOne(words, dir) {
   const call = gitCall(words, dir);
   if (!call) return null;
@@ -237,12 +248,17 @@ function checkOne(words, dir) {
   }
   const op = inProgress(call.dir);
   if (found.maybePath !== undefined) {
+    // A word that names a commit switches branches, and git carries the edits
+    // along or refuses. A word that names no file either (a branch only on a
+    // remote, which git creates locally, or a typo git rejects) discards nothing.
+    let commit = true;
     try {
       git(call.dir, ["rev-parse", "--verify", "--quiet", `${found.maybePath}^{commit}`]);
-      return null;
     } catch {
-      found = "checkout that discards changes";
+      commit = false;
     }
+    if (commit || !namesFile(call.dir, found.maybePath)) return null;
+    found = "checkout that discards changes";
   }
   if (found.side) {
     // Taking one side of a conflict is how a merge or rebase gets resolved.
