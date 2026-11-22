@@ -4,7 +4,7 @@ Start with the [README](../README.md) for installation and your first task.
 
 ## Slash commands
 
-The package includes 67 skill directories: 43 public skills and 24 `principle-*` references. Claude Code uses `/pstack:<name>`, Pi uses `/skill:<name>`, and Muse lists each user-invocable skill as `/<name>`. In Codex, mention a skill with `$<name>`, such as `$poteto-mode`, or pick one from `/skills`.
+The package includes 70 skill directories: 46 public skills and 24 `principle-*` references. Claude Code uses `/pstack:<name>`, Pi uses `/skill:<name>`, and Muse lists each user-invocable skill as `/<name>`. In Codex, mention a skill with `$<name>`, such as `$poteto-mode`, or pick one from `/skills`.
 
 Find each skill's instructions in the [skills tree](../plugins/pstack/skills/).
 
@@ -53,6 +53,9 @@ Find each skill's instructions in the [skills tree](../plugins/pstack/skills/).
 | `/fix-merge-conflicts` | non-interactively resolve merge conflicts, validate, finalize |
 | `/get-pr-comments` | fetch and summarize review comments from the active PR |
 | `/what-did-i-get-done` | summarize authored commits over a user-chosen period |
+| `/prototype` | build throwaway code that answers a design question: a clickable HTML for logic, or switchable UI variants (from Matt Pocock) |
+| `/wizard` | generate a bash script that walks a person through steps only they can do, such as keys and third-party dashboards (from Matt Pocock) |
+| `/domain-modeling` | sharpen the project's terms in `GLOSSARY.md` and record hard-to-reverse decisions as ADRs (from Matt Pocock) |
 
 ## Runtime support
 

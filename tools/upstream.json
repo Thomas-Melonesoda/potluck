@@ -54,6 +54,33 @@
       "localPath": "docs/guide",
       "sha": "0b46ec399d55f2829e88822998f53b84944837d3",
       "exclude": []
+    },
+    "prototype": {
+      "remote": "https://github.com/mattpocock/skills",
+      "upstreamPath": "skills/engineering/prototype",
+      "localPath": "plugins/pstack/skills/prototype",
+      "sha": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "exclude": [
+        "agents/"
+      ]
+    },
+    "wizard": {
+      "remote": "https://github.com/mattpocock/skills",
+      "upstreamPath": "skills/engineering/wizard",
+      "localPath": "plugins/pstack/skills/wizard",
+      "sha": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "exclude": [
+        "agents/"
+      ]
+    },
+    "domain-modeling": {
+      "remote": "https://github.com/mattpocock/skills",
+      "upstreamPath": "skills/engineering/domain-modeling",
+      "localPath": "plugins/pstack/skills/domain-modeling",
+      "sha": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "exclude": [
+        "agents/"
+      ]
     }
   }
 }
