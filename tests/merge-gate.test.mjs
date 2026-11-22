@@ -89,6 +89,7 @@ describe("merge-gate CLI against a fake gh", () => {
     git(work, "push", "-q", "origin", "main");
     const base = git(work, "rev-parse", "HEAD");
     git(work, "switch", "-q", "-c", "feature");
+    mkdirSync(join(work, change.path, ".."), { recursive: true });
     writeFileSync(join(work, change.path), change.text);
     for (const [path, text] of Object.entries(files)) {
       mkdirSync(join(work, path, ".."), { recursive: true });
@@ -136,18 +137,19 @@ else if (line.includes("POST")) process.stdout.write("{}");
 `,
       { mode: 0o755 },
     );
-    const run = (...args) => {
+    const runAt = (cwd, ...args) => {
       const filled = args.map((a) => (a === SHA ? head : a));
-      const r = spawnSync("node", [script, ...filled], { cwd: repoDir.work, encoding: "utf8", env: { ...gitEnv, PATH: `${join(dir, "bin")}:${process.env.PATH}` } });
+      const r = spawnSync("node", [script, ...filled], { cwd, encoding: "utf8", env: { ...gitEnv, PATH: `${join(dir, "bin")}:${process.env.PATH}` } });
       return { ...r, json: r.stdout ? JSON.parse(r.stdout) : null };
     };
+    const run = (...args) => runAt(repoDir.work, ...args);
     const calls = () => readFileSync(join(dir, "calls"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
     const setView = (over) => {
       const f = JSON.parse(readFileSync(join(dir, "fixture.json"), "utf8"));
       f.view = { ...f.view, ...over };
       writeFileSync(join(dir, "fixture.json"), JSON.stringify(f));
     };
-    return { run, calls, head, work: repoDir.work, setView };
+    return { run, runAt, calls, head, work: repoDir.work, setView };
   }
   // Stands for the fixture's PR head in a command line.
   const SHA = "<head>";
@@ -280,12 +282,44 @@ else if (line.includes("POST")) process.stdout.write("{}");
   });
 
   test("a PR's .gitattributes cannot re-encode a test file on checkout to hide it", () => {
-    const { run } = fake({ change: { path: ".gitattributes", text: "*.test.js working-tree-encoding=UTF-16LE-BOM\n" }, setup: { base: { [TEST]: ASSERT }, files: { [TEST]: `${ASSERT}test.${"skip"}("later", () => {});\n` } } });
+    // The file is written as UTF-16LE with a BOM, as the attribute says, so git
+    // stores it as UTF-8 and a checkout under the PR's attributes would write
+    // it back as UTF-16, which the guard reads as binary.
+    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`${ASSERT}test.${"skip"}("later", () => {});\n`, "utf16le")]);
+    const { run } = fake({ change: { path: ".gitattributes", text: "*.test.js working-tree-encoding=UTF-16LE-BOM\n" }, setup: { base: { [TEST]: ASSERT }, files: { [TEST]: utf16 } } });
     const r = run(...merge, "--dry-run");
     // The fixture commits the attribute and the file together, so git converts
     // the blob on add; either way the floor must see the change and refuse.
     expect(r.json.kind).toBe("refused");
     expect(r.json.reasons.every((l) => l.startsWith("floor: ["))).toBe(true);
+  });
+
+  test("CI that never started on a repository with workflows refuses", () => {
+    const { run } = fake({ runs: [], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" } } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("no CI result on");
+  });
+
+  test("a NUL byte in an extension-less script is refused too", () => {
+    const { run } = fake({ change: { path: "bin/run", text: `#!/usr/bin/env node\n/*\0*/\n// eslint-${"disable"}\n` } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("[binary-source] bin/run");
+  });
+
+  test("a binary image passes the binary check", () => {
+    const { run } = fake({ change: { path: "logo.png", text: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3]) } });
+    expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a shallow checkout still runs the floor", () => {
+    const { runAt, work } = fake({ change: { path: "src/app.js", text: `// eslint-${"disable"}\nexport {};\n` } });
+    const shallowDir = join(work, "..", "shallow");
+    execFileSync("git", ["clone", "-q", "--depth", "1", `file://${join(work, "..", "o", "r.git")}`, shallowDir], { env: gitEnv });
+    const r = runAt(shallowDir, ...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.includes("[silenced-checker] src/app.js"))).toBe(true);
   });
 
   test("a NUL byte that makes a source file binary is refused, since the floor cannot read it", () => {

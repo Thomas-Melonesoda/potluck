@@ -109,8 +109,8 @@ export function guardSource(path = FLOOR_GUARD) {
   return blocks[0][1];
 }
 
-// Files the floor must be able to read as text: code, tests, config, and Markdown.
-const SOURCE = /\.(?:[cm]?[jt]sx?|py|rb|go|rs|java|kt|kts|scala|swift|c|cc|cpp|h|hpp|cs|php|sh|bash|zsh|ps1|lua|dart|ex|exs|clj|vue|svelte|ya?ml|json|toml|md|markdown)$/i;
+// Formats that are binary by nature. Any other changed file must diff as text.
+const BINARY = /\.(?:png|jpe?g|gif|webp|avif|bmp|ico|icns|tiff?|psd|heic|pdf|woff2?|ttf|otf|eot|mp3|mp4|m4a|wav|ogg|flac|mov|webm|avi|zip|gz|tgz|bz2|xz|7z|rar|jar|war|wasm|so|dylib|dll|exe|class|pyc|o|a|lib|sqlite3?|db|docx?|xlsx?|pptx?|keynote|sketch|fig)$/i;
 
 const gitIn = (cwd, args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity, timeout: 300_000 });
 
@@ -169,8 +169,12 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
     const base = view.baseRefOid && /^[0-9a-f]{40}$/.test(view.baseRefOid) ? view.baseRefOid : null;
     if (!base) return { ok: false, reasons: ["floor guard could not run: GitHub gave no base commit for the PR"] };
     gitIn(top, ["cat-file", "-e", `${base}^{commit}`]);
-    execFileSync("git", ["clone", "--quiet", "--shared", "--no-checkout", top, tree], { env, stdio: ["ignore", "pipe", "pipe"], timeout: 300_000 });
-    // A shallow checkout's history boundary travels with the clone.
+    // A fresh repository that borrows the checkout's objects through
+    // alternates (git clone --shared silently copies instead from a shallow
+    // source, and would miss the fetched head), plus its shallow boundary.
+    execFileSync("git", ["init", "--quiet", tree], { env, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 });
+    const objects = join(gitIn(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim(), "objects");
+    writeFileSync(join(tree, ".git", "objects", "info", "alternates"), `${objects}\n`);
     const shallow = gitIn(top, ["rev-parse", "--path-format=absolute", "--git-path", "shallow"]).trim();
     if (existsSync(shallow)) copyFileSync(shallow, join(tree, ".git", "shallow"));
     // From here, attributes come from the base commit, so the PR's own
@@ -178,16 +182,24 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
     attrs = { GIT_ATTR_SOURCE: base };
     isolated(["checkout", "--quiet", "--detach", sha]);
     const changed = isolated(["diff", "--name-only", "-z", base, "HEAD"]).split("\0").filter(Boolean);
-    // The guard reads text diffs only, so a source file git sees as binary
-    // (one NUL byte is enough) would hide every finding in it.
+    // The guard reads text diffs only, so any changed file git sees as binary
+    // (one NUL byte is enough) would hide every finding in it. Only known
+    // binary formats (images, fonts, media, archives, documents) may be binary.
     const numstat = isolated(["diff", "--numstat", "-z", base, "HEAD"]).split("\0").filter(Boolean);
-    const opaque = numstat.filter((l) => /^-\t-\t/.test(l)).map((l) => l.slice(4)).filter((f) => SOURCE.test(f));
-    if (opaque.length) return { ok: false, reasons: opaque.map((f) => `floor: [binary-source] ${f}: git reads this source file as binary, so the floor cannot check it; remove the NUL or control bytes`) };
+    const opaque = numstat.filter((l) => /^-\t-\t/.test(l)).map((l) => l.slice(4)).filter((f) => !BINARY.test(f));
+    if (opaque.length) return { ok: false, reasons: opaque.map((f) => `floor: [binary-source] ${f}: git reads this file as binary, so the floor cannot check it; remove the NUL or control bytes, or use a binary format's usual extension`) };
+    const workflows = (() => {
+      try {
+        return isolated(["ls-tree", "--name-only", "HEAD", ".github/workflows/"]).split("\n").some((f) => /\.ya?ml$/.test(f));
+      } catch {
+        return false;
+      }
+    })();
     const script = join(scratch, "floor-guard.mjs");
     writeFileSync(script, source);
     const run = spawnSync(process.execPath, [script, "--base", base], { cwd: tree, env: { ...env, ...attrs }, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
     const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trimEnd()).filter(Boolean);
-    if (run.status === 0) return { ok: true, reasons: [] };
+    if (run.status === 0) return { ok: true, reasons: [], workflows };
     if (run.status === 1) {
       // The guard reads every file. Markdown other than CONSTRAINTS.md only
       // describes these moves and cannot silence a checker, so its findings
@@ -204,7 +216,7 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
         if (file === undefined) return true;
         return !/\.(md|markdown)$/i.test(file) || /(^|\/)CONSTRAINTS\.md$/.test(file);
       });
-      if (findings.length && !kept.length) return { ok: true, reasons: [] };
+      if (findings.length && !kept.length) return { ok: true, reasons: [], workflows };
       return { ok: false, reasons: (kept.length ? kept : lines).map((l) => `floor: ${l.trim()}`) };
     }
     return { ok: false, reasons: [`floor guard could not run: ${lines[0] ?? `exit ${run.status ?? run.signal}`}`] };
@@ -275,6 +287,11 @@ function run(argv) {
     if (reasons.length) return out({ kind: "refused", repo, pr, sha, reasons });
     const guard = floor({ repo, pr, sha, view: facts.view });
     if (!guard.ok) return out({ kind: "refused", repo, pr, sha, reasons: guard.reasons });
+    // A head whose repository has CI workflows but shows no CI result yet has
+    // not been tested: CI may not have started, or may never fire. Only a
+    // repository with no workflows merges on the verdict alone.
+    const ciResults = facts.runs.length + facts.statuses.filter((s) => s.context !== CONTEXT).length;
+    if (guard.workflows && ciResults === 0) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha} yet, though the repository has workflows; wait for CI, or push again if it never started`] });
     if (values["dry-run"]) return out({ kind: "would-merge", repo, pr, sha });
     const author = values["author-email"] ? ["--author-email", values["author-email"]] : [];
     // From here the merge request may have reached GitHub, so a failure is
