@@ -78,6 +78,11 @@ describe("layer 2", () => {
     expect(r.report[0].rank).toBe(Infinity);
     expect(r.problems[0]).toContain("outside the top 1");
   });
+  test("a prompt that matches only the skill's name has not fired", () => {
+    const skills = [skill("deploy", "x"), skill("review", "Review a pull request diff for bugs")];
+    const r = layer2(skills, { ...base, cases: [{ prompt: "deploy it", skill: "deploy" }] });
+    expect(r.report[0].rank).toBe(Infinity);
+  });
   test("a known false positive is reported, not failed, and fails once it stops firing", () => {
     expect(layer2(SKILLS, { ...base, cases: [{ prompt: "deploy to production", not: ["deploy"], known: "gap" }] }).problems).toEqual([]);
     expect(layer2(SKILLS, { ...base, cases: [{ prompt: "rename a variable", not: ["deploy"], known: "gap" }] }).problems[0]).toContain("no longer fires deploy");

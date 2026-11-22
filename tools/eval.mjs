@@ -16,8 +16,8 @@
 // prompt is ranked against all of them. A positive case passes when its skill
 // ranks in the top `topK`; a negative case passes when none of its `not`
 // skills ranks first with a score of at least `minScore` (a prompt that matches
-// no skill fires none); a positive whose skill shares no word with the prompt
-// has not fired at all; the share of positives ranked first must stay at or
+// no skill fires none); a positive whose skill's description shares no word
+// with the prompt has not fired at all, so the name alone never passes a case; the share of positives ranked first must stay at or
 // above `minRank1`. A case marked `known` with a reason is a recorded miss: it is
 // reported, not failed, and it fails once it passes, so the list stays true. An
 // allowed collision that no longer collides fails the same way. Two descriptions closer than `collision` fail unless the pair is
@@ -98,10 +98,12 @@ export const tokens = (text) =>
   text.toLowerCase().replace(/['\u2019]/g, "").split(/[^a-z0-9]+/).filter((w) => w.length > 1 && !STOP.has(w)).map(stem);
 
 // TF-IDF vectors for the skills, and a scorer for a prompt against them.
-// A skill's name counts twice beside its description, since a user who names
-// the skill means it.
+// A skill's name counts once beside its description, since a user who names
+// the skill means it. `described(i, prompt)` says whether the prompt shares a
+// word with the description itself, so a case cannot pass on the name alone.
 export function index(skills) {
-  const docs = skills.map((s) => [...tokens(s.description ?? ""), ...tokens(s.dir.replaceAll("-", " ")), ...tokens(s.dir.replaceAll("-", " "))]);
+  const own = skills.map((s) => new Set(tokens(s.description ?? "")));
+  const docs = skills.map((s) => [...tokens(s.description ?? ""), ...tokens(s.dir.replaceAll("-", " "))]);
   const df = new Map();
   for (const doc of docs) for (const t of new Set(doc)) df.set(t, (df.get(t) ?? 0) + 1);
   const idf = (t) => Math.log((docs.length + 1) / ((df.get(t) ?? 0) + 1)) + 1;
@@ -125,6 +127,7 @@ export function index(skills) {
   };
   const vectors = docs.map(vector);
   return {
+    described: (skill, prompt) => tokens(prompt).some((w) => own[skills.findIndex((s) => s.dir === skill)]?.has(w)),
     rank: (prompt) => {
       const q = vector(tokens(prompt));
       return skills.map((s, i) => ({ skill: s.dir, score: cosine(q, vectors[i]) })).sort((a, b) => b.score - a.score || a.skill.localeCompare(b.skill));
@@ -177,9 +180,10 @@ export function layer2(skills, config) {
     const ranked = idx.rank(c.prompt);
     if (c.skill) {
       positives++;
-      // A skill the prompt shares no word with has not fired, whatever its place.
+      // A skill whose description shares no word with the prompt has not fired,
+      // whatever its place: the name alone does not count.
       const at = ranked.findIndex((r) => r.skill === c.skill);
-      const rank = at < 0 || ranked[at].score === 0 ? Infinity : at + 1;
+      const rank = at < 0 || ranked[at].score === 0 || !idx.described(c.skill, c.prompt) ? Infinity : at + 1;
       if (rank === 1) first++;
       report.push({ prompt: c.prompt, skill: c.skill, rank, top: ranked[0].skill, known: c.known });
       const missed = rank > topK;
