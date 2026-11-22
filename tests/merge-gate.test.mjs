@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CONTEXT, FLOOR_GUARD, guardSource, refusals } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
+import { CONTEXT, FLOOR_GUARD, OVERVIEW, guardSource, refusals } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
 
 const script = join(import.meta.dir, "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs");
 const sha = "a".repeat(40);
@@ -310,6 +310,33 @@ else if (line.includes("POST")) process.stdout.write("{}");
 
   test("deleting a committed binary file passes the binary check", () => {
     const { run } = fake({ setup: { base: { ".DS_Store": Buffer.from([0, 1, 2, 3, 0]) }, remove: [".DS_Store"] } });
+    expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  const FEATURE = "# Votes\n\nLets a club vote.\n\nFor: book clubs.\n\n## Done when\n\n- [ ] A member can vote once.\n";
+
+  test("a PR that changes a feature file without regenerating the overview refuses", () => {
+    const { run } = fake({ change: { path: "docs/features/votes.md", text: FEATURE } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("overview: docs/overview.md is stale or missing");
+  });
+
+  test("a PR that ticks a Done when item without proof refuses", () => {
+    const { run } = fake({ change: { path: "docs/features/votes.md", text: FEATURE.replace("- [ ]", "- [x]") } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("ticked without proof");
+  });
+
+  test("a PR with its overview regenerated passes", () => {
+    const root = mkdtempSync(join(tmpdir(), "potluck-gate-ov-"));
+    dirs.push(root);
+    mkdirSync(join(root, "docs/features"), { recursive: true });
+    writeFileSync(join(root, "docs/features/votes.md"), FEATURE);
+    spawnSync("node", [OVERVIEW, "--root", root, "--write"]);
+    const overview = readFileSync(join(root, "docs/overview.md"), "utf8");
+    const { run } = fake({ change: { path: "docs/features/votes.md", text: FEATURE }, setup: { files: { "docs/overview.md": overview } } });
     expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
   });
 
