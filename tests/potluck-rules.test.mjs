@@ -18,6 +18,13 @@ const RULES = [
   { row: "C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "For every worktree in the confirmed set, clean ones included, run `node` on `skills/poteto-mode/scripts/worktree-backup.mjs`" },
   { row: "C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "Only a recorded `backed-up` or `nothing-to-back-up` result clears a worktree for step 5, and the agent then deletes it without asking." },
   { row: "C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "Never push a `backup/` branch" },
+  { row: "G1", file: "poteto-mode/SKILL.md", phrase: "A new project, or a large feature whose intent is unclear, with the user present → **grill** first, and build to the files it writes." },
+  { row: "G3", file: "grill/SKILL.md", phrase: "Technical choices (data shapes, modules, libraries, where code lives) are not questions for the user." },
+  { row: "G4", file: "grill/SKILL.md", phrase: "Word each question so \"yes\" accepts your recommended answer, and \"I don't know\" takes the default" },
+  { row: "G5", file: "grill/SKILL.md", phrase: "| `docs/rulings.md` | Each decision the user made: the date, the question, and their answer in their own words." },
+  { row: "G7", file: "grill/SKILL.md", phrase: "Only when the user confirms does grill end." },
+  { row: "G8", file: "grill/SKILL.md", phrase: "Nobody is present (an autonomous run, a loop, an overnight program): do not run it." },
+  { row: "R1", file: "grill/SKILL.md", phrase: "| `docs/features/<feature>.md` | One per feature, from the user's point of view" },
   { row: "C4", file: "poteto-mode/playbooks/autopilot-full.md", phrase: "A rebase that stops on a conflict, or a push the lease refuses, goes to the root" },
 ];
 
