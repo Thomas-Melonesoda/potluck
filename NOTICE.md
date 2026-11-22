@@ -1,5 +1,7 @@
 # NOTICE
 
+potluck is a fork of Michael Denyer's [pstack-claude](https://github.com/michael-denyer/pstack-claude), which is itself a port of Lauren Tan's pstack. potluck's own modifications and additions are (c) 2026 Thomas-Melonesoda under the same [MIT license](LICENSE); [`tools/forks.json`](tools/forks.json) declares each one. Everything below describes the pstack-claude port and is preserved as written.
+
 This plugin is a port of upstream MIT-licensed work. The port's modifications and additions are (c) 2026 Michael Denyer and are also released under the [MIT license](LICENSE). All upstream copyright notices and license terms are preserved.
 
 ## Upstream sources
