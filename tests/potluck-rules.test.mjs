@@ -22,7 +22,7 @@ const RULES = [
   { row: "G3", file: "grill/SKILL.md", phrase: "Technical choices (data shapes, modules, libraries, where code lives) are not questions for the user." },
   { row: "G4", file: "grill/SKILL.md", phrase: "Word each question so \"yes\" accepts your recommended answer, and \"I don't know\" takes the default" },
   { row: "G5", file: "grill/SKILL.md", phrase: "| `docs/rulings.md` | Each decision the user made: the date, the question, and their answer in their own words." },
-  { row: "G7", file: "grill/SKILL.md", phrase: "Only when the user confirms does grill end." },
+  { row: "G7", file: "grill/SKILL.md", phrase: "Only when the user confirms does grill end: write `docs/overview.md`" },
   { row: "G8", file: "grill/SKILL.md", phrase: "Nobody is present (an autonomous run, a loop, an overnight program): do not run it." },
   { row: "R2", file: "grill/SKILL.md", phrase: "Never edit it by hand. Any change to a source regenerates it in the same commit, and the merge gate refuses a PR whose overview is stale." },
   { row: "R5", file: "poteto-mode/SKILL.md", phrase: "A change to the states a feature moves through (a flow, a status, a protocol) → run **statechart** on it and put the new diagram in your reply, unasked." },
