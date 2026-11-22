@@ -322,6 +322,18 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons[0]).toContain("overview: docs/overview.md is stale or missing");
   });
 
+  test("a project with only an ADR merges without an overview", () => {
+    const { run } = fake({ change: { path: "docs/adr/0001-use-postgres.md", text: "# Use Postgres\n" } });
+    expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("the overview is checked even when the floor's only findings are in Markdown", () => {
+    const { run } = fake({ change: { path: "docs/features/votes.md", text: FEATURE }, setup: { files: { "notes.md": `Never add @ts-${"ignore"}.\n` } } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("overview: docs/overview.md is stale or missing");
+  });
+
   test("a PR that ticks a Done when item without proof refuses", () => {
     const { run } = fake({ change: { path: "docs/features/votes.md", text: FEATURE.replace("- [ ]", "- [x]") } });
     const r = run(...merge, "--dry-run");

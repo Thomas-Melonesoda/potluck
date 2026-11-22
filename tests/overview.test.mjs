@@ -97,3 +97,64 @@ describe("the overview", () => {
     expect(main(["--write", "--check"])).toBe(2);
   });
 });
+
+describe("scope and parsing", () => {
+  test("a project with only CONSTRAINTS.md or an ADR needs no overview, but a leftover overview fails", () => {
+    expect(main(["--root", project({ "CONSTRAINTS.md": "# Constraints\n" }), "--check"])).toBe(0);
+    expect(main(["--root", project({ "docs/adr/0001-x.md": "# X\n" }), "--check"])).toBe(0);
+    expect(main(["--root", project({ "docs/overview.md": "old\n", "GLOSSARY.md": "# G\n" }), "--check"])).toBe(1);
+  });
+
+  test("the summary comes only from before the first section, so another section's ticks never render", () => {
+    const f = feature("f.md", "# F\n\n## Notes\n\n- [x] migrated the db\n\n## Done when\n\n- [ ] Works.\n");
+    expect(f.summary).toBe("");
+    expect(f.items).toEqual([{ what: "Works", done: false, proof: null }]);
+  });
+
+  test("numbered and plus checkboxes, a bold For:, a BOM, and 'Done when:' all parse", () => {
+    const f = feature("f.md", "\uFEFF# F\n\nIntro.\n\n**For:** clubs\n\n## Done when:\n\n1. [x] One. Proof: test a\n+ [ ] Two\n".replace(/^\uFEFF/, ""));
+    expect(f.title).toBe("F");
+    expect(f.forWhom).toBe("clubs");
+    expect(f.items.map((i) => i.done)).toEqual([true, false]);
+    const root = project({ "docs/features/a.md": "\uFEFF# Bom\n\n## Done when\n\n- [ ] x\n" });
+    expect(build(root).text).toContain("[Bom](features/a.md)");
+  });
+
+  test("a .markdown feature counts, a folder in docs/features is an error, not a crash", () => {
+    const root = project({ "docs/features/a.markdown": "# A\n\n## Done when\n\n- [ ] x\n", "docs/features/sub/b.md": "# B\n" });
+    const { text, problems } = build(root);
+    expect(problems).toEqual(["docs/features/sub: put each feature in its own .md file directly in docs/features/"]);
+    expect(text).toContain("[A](features/a.markdown)");
+  });
+
+  test("a feature with no Done when items is an error", () => {
+    expect(feature("f.md", "# F\n\n## Done when\n\nNothing yet.\n").problems[0]).toContain("has no items");
+  });
+
+  test("pipes and spaces are escaped in the table and links, and CONSTRAINTS cells keep escaped pipes", () => {
+    const root = project({
+      "docs/features/share list (v2).md": "# A | B\n\n## Done when\n\n- [ ] x\n",
+      "CONSTRAINTS.md": "## Enforced with numbers\n\n| Dimension | Rule | Checked by |\n|---|---|---|\n| Lint | none | `a \\| b` |\n| Empty |  | `x` |\n",
+    });
+    const { text } = build(root);
+    expect(text).toContain("| [A \\| B](<features/share list (v2).md>) |");
+    expect(text).toContain("- Lint: none (checked by `a \\| b`)");
+    expect(text).toContain("- Empty:  (checked by `x`)");
+  });
+
+  test("the README says what the project is", () => {
+    const root = project({ "README.md": "# Bookclub\n\nVotes for the next book.\n", "docs/features/a.md": "# A\n\n## Done when\n\n- [ ] x\n" });
+    const { text } = build(root);
+    expect(text).toContain("# Bookclub: overview\n\nVotes for the next book.\n");
+  });
+
+  test("the overview is the same for CRLF sources, sorts features by name, and changes when a file is renamed", () => {
+    const lf = project({ "docs/features/b.md": "# B\n\n## Done when\n\n- [ ] x\n", "docs/features/a.md": "# A\n\n## Done when\n\n- [ ] y\n" });
+    const crlf = project({ "docs/features/b.md": "# B\r\n\r\n## Done when\r\n\r\n- [ ] x\r\n", "docs/features/a.md": "# A\r\n\r\n## Done when\r\n\r\n- [ ] y\r\n" });
+    expect(build(crlf).text).toBe(build(lf).text);
+    const text = build(lf).text;
+    expect(text.indexOf("[A]")).toBeLessThan(text.indexOf("[B]"));
+    const renamed = project({ "docs/features/c.md": "# B\n\n## Done when\n\n- [ ] x\n", "docs/features/a.md": "# A\n\n## Done when\n\n- [ ] y\n" });
+    expect(build(renamed).text.split("\n")[0]).not.toBe(text.split("\n")[0]);
+  });
+});
