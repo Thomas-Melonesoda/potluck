@@ -28,6 +28,7 @@ The remaining triggers live only here:
 - Before commit → `/deslop`. Before review → **no-comments**.
 - Shipping UI / IDE / CLI → the driver skill. `run` ships with Claude Code and the model can invoke it for CLIs, TUIs, servers, and browser or Electron apps. The bundled `verify` runs only when the user types `/verify`, so for UIs use the project `verify` skill at `.claude/skills/verify/` (generate it with `/create-verification-skill`) and fall back to `run` when the repo has none.
 - A number you measured → **benchmark-checklist**.
+- A change to the states a feature moves through (a flow, a status, a protocol) → run **statechart** on it and put the new diagram in your reply, unasked. The user can also ask for one at any time.
 - PR status → the **Babysit** playbook, not the bundled **babysit** skill. Landing a green stack → the **Shipping** playbook.
 - Bot review comments → judge each on its merits, per `references/bugbot-triage.md`.
 - Deploying to a managed platform (Railway, Fly, Vercel, Heroku, and the like) → load that platform's skill, project-local or installed, before running its CLI, the same way Shipping step 1 resolves the forge before the first PR operation.

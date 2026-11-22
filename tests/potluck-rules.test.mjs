@@ -24,6 +24,8 @@ const RULES = [
   { row: "G5", file: "grill/SKILL.md", phrase: "| `docs/rulings.md` | Each decision the user made: the date, the question, and their answer in their own words." },
   { row: "G7", file: "grill/SKILL.md", phrase: "Only when the user confirms does grill end." },
   { row: "G8", file: "grill/SKILL.md", phrase: "Nobody is present (an autonomous run, a loop, an overnight program): do not run it." },
+  { row: "R2", file: "grill/SKILL.md", phrase: "Never edit it by hand. Any change to a source regenerates it in the same commit, and the merge gate refuses a PR whose overview is stale." },
+  { row: "R5", file: "poteto-mode/SKILL.md", phrase: "A change to the states a feature moves through (a flow, a status, a protocol) → run **statechart** on it and put the new diagram in your reply, unasked." },
   { row: "R1", file: "grill/SKILL.md", phrase: "| `docs/features/<feature>.md` | One per feature, from the user's point of view" },
   { row: "C4", file: "poteto-mode/playbooks/autopilot-full.md", phrase: "A rebase that stops on a conflict, or a push the lease refuses, goes to the root" },
 ];

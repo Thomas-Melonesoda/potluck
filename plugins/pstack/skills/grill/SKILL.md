@@ -54,7 +54,7 @@ These files are the project's sources. Later agents read them as the truth, and 
 
 | File | What goes in it |
 | --- | --- |
-| `docs/features/<feature>.md` | One per feature, from the user's point of view: what it is, who it is for, how they reach it, and a **Done when** list. Each item is something a person or a test can judge true or false. A verification skill's feature map later links each of its feature files to the matching file here. |
+| `docs/features/<feature>.md` | One per feature, from the user's point of view: what it is, who it is for, how they reach it, and a **Done when** list of checkboxes. Each item is something a person or a test can judge true or false. An item is ticked only with its proof on the same line (`Proof:` and the test, command, or verification note that showed it); a tick without proof fails the overview check. A verification skill's feature map later links each of its feature files to the matching file here. |
 | `GLOSSARY.md` | The project's terms, in the format of **domain-modeling**, written down as each one is settled. When the user's word clashes with a term already there, say so at once. |
 | `CONSTRAINTS.md` | The quality bar, in the format of **constraint-driven-development**: every line names the command that judges it. |
 | `docs/adr/NNNN-<slug>.md` | A decision record, only when all three of **domain-modeling**'s conditions hold: hard to reverse, surprising without context, and the result of a real trade-off. |
@@ -73,11 +73,13 @@ How a user gets to it: the Lists tab, then a list's Share button.
 
 ## Done when
 
-- A list shared by one person appears for the other within 5 seconds.
-- Ticking an item off on one phone shows it ticked on the other.
-- Someone who was never invited cannot open the list from its link.
+- [x] A list shared by one person appears for the other within 5 seconds. Proof: `npm test -- share.test.js`
+- [ ] Ticking an item off on one phone shows it ticked on the other.
+- [ ] Someone who was never invited cannot open the list from its link.
 ```
+
+`docs/overview.md` is generated from these files by `scripts/overview.mjs` beside this skill (run it with `--write` under the installed plugin): what the project is, how many done conditions are met with proof, what is open, the quality bar, the decisions, and the terms. Never edit it by hand. Any change to a source regenerates it in the same commit, and the merge gate refuses a PR whose overview is stale.
 
 ## When it is done
 
-The frontier is empty: every branch of the tree visited, nothing left silently assumed. Read back the decisions in a few lines and ask whether that is it. Only when the user confirms does grill end. Then hand the work to **poteto-mode**, whose playbook builds to these files and does not ask the user again; questions that come up later are decided from the files, the defaults, and the principles.
+The frontier is empty: every branch of the tree visited, nothing left silently assumed. Read back the decisions in a few lines and ask whether that is it. Only when the user confirms does grill end: write `docs/overview.md` with `scripts/overview.mjs --write`, commit it with the sources, and show the user the overview. Then hand the work to **poteto-mode**, whose playbook builds to these files and does not ask the user again; questions that come up later are decided from the files, the defaults, and the principles.
