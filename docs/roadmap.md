@@ -33,7 +33,7 @@ Status values: **done**, **in progress**, **not started**.
 
 ## Stage 4: borrow from Matt Pocock and Addy Osmani (in progress)
 
-- New `grill` skill for new projects or unclear large features; prototype and wizard skills; glossary and decision-record formats.
+- New `grill` skill for new projects or unclear large features; prototype and wizard skills; glossary and decision-record formats. Matt Pocock's `prototype`, `wizard`, and `domain-modeling` are synced components ([#17](https://github.com/Thomas-Melonesoda/potluck/pull/17)); the owner lowered the eval rank-1 floor to 56% for them (2026-11-22), since `wizard` now outranks `how` on "walk me through".
 - `CONSTRAINTS.md` and an always-on quality floor run inside the merge gate.
 - Three eval layers: structure, trigger collisions (in CI), behavior (after upstream syncs). Layers 1 and 2 are done: [`tools/eval.mjs`](../tools/eval.mjs) with cases in [`evals/triggers.json`](../evals/triggers.json), run in CI ([#15](https://github.com/Thomas-Melonesoda/potluck/pull/15)).
 - A narrow git guardrail hook that blocks commands which would lose uncommitted or unpushed work.

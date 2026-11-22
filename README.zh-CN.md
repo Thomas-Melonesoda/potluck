@@ -10,7 +10,7 @@ potluck 是一个开源的 agent 工作系统。它想同时做到两件事：ag
 | --- | --- |
 | Lauren Tan 的 [pstack](https://github.com/cursor/plugins/tree/main/pstack) | 主体：`poteto-mode`、它的 playbook、原则和验证方法。pstack 有现成做法的地方，potluck 就用它的。 |
 | Michael Denyer 的 [pstack-claude](https://github.com/michael-denyer/pstack-claude) | 本仓库 fork 的基础：把 pstack 翻译到 Claude Code、Codex、Pi、GitHub Copilot、Muse 等工具上，以及他的同步工具。 |
-| Matt Pocock 的 [skills](https://github.com/mattpocock/skills) | 计划借用：grilling、原型、wizard、术语表和决定记录的格式。 |
+| Matt Pocock 的 [skills](https://github.com/mattpocock/skills) | `prototype`、`wizard` 和 `domain-modeling`（术语表和决定记录的格式），从上游同步。计划借用：grilling。 |
 | Addy Osmani 的 [agent-skills](https://github.com/addyosmani/agent-skills) | 计划借用：`CONSTRAINTS.md`、始终生效的质量底线、分层的 skill eval。 |
 
 potluck 和各上游不一样的每一处，都登记在 [`tools/forks.json`](tools/forks.json) 里。

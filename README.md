@@ -10,7 +10,7 @@ It is a potluck of four open-source projects:
 | --- | --- |
 | Lauren Tan's [pstack](https://github.com/cursor/plugins/tree/main/pstack) | The core: `poteto-mode`, its playbooks, principles, and verification. Where pstack has a way of doing something, potluck uses it. |
 | Michael Denyer's [pstack-claude](https://github.com/michael-denyer/pstack-claude) | The base this repository forks: pstack translated for Claude Code, Codex, Pi, GitHub Copilot, Muse, and other harnesses, plus its sync tooling. |
-| Matt Pocock's [skills](https://github.com/mattpocock/skills) | Planned: grilling, prototypes, wizards, glossary and decision-record formats. |
+| Matt Pocock's [skills](https://github.com/mattpocock/skills) | `prototype`, `wizard`, and `domain-modeling` (glossary and decision-record formats), synced from upstream. Planned: grilling. |
 | Addy Osmani's [agent-skills](https://github.com/addyosmani/agent-skills) | Planned: `CONSTRAINTS.md`, the always-on quality floor, and layered skill evals. |
 
 Each place where potluck differs from its upstreams is declared in [`tools/forks.json`](tools/forks.json).
