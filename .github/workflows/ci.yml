@@ -31,6 +31,8 @@ jobs:
         working-directory: plugins
       - name: Check generated files and plugin invariants
         run: bun tools/generate.mjs --check
+      - name: Eval layers 1 and 2 (skill structure, triggers, collisions)
+        run: bun tools/eval.mjs
       - name: Tool and invariant fixture tests
         run: bun test tests/
 
