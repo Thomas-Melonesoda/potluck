@@ -152,9 +152,9 @@ const rules = [
     phrase: "Two fix-forwards per PR is the ceiling.",
   },
   {
-    source: "autopilot verify loop: size stated before fan-out",
+    source: "potluck A3: size stated before fan-out, never waited on",
     file: "poteto-mode/playbooks/autopilot-full.md",
-    phrase: "A program of more than three owners waits for the operator's go on that size",
+    phrase: "Then start without waiting, whatever the size, because the go already covers the queue.",
   },
   {
     source: "#188 no self-review in place of an independent one",
