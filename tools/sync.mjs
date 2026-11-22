@@ -4,7 +4,7 @@
 //   bun tools/sync.mjs <component> <new-sha> [--dry-run]
 //   bun tools/sync.mjs --check-rules
 //
-// Reads tools/upstream.json (remote, per-component pin, and the `exclude`
+// Reads tools/upstream.json (each component's remote and pin, and the `exclude`
 // list of upstream paths the port deliberately does not carry) and
 // tools/substitutions.json (mechanical Cursor->Claude rewrites plus a denylist
 // of Cursor-isms that need a human sentence, not a token swap), and
@@ -170,10 +170,11 @@ export function parseSubstitutions(doc) {
   return { substitutions: rules, denylist: denylist.map(parseDenylistEntry) };
 }
 
-// tools/upstream.json names the remote and each component pin. Parse fails
+// tools/upstream.json names each component's pin and the repository it comes
+// from: a component's own `remote`, else the top-level `remote`. Parse fails
 // naming the document or field when the root, components map, or a component
-// entry is missing or not an object, so a typo cannot throw a bare TypeError
-// mid-load.
+// entry is missing or not an object, or a component has no remote, so a typo
+// cannot throw a bare TypeError mid-load.
 export function parseUpstream(doc) {
   if (!isObject(doc)) {
     throw new Error("upstream.json: must be an object");
@@ -181,12 +182,48 @@ export function parseUpstream(doc) {
   if (!isObject(doc.components)) {
     throw new Error('upstream.json: "components" must be an object');
   }
+  for (const field of ["remote"]) {
+    if (field in doc && (typeof doc[field] !== "string" || !doc[field])) {
+      throw new Error(`upstream.json: "${field}" must be a non-empty string`);
+    }
+  }
   for (const [name, spec] of Object.entries(doc.components)) {
     if (!isObject(spec)) {
       throw new Error(`upstream.json: component "${name}" must be an object`);
     }
+    if ("remote" in spec && (typeof spec.remote !== "string" || !spec.remote)) {
+      throw new Error(`upstream.json: component "${name}" remote must be a non-empty string`);
+    }
+    if (!spec.remote && !doc.remote) {
+      throw new Error(`upstream.json: component "${name}" has no remote; set "remote" on it or at the top level`);
+    }
   }
   return doc;
+}
+
+// The repository a component syncs from.
+export function remoteOf(doc, name) {
+  return doc.components[name].remote ?? doc.remote;
+}
+
+// Two local trees overlap when one contains the other, so a file one carries
+// can sit inside the other's tree.
+function overlaps(a, b) {
+  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+// One blob-filtered clone per remote, made on first use under `scratch`.
+function clones(scratch) {
+  const made = new Map();
+  return (remote) => {
+    if (!made.has(remote)) {
+      const dir = join(scratch, `clone-${made.size}`);
+      console.log(`cloning ${remote} ...`);
+      git(["clone", "--filter=blob:none", remote, dir]);
+      made.set(remote, dir);
+    }
+    return made.get(remote);
+  };
 }
 
 const FORK_FIELDS = ["kind", "why", "since", "upstream"];
@@ -586,13 +623,16 @@ function git(args) {
   return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
 }
 
-// Relative to `component`'s localPath, and read at each other component's own pin.
-function pathsOtherComponentsCarry(clone, components, component) {
+// Relative to `component`'s localPath, and read at each other component's own
+// pin in that component's own repository. Only components whose local tree
+// overlaps this one's can carry a path inside it, so only those are cloned.
+function pathsOtherComponentsCarry(cloneOf, upstream, component) {
+  const { components } = upstream;
   const { localPath } = components[component];
   return Object.entries(components)
-    .filter(([name]) => name !== component)
-    .flatMap(([, other]) =>
-      git(["-C", clone, "ls-tree", "-r", "-z", "--name-only", other.sha, "--", other.upstreamPath])
+    .filter(([name, other]) => name !== component && overlaps(other.localPath, localPath))
+    .flatMap(([name, other]) =>
+      git(["-C", cloneOf(remoteOf(upstream, name)), "ls-tree", "-r", "-z", "--name-only", other.sha, "--", other.upstreamPath])
         .split("\0")
         .filter(Boolean)
         .map((path) => relative(other.upstreamPath, path))
@@ -611,12 +651,10 @@ function checkRules() {
   );
   const scratch = mkdtempSync(join(tmpdir(), "pstack-sync-"));
   try {
-    console.log(`cloning ${upstream.remote} ...`);
-    const clone = join(scratch, "clone");
-    git(["clone", "--filter=blob:none", upstream.remote, clone]);
+    const cloneOf = clones(scratch);
     const trees = Object.entries(upstream.components).map(([component, spec]) => {
       const dest = join(scratch, component);
-      git(["-C", clone, "worktree", "add", "--detach", dest, spec.sha]);
+      git(["-C", cloneOf(remoteOf(upstream, component)), "worktree", "add", "--detach", dest, spec.sha]);
       return { dir: join(dest, spec.upstreamPath), exclude: spec.exclude ?? [] };
     });
     const unmatched = unmatchedRules(substitutions, trees);
@@ -657,10 +695,10 @@ function main() {
 
   const scratch = mkdtempSync(join(tmpdir(), "pstack-sync-"));
   try {
-    console.log(`cloning ${upstream.remote} ...`);
-    git(["clone", "--filter=blob:none", upstream.remote, join(scratch, "clone")]);
+    const cloneOf = clones(scratch);
+    const clone = cloneOf(remoteOf(upstream, component));
     const co = (sha, dest) => {
-      git(["-C", join(scratch, "clone"), "worktree", "add", "--detach", dest, sha]);
+      git(["-C", clone, "worktree", "add", "--detach", dest, sha]);
       return join(dest, spec.upstreamPath);
     };
     const oldDir = co(spec.sha, join(scratch, "old"));
@@ -674,7 +712,7 @@ function main() {
       rules: substitutions,
       denylist,
       exclude: spec.exclude ?? [],
-      carriedElsewhere: pathsOtherComponentsCarry(join(scratch, "clone"), upstream.components, component),
+      carriedElsewhere: pathsOtherComponentsCarry(cloneOf, upstream, component),
       derive: (rel, text) => deriveSkill(join(spec.localPath, rel), text, models, leads),
       forks,
       atPin,
