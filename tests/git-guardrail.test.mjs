@@ -3,7 +3,7 @@
 // Claude Code sends before a Bash call.
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -93,6 +93,62 @@ describe("the hook on a real repository", () => {
     expect(hook("git push").status).toBe(0);
   });
 
+  test("checkout of a path without -- is blocked, and checkout of a branch passes", () => {
+    const { git, work, hook } = repo();
+    git(work, "branch", "other");
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    expect(hook("git checkout a.txt").status).toBe(2);
+    expect(hook("git checkout HEAD a.txt").status).toBe(2);
+    expect(hook("git checkout main a.txt").status).toBe(2);
+    expect(hook("git checkout other").status).toBe(0);
+    expect(hook("git checkout -").status).toBe(0);
+    expect(hook("git checkout -b fresh").status).toBe(0);
+  });
+
+  test("during a merge conflict, taking one side passes and the message says to finish or abort", () => {
+    const { git, work, hook, commit } = repo();
+    git(work, "switch", "-q", "-c", "side");
+    writeFileSync(join(work, "a.txt"), "side\n");
+    git(work, "commit", "-q", "-am", "side");
+    git(work, "switch", "-q", "main");
+    writeFileSync(join(work, "a.txt"), "main\n");
+    git(work, "commit", "-q", "-am", "main");
+    spawnSync("git", ["-C", work, "merge", "side"], { env });
+    expect(hook("git checkout --theirs a.txt").status).toBe(0);
+    expect(hook("git restore --ours a.txt").status).toBe(0);
+    const r = hook("git reset --hard");
+    expect(r.status).toBe(2);
+    expect(r.reason).toContain("A merge is in progress, so do not commit to save the work");
+    expect(r.reason).toContain("git merge --abort");
+    expect(r.reason).not.toContain("git add -A && git commit");
+  });
+
+  test("wrapped and spelled-out forms are read too", () => {
+    const { root, work, hook } = repo();
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    for (const c of [
+      'bash -c "git reset --hard"',
+      "sh -c 'git checkout -- a.txt'",
+      "eval git reset --hard",
+      "(git reset --hard)",
+      "{ git reset --hard; }",
+      "if true; then git reset --hard; fi",
+      "timeout 10 git reset --hard",
+      "git reset --hard>/dev/null",
+      "git reset \\\n  --hard",
+      "xargs git checkout --",
+    ]) expect(hook(c).status, c).toBe(2);
+    expect(hook(`git --work-tree=${work} --git-dir=${work}/.git reset --hard`, root).status).toBe(2);
+    expect(hook("git push --force --force-with-lease").status).toBe(2);
+  });
+
+  test("a heredoc body is a document, not commands", () => {
+    const { work, hook } = repo();
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    expect(hook("cat > notes.md <<'EOF'\nrun git checkout -- a.txt to undo\ngit reset --hard\nEOF\necho done").status).toBe(0);
+    expect(hook("cat > notes.md <<EOF\nhi\nEOF\ngit reset --hard").status).toBe(2);
+  });
+
   test("an untracked file counts as work at risk", () => {
     const { work, hook } = repo();
     writeFileSync(join(work, "notes.txt"), "mine\n");
@@ -138,6 +194,11 @@ describe("the hook on a real repository", () => {
     expect(r.status).toBe(0);
     const { hook } = repo();
     expect(hook("git reset --hard", plain).status).toBe(0);
+  });
+
+  test("hooks.json runs the wrapper before every Bash call on Claude Code", () => {
+    const hooksJson = JSON.parse(readFileSync(join(hooks, "hooks.json"), "utf8"));
+    expect(hooksJson.hooks.PreToolUse).toEqual([{ matcher: "Bash", hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh"' }] }]);
   });
 
   test("without node on PATH the wrapper lets the call run", () => {
