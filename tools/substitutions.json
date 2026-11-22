@@ -655,7 +655,7 @@
     },
     {
       "pattern": "| VERIFY | `/test` |",
-      "replacement": "| VERIFY | at self-proof, before the PR |",
+      "replacement": "| VERIFY | at self-proof, before the swarm |",
       "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
       "files": "^SKILL\\.md$"
     },
@@ -672,15 +672,21 @@
       "files": "^SKILL\\.md$"
     },
     {
-      "regex": "## Common Rationalizations\\n[\\s\\S]*?(?=## Red Flags)",
+      "regex": "## Common Rationalizations\\n\\n\\| Excuse \\| Reality \\|\\n[\\s\\S]*?(?=## Red Flags)",
       "replacement": "",
       "rationale": "potluck: the owner ruled out Addy's rationalization tables (design row D7); a repeated excuse becomes a check through /correct instead",
       "files": "^SKILL\\.md$"
     },
     {
-      "regex": "## See Also\\n[\\s\\S]*$",
-      "replacement": "## See Also\n\n- **tdd**: the suite that coverage and mutation constraints measure\n- **thermos**: the strict review of a diff against this bar\n- **thermo-nuclear-review**: what the security dimension should contain\n- **benchmark-checklist**: how to vet a performance number before it becomes a budget\n",
+      "pattern": "## See Also\n\n- `interview-me` — the one-question-at-a-time discipline this skill's intake borrows\n- `code-review-and-quality` — how to review; this skill decides what the review enforces\n- `ci-cd-and-automation` — building the pipeline these constraints run in\n- `test-driven-development` — the suite that coverage and mutation constraints measure\n- `security-and-hardening` — what the security dimension should contain\n- `performance-optimization` — where the performance numbers come from\n",
+      "replacement": "## See Also\n\n- **tdd**: the suite that coverage and mutation constraints measure\n- **thermos**: the strict review of a diff against this bar\n- **thermo-nuclear-review**: a security audit of a diff, one input to the security dimension\n- **benchmark-checklist**: how to vet a measured number before it becomes a budget\n",
       "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "pattern": "Then add one line to `AGENTS.md` and `CLAUDE.md`:",
+      "replacement": "Then add one line to the project's instructions file (`AGENTS.md`, which Claude Code reads through a `CLAUDE.md` that imports it):",
+      "rationale": "potluck: pstack names one instructions file per harness, and writing both duplicates the line where CLAUDE.md imports AGENTS.md",
       "files": "^SKILL\\.md$"
     }
   ],
