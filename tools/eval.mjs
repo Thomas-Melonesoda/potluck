@@ -9,7 +9,12 @@
 // Layer 1, structure: every skill has a name that matches its folder and a
 // description within the length runtimes accept; poteto-mode's playbook list
 // and its playbook files match one to one; every user-invocable skill has at
-// least one trigger case, and every case names a skill that exists.
+// least one trigger case, and every case names a skill that exists; every
+// layer 3 case under plugins/pstack/evals/ has a prompt and graders of a known
+// type, and a skill it expects to fire exists.
+//
+// Layer 3, behavior, is `claude plugin eval plugins/pstack`: real agent runs
+// that cost tokens, so it runs only on request, never in CI.
 //
 // Layer 2, triggers: a lexical stand-in for routing. Each skill's description
 // (plus its name) becomes a TF-IDF vector over stemmed words, and each case's
@@ -219,6 +224,43 @@ export function layer2(skills, config) {
   return { problems, report, rate };
 }
 
+// Layer 3 cases, run on request by `claude plugin eval plugins/pstack`.
+const GRADERS = new Set(["regex", "tool_used", "tool_order", "file_exists", "llm", "baseline"]);
+export function evalCaseProblems(root = ROOT, skillNames = new Set()) {
+  const dir = join(root, "plugins/pstack/evals");
+  if (!existsSync(dir)) return [];
+  const problems = [];
+  const front = (text) => /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text.replaceAll("\r\n", "\n"));
+  for (const entry of readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && e.name !== "results")) {
+    const at = `plugins/pstack/evals/${entry.name}`;
+    const prompt = join(dir, entry.name, "prompt.md");
+    if (!existsSync(prompt)) {
+      problems.push(`${at}: no prompt.md`);
+      continue;
+    }
+    const parsed = front(readFileSync(prompt, "utf8"));
+    if (!parsed) problems.push(`${at}/prompt.md: no frontmatter`);
+    else {
+      const name = /^name:\s*(.+)$/m.exec(parsed[1])?.[1]?.trim();
+      if (name && name !== entry.name) problems.push(`${at}/prompt.md: name is ${name}, not the folder name`);
+      if (!parsed[2].trim()) problems.push(`${at}/prompt.md: no prompt text`);
+    }
+    const graders = join(dir, entry.name, "graders");
+    const files = existsSync(graders) ? readdirSync(graders).filter((f) => f.endsWith(".md")) : [];
+    if (!files.length) problems.push(`${at}: no graders/*.md`);
+    for (const f of files) {
+      const g = front(readFileSync(join(graders, f), "utf8"));
+      const type = g && /^type:\s*(\S+)/m.exec(g[1])?.[1];
+      if (!GRADERS.has(type)) problems.push(`${at}/graders/${f}: type must be one of ${[...GRADERS].join(", ")}`);
+      const skill = g && /^input_match:.*\?([a-z0-9-]+)"'?\s*$/m.exec(g[1])?.[1];
+      if (type === "tool_used" && /^tool:\s*Skill/m.test(g[1]) && skill && skillNames.size && !skillNames.has(skill)) {
+        problems.push(`${at}/graders/${f}: expects skill ${skill}, which is not a skill`);
+      }
+    }
+  }
+  return problems;
+}
+
 export function readPlaybooks(root = ROOT) {
   const mode = join(root, "plugins/pstack/skills/poteto-mode");
   const text = readFileSync(join(mode, "SKILL.md"), "utf8");
@@ -243,7 +285,7 @@ export function main(argv, root = ROOT) {
   const skills = loadSkills(root);
   const config = JSON.parse(readFileSync(join(root, "evals/triggers.json"), "utf8"));
   const problems = [];
-  if (values.layer !== "2") problems.push(...layer1(skills, config.cases, readPlaybooks(root)));
+  if (values.layer !== "2") problems.push(...layer1(skills, config.cases, readPlaybooks(root)), ...evalCaseProblems(root, new Set(skills.map((s) => s.dir))));
   if (values.layer !== "1") {
     const { problems: found, report, rate } = layer2(skills, config);
     problems.push(...found);

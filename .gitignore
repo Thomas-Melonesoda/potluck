@@ -32,3 +32,6 @@ plugins/pstack/skills/statechart/scripts/node_modules/
 .env.*
 !.env.example
 *.local.json
+
+# claude plugin eval output (layer 3); local only
+plugins/pstack/evals/results/
