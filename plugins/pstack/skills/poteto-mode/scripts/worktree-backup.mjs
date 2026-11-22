@@ -44,26 +44,34 @@ function lockedReason(worktree) {
   return null;
 }
 
-// Initialized submodules whose removal would lose something: a moved or
-// conflicted pointer, any change, untracked or ignored file inside, or a local
-// commit no remote has. An uninitialized submodule (status "-") holds nothing.
+// Initialized submodules whose removal would lose something: a moved,
+// staged, or conflicted pointer in the parent; any change, untracked or
+// ignored file, or stash inside; or a commit on its HEAD or branches that no
+// remote has. An uninitialized submodule (status "-") holds nothing.
 function riskySubmodules(worktree) {
+  const parentSees = new Set(
+    lines(git(worktree, ["status", "--porcelain", "--ignore-submodules=none", "--untracked-files=no"])).map((line) => line.slice(3)),
+  );
   return lines(git(worktree, ["submodule", "status", "--recursive"]))
     .map((line) => ({ flag: line[0], path: line.slice(1).trim().split(/\s+/)[1] }))
     .filter(({ flag }) => flag !== "-")
-    .filter(({ flag, path }) => flag === "+" || flag === "U" || atRisk(join(worktree, path)))
+    .filter(({ flag, path }) => flag === "+" || flag === "U" || parentSees.has(path) || atRisk(join(worktree, path)))
     .map(({ path }) => path);
 }
 function atRisk(dir) {
   try {
     if (git(dir, ["status", "--porcelain", "--ignored=matching", "--untracked-files=all"]).trim()) return true;
-    return git(dir, ["log", "--oneline", "--branches", "--not", "--remotes"]).trim() !== "";
+    if (git(dir, ["stash", "list"]).trim()) return true;
+    return git(dir, ["log", "--oneline", "HEAD", "--branches", "--not", "--remotes"]).trim() !== "";
   } catch {
     return true;
   }
 }
 
-const unreached = (worktree, sha) => git(worktree, ["for-each-ref", "--contains", sha, "--format=%(refname)"]).trim() === "";
+// Reached only by refs that outlive the worktree. A per-worktree ref such as
+// refs/worktree/* or the worktree's HEAD is removed with it, so it does not count.
+const unreached = (worktree, sha) =>
+  git(worktree, ["for-each-ref", "--contains", sha, "--format=%(refname)", "refs/heads", "refs/tags", "refs/remotes", "refs/stash"]).trim() === "";
 
 // A branch name not yet taken, so a second backup the same day never overwrites the first.
 function freeBranch(worktree, base) {
@@ -109,6 +117,9 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
     git(worktree, ["rev-parse", "--verify", "--quiet", "HEAD"]);
   } catch {
     return { kind: "hold", worktree, reason: "HEAD has no commit yet, so there is nothing to base a backup branch on" };
+  }
+  if (git(worktree, ["ls-files", "--unmerged"]).trim()) {
+    return { kind: "hold", worktree, reason: "unmerged paths from a merge, rebase, or cherry-pick in progress" };
   }
 
   const result = { kind: "backed-up", worktree, branches: [], tarball: null, prunedTrash: pruneTrash(trash, keepDays, now) };

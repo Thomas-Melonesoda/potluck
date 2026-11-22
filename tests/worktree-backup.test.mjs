@@ -189,6 +189,49 @@ describe("worktree-backup", () => {
     expect(run2().json.kind).toBe("hold");
   });
 
+  test("a submodule commit on its detached HEAD, staged in the parent, holds the worktree", () => {
+    const { wt2, git, run2 } = withSubmodule();
+    git(wt2, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init");
+    const sub = join(wt2, "sub");
+    writeFileSync(join(sub, "lib.txt"), "changed\n");
+    git(sub, "commit", "-q", "-am", "detached submodule work");
+    git(wt2, "add", "sub");
+    expect(run2().json).toMatchObject({ kind: "hold", reason: "submodules with work that removal would lose: sub" });
+  });
+
+  test("a stash inside an initialized submodule holds the worktree", () => {
+    const { wt2, git, run2 } = withSubmodule();
+    git(wt2, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init");
+    const sub = join(wt2, "sub");
+    writeFileSync(join(sub, "lib.txt"), "stashed\n");
+    git(sub, "stash", "-q");
+    expect(run2().json.kind).toBe("hold");
+  });
+
+  test("a commit kept only by a per-worktree ref gets a backup branch", () => {
+    const { wt, git, run } = setup();
+    git(wt, "checkout", "-q", "--detach");
+    writeFileSync(join(wt, "k.txt"), "k\n");
+    git(wt, "add", "k.txt");
+    git(wt, "commit", "-q", "-m", "kept by a worktree ref");
+    const kept = git(wt, "rev-parse", "HEAD");
+    git(wt, "update-ref", "refs/worktree/keep", kept);
+    git(wt, "checkout", "-q", "feature");
+    expect(run().json.branches.map((b) => b.commit)).toContain(kept);
+  });
+
+  test("a merge in progress with conflicts is held, not crashed on", () => {
+    const { repo, wt, git, run } = setup();
+    writeFileSync(join(repo, "a.txt"), "main side\n");
+    git(repo, "commit", "-q", "-am", "main side");
+    writeFileSync(join(wt, "a.txt"), "feature side\n");
+    git(wt, "commit", "-q", "-am", "feature side");
+    spawnSync("git", ["-C", wt, "merge", "main"], { env });
+    const r = run();
+    expect(r.status).toBe(3);
+    expect(r.json.reason).toContain("unmerged paths");
+  });
+
   test("a worktree with no commit yet is held, not crashed on", () => {
     const { root, repo, git } = setup();
     const orphan = join(root, "orphan");
