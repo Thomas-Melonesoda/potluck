@@ -116,6 +116,107 @@ describe("worktree-backup", () => {
     expect(readdirSync(trash).sort()).toEqual(["2026-11-20"]);
   });
 
+  // Regression cases from the independent verifier of #10.
+  test("untracked files under a tracked build or dist folder are kept, only ignored ones there are left", () => {
+    const { repo, wt, git, run } = setup();
+    mkdirSync(join(repo, "build"));
+    writeFileSync(join(repo, "build/release.sh"), "r\n");
+    git(repo, "add", "build/release.sh");
+    git(repo, "commit", "-q", "-m", "build script");
+    git(wt, "merge", "-q", "main");
+    writeFileSync(join(wt, "build/deploy.sh"), "d\n");
+    mkdirSync(join(wt, "docs/dist"), { recursive: true });
+    writeFileSync(join(wt, "docs/dist/notes.md"), "n\n");
+    mkdirSync(join(wt, "node_modules"));
+    writeFileSync(join(wt, "node_modules/x.js"), "x\n");
+    const r = run();
+    const listed = execFileSync("tar", ["-tzf", r.json.tarball.path], { encoding: "utf8" }).split("\n").filter(Boolean).sort();
+    expect(listed).toEqual(["build/deploy.sh", "docs/dist/notes.md"]);
+  });
+
+  test("an index-only version is kept beside the version on disk", () => {
+    const { wt, git, run } = setup();
+    writeFileSync(join(wt, "a.txt"), "staged\n");
+    git(wt, "add", "a.txt");
+    writeFileSync(join(wt, "a.txt"), "staged\nlater\n");
+    writeFileSync(join(wt, "p.txt"), "only staged\n");
+    git(wt, "add", "p.txt");
+    rmSync(join(wt, "p.txt"));
+    const r = run();
+    const tip = r.json.branches[0].branch;
+    expect(git(wt, "show", `${tip}:a.txt`)).toBe("staged\nlater");
+    expect(git(wt, "show", `${tip}~1:a.txt`)).toBe("staged");
+    expect(git(wt, "show", `${tip}~1:p.txt`)).toBe("only staged");
+  });
+
+  function withSubmodule() {
+    const ctx = setup();
+    const { root, repo, git } = ctx;
+    const lib = join(root, "lib");
+    mkdirSync(lib);
+    git(lib, "init", "-q", "-b", "main");
+    writeFileSync(join(lib, ".gitignore"), ".env\n");
+    writeFileSync(join(lib, "lib.txt"), "l\n");
+    git(lib, "add", ".");
+    git(lib, "commit", "-q", "-m", "lib");
+    git(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, "sub");
+    git(repo, "commit", "-q", "-m", "add sub");
+    const wt2 = join(root, "wt2");
+    git(repo, "worktree", "add", "-q", "-b", "sub-feature", wt2);
+    const run2 = (...args) => {
+      const r = spawnSync("node", [script, wt2, "--trash", join(root, "trash"), "--date", "2026-11-21", ...args], { encoding: "utf8", env });
+      return { ...r, json: r.stdout ? JSON.parse(r.stdout) : null };
+    };
+    return { ...ctx, wt2, run2 };
+  }
+
+  test("an uninitialized submodule does not hold a clean worktree", () => {
+    const { run2 } = withSubmodule();
+    expect(run2().json.kind).toBe("nothing-to-back-up");
+  });
+
+  test("an ignored file or a local commit inside an initialized submodule holds the worktree", () => {
+    const { wt2, git, run2 } = withSubmodule();
+    git(wt2, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init");
+    writeFileSync(join(wt2, "sub/.env"), "SECRET=fixture\n");
+    expect(run2().json).toMatchObject({ kind: "hold", reason: "submodules with work that removal would lose: sub" });
+    rmSync(join(wt2, "sub/.env"));
+    git(join(wt2, "sub"), "switch", "-q", "-c", "local-work");
+    writeFileSync(join(wt2, "sub/new.txt"), "n\n");
+    git(join(wt2, "sub"), "add", "new.txt");
+    git(join(wt2, "sub"), "commit", "-q", "-m", "local");
+    git(join(wt2, "sub"), "switch", "-q", "--detach", "HEAD~1");
+    expect(run2().json.kind).toBe("hold");
+  });
+
+  test("a worktree with no commit yet is held, not crashed on", () => {
+    const { root, repo, git } = setup();
+    const orphan = join(root, "orphan");
+    git(repo, "worktree", "add", "-q", "--orphan", "-b", "fresh", orphan);
+    writeFileSync(join(orphan, "x.txt"), "x\n");
+    const r = spawnSync("node", [script, orphan, "--trash", join(root, "trash")], { encoding: "utf8", env });
+    expect(r.status).toBe(3);
+    expect(JSON.parse(r.stdout).reason).toContain("no commit yet");
+  });
+
+  test("a folder name git would refuse as a branch still gets a valid backup branch", () => {
+    const { root, repo, git } = setup();
+    const odd = join(root, "my wt.lock");
+    git(repo, "worktree", "add", "-q", "-b", "odd", odd);
+    writeFileSync(join(odd, "a.txt"), "changed\n");
+    const r = spawnSync("node", [script, odd, "--trash", join(root, "trash"), "--date", "2026-11-21"], { encoding: "utf8", env });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).branches[0].branch).toBe("backup/my-wt-2026-11-21");
+  });
+
+  test("a path inside a worktree is refused, so nothing outside it is missed", () => {
+    const { wt } = setup();
+    mkdirSync(join(wt, "src"));
+    const r = spawnSync("node", [script, join(wt, "src")], { encoding: "utf8", env });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("not its top level");
+  });
+
   test("usage errors exit 2", () => {
     expect(spawnSync("node", [script], { encoding: "utf8" }).status).toBe(2);
     const { run } = setup();

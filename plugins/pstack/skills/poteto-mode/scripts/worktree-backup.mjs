@@ -4,23 +4,25 @@
 //   node worktree-backup.mjs <worktree-path> [--trash <dir>] [--keep-days <n>] [--date <YYYY-MM-DD>]
 //
 // Before `git worktree remove`, this saves everything removal would lose:
-//   - tracked uncommitted changes, as one wip commit on a new branch
-//     `backup/<name>-<date>` (made with a private index, so the worktree, its
-//     index, and its branch are untouched, and no hook runs)
-//   - untracked and ignored files outside the audit's DISPOSABLE build and cache
-//     directories (such as .env), as a tar.gz under <trash>/<date>/, never in git
+//   - tracked uncommitted changes, as wip commits on a new branch
+//     `backup/<name>-<date>`: one for the index as staged, one on top for the
+//     files on disk (made with a private index, so the worktree, its index,
+//     and its branch are untouched, and no hook runs)
+//   - every untracked file, and ignored files outside the audit's DISPOSABLE
+//     build and cache directories (such as .env), as a tar.gz under
+//     <trash>/<date>/, never in git
 //   - commits that only the worktree's HEAD or HEAD reflog reaches, as branches
 //     `backup/<name>-<date>-head` and `backup/<name>-<date>-reflog-<sha>`
-// It refuses (exit 3, "hold") a worktree that is locked or has a submodule with
-// changes, since those need a person or another agent, and it writes nothing
-// for them. Trash entries older than --keep-days (default 30, or
+// It refuses (exit 3, "hold") a worktree that is locked, has an initialized
+// submodule holding work removal would lose, or has no commit yet, and it
+// writes nothing for them. Trash entries older than --keep-days (default 30, or
 // $POTLUCK_TRASH_DAYS) are deleted on each run. Backup branches stay local:
 // never push them.
 //
 // Prints one JSON line. Exit 0 backed-up (or nothing to back up), 3 hold, 2 usage.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -42,16 +44,22 @@ function lockedReason(worktree) {
   return null;
 }
 
-function dirtySubmodules(worktree) {
+// Initialized submodules whose removal would lose something: a moved or
+// conflicted pointer, any change, untracked or ignored file inside, or a local
+// commit no remote has. An uninitialized submodule (status "-") holds nothing.
+function riskySubmodules(worktree) {
   return lines(git(worktree, ["submodule", "status", "--recursive"]))
-    .filter((line) => /^[+\-U]/.test(line) || dirtyInside(worktree, line.trim().split(/\s+/)[1]))
-    .map((line) => line.trim().split(/\s+/)[1]);
+    .map((line) => ({ flag: line[0], path: line.slice(1).trim().split(/\s+/)[1] }))
+    .filter(({ flag }) => flag !== "-")
+    .filter(({ flag, path }) => flag === "+" || flag === "U" || atRisk(join(worktree, path)))
+    .map(({ path }) => path);
 }
-function dirtyInside(worktree, path) {
+function atRisk(dir) {
   try {
-    return git(join(worktree, path), ["status", "--porcelain"]).trim() !== "";
+    if (git(dir, ["status", "--porcelain", "--ignored=matching", "--untracked-files=all"]).trim()) return true;
+    return git(dir, ["log", "--oneline", "--branches", "--not", "--remotes"]).trim() !== "";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -78,7 +86,8 @@ function pruneTrash(trash, keepDays, now) {
     return removed;
   }
   for (const entry of entries) {
-    const day = /^\d{4}-\d{2}-\d{2}$/.test(entry) ? Date.parse(`${entry}T00:00:00Z`) : NaN;
+    // Folders are named by local date, so read them as local midnight.
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(entry) ? Date.parse(`${entry}T00:00:00`) : NaN;
     if (Number.isNaN(day)) continue;
     if (now - day > keepDays * 86_400_000) {
       rmSync(join(trash, entry), { recursive: true, force: true });
@@ -90,11 +99,17 @@ function pruneTrash(trash, keepDays, now) {
 
 export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() }) {
   worktree = resolve(worktree);
-  const name = basename(worktree);
+  // A branch-safe name: git refuses spaces, "..", a ".lock" suffix, and more.
+  const name = basename(worktree).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/\.{2,}/g, ".").replace(/(\.lock|\.)+$/, "").replace(/^[-.]+/, "") || "worktree";
   const locked = lockedReason(worktree);
   if (locked) return { kind: "hold", worktree, reason: `locked: ${locked}` };
-  const submodules = dirtySubmodules(worktree);
-  if (submodules.length) return { kind: "hold", worktree, reason: `submodules with changes: ${submodules.join(", ")}` };
+  const submodules = riskySubmodules(worktree);
+  if (submodules.length) return { kind: "hold", worktree, reason: `submodules with work that removal would lose: ${submodules.join(", ")}` };
+  try {
+    git(worktree, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+  } catch {
+    return { kind: "hold", worktree, reason: "HEAD has no commit yet, so there is nothing to base a backup branch on" };
+  }
 
   const result = { kind: "backed-up", worktree, branches: [], tarball: null, prunedTrash: pruneTrash(trash, keepDays, now) };
   const head = git(worktree, ["rev-parse", "HEAD"]).trim();
@@ -104,11 +119,13 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
     const index = join(tmpdir(), `potluck-backup-index-${process.pid}-${now}`);
     try {
       const env = { GIT_INDEX_FILE: index };
-      // Start from the worktree's own index, so staged new files are kept too.
+      // Like git stash: one commit for the index as staged, and one on top of it
+      // for the files as they are on disk, so neither version is lost.
       copyFileSync(git(worktree, ["rev-parse", "--path-format=absolute", "--git-path", "index"]).trim(), index);
+      const staged = git(worktree, ["commit-tree", git(worktree, ["write-tree"], env).trim(), "-p", head, "-m", `wip: index of ${name} before worktree removal`]).trim();
       git(worktree, ["add", "--update", "--", "."], env);
       const tree = git(worktree, ["write-tree"], env).trim();
-      const commit = git(worktree, ["commit-tree", tree, "-p", head, "-m", `wip: backup of ${name} before worktree removal`]).trim();
+      const commit = git(worktree, ["commit-tree", tree, "-p", staged, "-m", `wip: backup of ${name} before worktree removal`]).trim();
       const branch = freeBranch(worktree, `backup/${name}-${date}`);
       git(worktree, ["branch", branch, commit]);
       result.branches.push({ branch, commit, holds: "uncommitted changes" });
@@ -136,9 +153,12 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
   }
 
   // Untracked and ignored files outside build and cache directories.
+  // Every untracked file is kept. Only ignored files under the audit's
+  // DISPOSABLE build and cache directories are left, as the audit counts them.
   const others = z(git(worktree, ["ls-files", "-z", "--others", "--exclude-standard"]));
-  const ignored = z(git(worktree, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard"]));
-  const keep = [...new Set([...others, ...ignored])].filter((path) => !path.split("/").some((part) => DISPOSABLE.has(part)));
+  const ignored = z(git(worktree, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard"]))
+    .filter((path) => !path.split("/").some((part) => DISPOSABLE.has(part)));
+  const keep = [...new Set([...others, ...ignored])];
   if (keep.length) {
     const dir = join(trash, date);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -190,8 +210,13 @@ export function main(argv) {
   const trash = resolve(values.trash ?? join(homedir(), ".potluck", "trash"));
   try {
     statSync(positionals[0]);
-  } catch {
-    return process.stderr.write(`no such worktree: ${positionals[0]}\n`), 2;
+    const top = git(positionals[0], ["rev-parse", "--show-toplevel"]).trim();
+    if (realpathSync(top) !== realpathSync(positionals[0])) {
+      return process.stderr.write(`${positionals[0]} is inside a worktree, not its top level (${top}); pass the top level\n`), 2;
+    }
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.status) return process.stderr.write(`not a git worktree: ${positionals[0]}\n`), 2;
+    throw error;
   }
   const result = backup(positionals[0], { trash, keepDays, date });
   process.stdout.write(`${JSON.stringify(result)}\n`);
