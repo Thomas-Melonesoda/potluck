@@ -36,7 +36,7 @@ Status values: **done**, **in progress**, **not started**.
 - New `grill` skill for new projects or unclear large features; prototype and wizard skills; glossary and decision-record formats.
 - `CONSTRAINTS.md` and an always-on quality floor run inside the merge gate.
 - Three eval layers: structure, trigger collisions (in CI), behavior (after upstream syncs). Layers 1 and 2 are done: [`tools/eval.mjs`](../tools/eval.mjs) with cases in [`evals/triggers.json`](../evals/triggers.json), run in CI ([#15](https://github.com/Thomas-Melonesoda/potluck/pull/15)).
-- A narrow git guardrail hook that blocks commands which would lose uncommitted or unpushed work.
+- A narrow git guardrail hook that blocks commands which would lose uncommitted or unpushed work. Done for Claude Code: [`hooks/git-guardrail.mjs`](../plugins/pstack/hooks/git-guardrail.mjs) ([#16](https://github.com/Thomas-Melonesoda/potluck/pull/16)).
 - A generated, read-only project overview alongside pstack's existing reports.
 
 ## Stage 5: owner's personal layer (not started, private)

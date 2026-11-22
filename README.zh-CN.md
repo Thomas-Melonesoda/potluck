@@ -45,6 +45,10 @@ codex plugin add pstack@potluck
 
 输入 `$` 加 skill 名（比如 `$poteto-mode`）来调用，`/skills` 会列出所有 skill。
 
+## git 护栏
+
+在 Claude Code 里，agent 每次执行 shell 命令前，potluck 会先检查一下。仓库里有未提交的改动、未跟踪的文件，或者只有这里才有的提交时，它会拦住会弄丢这些东西的 git 命令：`reset --hard`、`clean -f`、会丢掉改动的 `checkout`、`switch` 或 `restore`、不带 `--force-with-lease` 的强推，以及删除一个提交只在它上面的分支。报错会告诉 agent 先怎么保存，所以它不用等你就能接着做。仓库干净时、普通的 push、带 lease 的强推，都直接放行。这项检查需要电脑上有 `node`；没有的话，命令照常执行。
+
 ## 开始使用
 
 ```text
