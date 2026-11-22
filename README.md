@@ -1,9 +1,21 @@
-# pstack
+# potluck
 
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?logo=buy-me-a-coffee&logoColor=white)](https://buymeacoffee.com/codenyer)
-[![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
+**English** | [中文](README.zh-CN.md)
 
-Lauren Tan's [pstack](https://github.com/cursor/plugins/tree/main/pstack) is an opinionated Cursor skill stack that improves agent outcomes. This is a port for Claude Code, Codex, Pi, GitHub Copilot, Muse, and other agent harnesses. It tracks upstream and also carries named policy forks, each declared in [`tools/forks.json`](tools/forks.json).
+potluck is an open-source agent workflow system. It aims for full agent autonomy and a complete system at the same time, so that people who do not review code or design architecture (product managers, designers, anyone) can still get verified work out of an agent.
+
+It is a potluck of four open-source projects:
+
+| Source | What potluck takes from it |
+| --- | --- |
+| Lauren Tan's [pstack](https://github.com/cursor/plugins/tree/main/pstack) | The core: `poteto-mode`, its playbooks, principles, and verification. Where pstack has a way of doing something, potluck uses it. |
+| Michael Denyer's [pstack-claude](https://github.com/michael-denyer/pstack-claude) | The base this repository forks: pstack translated for Claude Code, Codex, Pi, GitHub Copilot, Muse, and other harnesses, plus its sync tooling. |
+| Matt Pocock's [skills](https://github.com/mattpocock/skills) | Planned: grilling, prototypes, wizards, glossary and decision-record formats. |
+| Addy Osmani's [agent-skills](https://github.com/addyosmani/agent-skills) | Planned: `CONSTRAINTS.md`, the always-on quality floor, and layered skill evals. |
+
+Each place where potluck differs from its upstreams is declared in [`tools/forks.json`](tools/forks.json).
+
+> **Status: under construction.** This repository currently matches Michael Denyer's pstack-claude v0.9.146 with the public names changed. The plugin still installs under its internal ID `pstack`, and skills keep their upstream names (such as `poteto-mode`) to keep syncing cheap. The policy changes and borrowed skills described above are not in yet.
 
 Tell `poteto-mode` your goal and it will invoke the correct workflow for the task. It keeps your code concise, simple and verified.
 
@@ -21,11 +33,11 @@ This port translates upstream's Cursor skills for Claude Code before installatio
 Run in Claude Code 2.1.292 or later:
 
 ```text
-/plugin marketplace add michael-denyer/pstack-claude
-/plugin install pstack@pstack-claude
+/plugin marketplace add Thomas-Melonesoda/potluck
+/plugin install pstack@potluck
 ```
 
-Claude Code leaves auto-update off for third-party marketplaces, so pstack stays on the version you installed. To turn it on, run `/plugin`, open the **Marketplaces** tab, select `pstack-claude`, and choose **Enable auto-update**. To update once by hand, run `claude plugin update pstack@pstack-claude`.
+Claude Code leaves auto-update off for third-party marketplaces, so pstack stays on the version you installed. To turn it on, run `/plugin`, open the **Marketplaces** tab, select `potluck`, and choose **Enable auto-update**. To update once by hand, run `claude plugin update pstack@potluck`.
 
 </details>
 
@@ -36,8 +48,8 @@ Claude Code leaves auto-update off for third-party marketplaces, so pstack stays
 Run in your terminal:
 
 ```shell
-codex plugin marketplace add michael-denyer/pstack-claude
-codex plugin add pstack@pstack-claude
+codex plugin marketplace add Thomas-Melonesoda/potluck
+codex plugin add pstack@potluck
 ```
 
 Invoke a skill by typing `$` and its name, such as `$poteto-mode` or `$babysit`, then choosing its entry, which inserts `$pstack:<name>`. `/skills` lists every skill.
@@ -50,7 +62,7 @@ Invoke a skill by typing `$` and its name, such as `$poteto-mode` or `$babysit`,
 Run in your terminal, with Pi 1.5.1 or later:
 
 ```shell
-pi install git:github.com/michael-denyer/pstack-claude
+pi install git:github.com/Thomas-Melonesoda/potluck
 ```
 
 The package loads the skills and the pstack Pi extension, which adds the subagent, question, and wake-up tools the skills use, plus `/loop` and the routing instruction. Invoke a skill with `/skill:<name>`.
@@ -63,8 +75,8 @@ The package loads the skills and the pstack Pi extension, which adds the subagen
 Run in your terminal:
 
 ```shell
-copilot plugin marketplace add michael-denyer/pstack-claude
-copilot plugin install pstack@pstack-claude
+copilot plugin marketplace add Thomas-Melonesoda/potluck
+copilot plugin install pstack@potluck
 ```
 
 This installs pstack for the Copilot CLI and the GitHub Copilot app, which share `~/.copilot`. Start a new session afterwards. Copilot ships no default pstack models, so the first skill that needs one runs `setup-pstack` to pick from the models your account lists, and later sessions reuse that choice.
@@ -79,8 +91,8 @@ The Copilot build is tested on Copilot CLI 1.0.87 through 1.0.92. On those versi
 Run in your terminal:
 
 ```shell
-git clone https://github.com/michael-denyer/pstack-claude
-cd pstack-claude
+git clone https://github.com/Thomas-Melonesoda/potluck
+cd potluck
 muse plugins install ./plugins/pstack
 muse plugins approve pstack
 ```
@@ -95,8 +107,8 @@ The first command installs the native Muse plugin bundle. The second approves it
 Run in your terminal:
 
 ```shell
-omp plugin marketplace add michael-denyer/pstack-claude
-omp plugin install --scope user pstack@pstack-claude
+omp plugin marketplace add Thomas-Melonesoda/potluck
+omp plugin install --scope user pstack@potluck
 ```
 
 Restart OMP after installing, disabling, or uninstalling pstack. OMP 18.16.0 shares one plugin cache across scopes, so an upgrade or removal can affect other installations; inspect their source and scope before changing them. See [OMP issue 16827](https://github.com/can1357/oh-my-pi/issues/16827).
@@ -109,11 +121,11 @@ Restart OMP after installing, disabling, or uninstalling pstack. OMP 18.16.0 sha
 After a release containing `kimi.plugin.json` is published, close other Kimi sessions and install it in a fresh Kimi Code CLI session:
 
 ```text
-/plugins install https://github.com/michael-denyer/pstack-claude
+/plugins install https://github.com/Thomas-Melonesoda/potluck
 /reload
 ```
 
-To test an unreleased checkout, use `/plugins install /absolute/path/to/pstack-claude` instead, followed by `/reload`; Kimi copies the whole checkout, including Git metadata and local files, so use a clean, reviewed copy. To update, close other Kimi sessions, reinstall from the same source in a fresh session, and run `/reload`. Invoke a skill as `/skill:pstack:poteto-mode`; see the [Kimi mapping](plugins/pstack/skills/poteto-mode/references/kimi-tools.md) for tool guidance.
+To test an unreleased checkout, use `/plugins install /absolute/path/to/potluck` instead, followed by `/reload`; Kimi copies the whole checkout, including Git metadata and local files, so use a clean, reviewed copy. To update, close other Kimi sessions, reinstall from the same source in a fresh session, and run `/reload`. Invoke a skill as `/skill:pstack:poteto-mode`; see the [Kimi mapping](plugins/pstack/skills/poteto-mode/references/kimi-tools.md) for tool guidance.
 
 </details>
 
@@ -121,8 +133,8 @@ To test an unreleased checkout, use `/plugins install /absolute/path/to/pstack-c
 <summary><strong>Grok Build</strong></summary>
 
 ```shell
-git clone https://github.com/michael-denyer/pstack-claude
-cd pstack-claude
+git clone https://github.com/Thomas-Melonesoda/potluck
+cd potluck
 grok plugin install "$PWD/plugins/pstack" --trust
 grok plugin enable pstack
 ```
@@ -137,8 +149,8 @@ Start a new session and use `/poteto-mode` to load the skill explicitly. To upda
 For a first install, check that `${MINIMAX_DATA_DIR:-$HOME/.minimax}/plugins/pstack` does not already exist. Then run in your terminal:
 
 ```shell
-git clone https://github.com/michael-denyer/pstack-claude
-cd pstack-claude
+git clone https://github.com/Thomas-Melonesoda/potluck
+cd potluck
 mkdir -p "${MINIMAX_DATA_DIR:-$HOME/.minimax}/plugins"
 cp -R plugins/pstack "${MINIMAX_DATA_DIR:-$HOME/.minimax}/plugins/pstack"
 ```
@@ -150,14 +162,14 @@ MiniMax Code loads each directory under `plugins/` in its data directory as a lo
 <details>
 <summary><strong>OpenCode 2</strong></summary>
 
-Clone the repository, then add the absolute path to `plugins/pstack/opencode` to the existing `plugins` array in `~/.config/opencode/opencode.jsonc`. On Windows, use a path such as `C:/Users/name/pstack-claude/plugins/pstack/opencode`. Restart OpenCode after checkout updates.
+Clone the repository, then add the absolute path to `plugins/pstack/opencode` to the existing `plugins` array in `~/.config/opencode/opencode.jsonc`. On Windows, use a path such as `C:/Users/name/potluck/plugins/pstack/opencode`. Restart OpenCode after checkout updates.
 
 Alternatively, install, check, or update the native Git package:
 
 ```bash
-opencode plugin add 'github:michael-denyer/pstack-claude#main'
-opencode plugin check 'github:michael-denyer/pstack-claude#main'
-opencode plugin update 'github:michael-denyer/pstack-claude#main'
+opencode plugin add 'github:Thomas-Melonesoda/potluck#main'
+opencode plugin check 'github:Thomas-Melonesoda/potluck#main'
+opencode plugin update 'github:Thomas-Melonesoda/potluck#main'
 ```
 
 A commit-pinned reference does not advance. If a check immediately after installation reports no package plugins, wait for the server to load it and check again.
@@ -174,8 +186,8 @@ The plugin registers `pstack-` skill IDs and adds routing in root sessions. If r
 Run in your terminal:
 
 ```shell
-git clone https://github.com/michael-denyer/pstack-claude
-cd pstack-claude
+git clone https://github.com/Thomas-Melonesoda/potluck
+cd potluck
 agy plugin install ./plugins/pstack
 ```
 
@@ -198,8 +210,8 @@ Use the [shared skills installation](#other-harnesses) below to link each pstack
 Gemini CLI, Prime Agent, DeepSeek Harness skills-only installs, and skills-only Codex installs read skills from `~/.agents/skills/`. Run in your terminal:
 
 ```shell
-git clone https://github.com/michael-denyer/pstack-claude
-cd pstack-claude
+git clone https://github.com/Thomas-Melonesoda/potluck
+cd potluck
 mkdir -p ~/.agents/skills
 for s in plugins/pstack/skills/*/; do
   target=~/.agents/skills/"$(basename "$s")"
@@ -244,14 +256,18 @@ pstack has no server or telemetry. Anything its skills ask your agent to read, i
 
 This port has no automatic agent-diary reporting or diary opt-in setting. For a local decision trail, ask for [`show-me-your-work`](plugins/pstack/skills/show-me-your-work/SKILL.md). Longer or unattended workflows also invoke it. The trail stays uncommitted by default. If the trail is committed and pushed to a shared PR, anyone with access to the PR can read it.
 
-To share feedback, submit a short, manually reviewed report through [GitHub issues](https://github.com/michael-denyer/pstack-claude/issues). Include the pstack version, runtime, relevant workflow, and observed result. Remove credentials, customer data, private repository links, and sensitive log or configuration values before posting; share a summary instead of raw transcripts.
+To share feedback, submit a short, manually reviewed report through [GitHub issues](https://github.com/Thomas-Melonesoda/potluck/issues). Include the pstack version, runtime, relevant workflow, and observed result. Remove credentials, customer data, private repository links, and sensitive log or configuration values before posting; share a summary instead of raw transcripts.
 
 ## Contributing
 
-Thanks for helping make this port better. Bug reports, documentation fixes, and runtime improvements are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the checks and where your change belongs. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+Thanks for helping make potluck better. Bug reports, documentation fixes, and runtime improvements are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the checks and where your change belongs. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
-To support maintenance of this port, [buy the maintainer a coffee](https://buymeacoffee.com/codenyer).
+Fixes that belong upstream are better sent upstream: harness and port issues to [pstack-claude](https://github.com/michael-denyer/pstack-claude), skill content issues to [cursor/plugins](https://github.com/cursor/plugins).
+
+## Credits
+
+potluck exists because of the work of Lauren Tan (pstack and poteto-mode), Michael Denyer (the multi-harness port and its sync tooling), Matt Pocock, and Addy Osmani. Thank you.
 
 ## License
 
-This port, including its modifications and additions, is also [MIT-licensed](LICENSE), © 2026 Michael Denyer. Original pstack © 2026 Lauren Tan; imported cursor-team-kit and thermos skills © 2026 Cursor. See [LICENSE-cursor-team-kit](LICENSE-cursor-team-kit), [LICENSE-thermos](LICENSE-thermos), and [NOTICE.md](NOTICE.md).
+potluck is [MIT-licensed](LICENSE). Original pstack © 2026 Lauren Tan; the pstack-claude port's modifications and additions © 2026 Michael Denyer; potluck's modifications and additions © 2026 Thomas-Melonesoda; imported cursor-team-kit and thermos skills © 2026 Cursor. See [LICENSE-cursor-team-kit](LICENSE-cursor-team-kit), [LICENSE-thermos](LICENSE-thermos), and [NOTICE.md](NOTICE.md).

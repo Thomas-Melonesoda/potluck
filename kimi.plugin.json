@@ -2,7 +2,7 @@
   "name": "pstack",
   "version": "0.9.146",
   "description": "pstack workflows for Kimi Code CLI",
-  "homepage": "https://github.com/michael-denyer/pstack-claude",
+  "homepage": "https://github.com/Thomas-Melonesoda/potluck",
   "license": "MIT",
   "skills": "./plugins/pstack/skills",
   "systemPromptPath": "./plugins/pstack/hooks/kimi-instructions.md",

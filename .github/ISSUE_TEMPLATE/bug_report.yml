@@ -13,9 +13,9 @@ body:
     attributes:
       label: Before you file
       options:
-        - label: I reproduced this on the [latest release](https://github.com/michael-denyer/pstack-claude/releases/latest).
+        - label: I reproduced this on the [latest release](https://github.com/Thomas-Melonesoda/potluck/releases/latest).
           required: true
-        - label: I searched [open and closed issues](https://github.com/michael-denyer/pstack-claude/issues?q=is%3Aissue) and [CHANGES.md](https://github.com/michael-denyer/pstack-claude/blob/main/CHANGES.md) and did not find this bug.
+        - label: I searched [open and closed issues](https://github.com/Thomas-Melonesoda/potluck/issues?q=is%3Aissue) and [CHANGES.md](https://github.com/Thomas-Melonesoda/potluck/blob/main/CHANGES.md) and did not find this bug.
           required: true
   - type: input
     id: pstack-version
@@ -72,7 +72,7 @@ body:
       label: Steps to reproduce
       description: Numbered steps that start from a fresh session. Give each command as you typed it.
       placeholder: |
-        1. /plugin install pstack@pstack-claude
+        1. /plugin install pstack@potluck
         2. Start a new session and type ...
         3. ...
     validations:

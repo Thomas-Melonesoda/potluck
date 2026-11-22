@@ -1,15 +1,15 @@
 {
-  "name": "pstack-claude",
+  "name": "potluck",
   "owner": {
-    "name": "Michael Denyer",
-    "url": "https://github.com/michael-denyer"
+    "name": "Thomas-Melonesoda",
+    "url": "https://github.com/Thomas-Melonesoda"
   },
-  "description": "Claude Code port of poteto's pstack. Rigorous agent workflows with Cursor primitives translated to Claude Code equivalents.",
+  "description": "potluck: Lauren Tan's pstack as the core, adapted for Claude Code, Codex, and other harnesses through Michael Denyer's port, with selected skills from Matt Pocock and Addy Osmani.",
   "plugins": [
     {
       "name": "pstack",
       "source": "./plugins/pstack",
-      "description": "If you want to go fast, go deep first. pstack helps you write less, but higher quality code. rigorous agent workflows you can parallelize with confidence. Original pstack by Lauren Tan (poteto).",
+      "description": "potluck is an agent workflow system built on Lauren Tan's pstack and Michael Denyer's multi-harness port. Rigorous agent workflows you can parallelize with confidence. Original pstack by Lauren Tan (poteto).",
       "version": "0.9.146"
     }
   ]

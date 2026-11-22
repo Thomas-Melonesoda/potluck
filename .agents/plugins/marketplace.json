@@ -1,7 +1,7 @@
 {
-  "name": "pstack-claude",
+  "name": "potluck",
   "interface": {
-    "displayName": "pstack"
+    "displayName": "potluck"
   },
   "plugins": [
     {

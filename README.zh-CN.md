@@ -1,0 +1,74 @@
+# potluck
+
+[English](README.md) | **中文**
+
+potluck 是一个开源的 agent 工作系统。它想同时做到两件事：agent 自主程度拉满，系统完整度也拉满。这样即使使用者不审代码、不做架构设计（比如产品经理、设计师，或任何人），也能从 agent 那里拿到经过验证的结果。
+
+名字取"百家饭"的意思，它来自四个开源项目：
+
+| 来源 | potluck 从中拿什么 |
+| --- | --- |
+| Lauren Tan 的 [pstack](https://github.com/cursor/plugins/tree/main/pstack) | 主体：`poteto-mode`、它的 playbook、原则和验证方法。pstack 有现成做法的地方，potluck 就用它的。 |
+| Michael Denyer 的 [pstack-claude](https://github.com/michael-denyer/pstack-claude) | 本仓库 fork 的基础：把 pstack 翻译到 Claude Code、Codex、Pi、GitHub Copilot、Muse 等工具上，以及他的同步工具。 |
+| Matt Pocock 的 [skills](https://github.com/mattpocock/skills) | 计划借用：grilling、原型、wizard、术语表和决定记录的格式。 |
+| Addy Osmani 的 [agent-skills](https://github.com/addyosmani/agent-skills) | 计划借用：`CONSTRAINTS.md`、始终生效的质量底线、分层的 skill eval。 |
+
+potluck 和各上游不一样的每一处，都登记在 [`tools/forks.json`](tools/forks.json) 里。
+
+> **现状：施工中。** 目前本仓库的内容和 Michael Denyer 的 pstack-claude v0.9.146 一致，只改了对外名称。插件安装后的内部 ID 仍是 `pstack`，各个 skill 也保留上游的名字（比如 `poteto-mode`），这样跟进上游更新的成本最低。上面说的政策调整和借用的 skill 还没有加进来。
+
+把目标告诉 `poteto-mode`，它会为这个任务选对工作流程，让代码保持简洁、简单、经过验证。
+
+## 安装
+
+下面只列 Claude Code 和 Codex。其它工具（Pi、GitHub Copilot、Muse、OMP、Kimi Code CLI、Grok Build、MiniMax Code、OpenCode 2、Antigravity 等）的安装方法见[英文 README](README.md#install)。
+
+### Claude Code
+
+在 Claude Code 2.1.292 或更新版本里运行：
+
+```text
+/plugin marketplace add Thomas-Melonesoda/potluck
+/plugin install pstack@potluck
+```
+
+Claude Code 默认不给第三方 marketplace 开自动更新。要开的话，运行 `/plugin`，打开 **Marketplaces** 标签，选 `potluck`，再选 **Enable auto-update**。想手动更新一次，运行 `claude plugin update pstack@potluck`。
+
+### Codex
+
+在终端里运行：
+
+```shell
+codex plugin marketplace add Thomas-Melonesoda/potluck
+codex plugin add pstack@potluck
+```
+
+输入 `$` 加 skill 名（比如 `$poteto-mode`）来调用，`/skills` 会列出所有 skill。
+
+## 开始使用
+
+```text
+Use poteto-mode to fix the search filter resetting when I change pages.
+```
+
+遇到 bug 时，它会先复现失败，用 `how` 和 `why` 查原因，把修复交给子 agent，再重跑失败的用例。你拿到的是修复本身，以及修复前失败、修复后通过的证据。
+
+更多细节（skill 和命令列表、各工具的设置、模型配置）见 [docs/reference.md](docs/reference.md)（英文）。
+
+## 数据
+
+potluck 没有服务器，也没有遥测。skill 让 agent 读的任何内容（包括会话记录）都会发给你用的模型服务商。脚本都在本地运行，PR 相关工具用的是你自己的 GitHub CLI 登录。
+
+## 参与
+
+欢迎提 bug、改文档、改进各工具的适配。检查方法和改动该放哪里见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
+
+属于上游的问题，最好直接报给上游：工具适配问题报给 [pstack-claude](https://github.com/michael-denyer/pstack-claude)，skill 内容问题报给 [cursor/plugins](https://github.com/cursor/plugins)。
+
+## 致谢
+
+potluck 建立在 Lauren Tan（pstack 和 poteto-mode）、Michael Denyer（多工具移植和同步工具）、Matt Pocock 和 Addy Osmani 的工作之上。谢谢他们。
+
+## 许可证
+
+potluck 使用 [MIT 许可证](LICENSE)。原版 pstack © 2026 Lauren Tan；pstack-claude 移植的修改和新增 © 2026 Michael Denyer；potluck 的修改和新增 © 2026 Thomas-Melonesoda；来自 cursor-team-kit 和 thermos 的 skill © 2026 Cursor。详见 [LICENSE-cursor-team-kit](LICENSE-cursor-team-kit)、[LICENSE-thermos](LICENSE-thermos) 和 [NOTICE.md](NOTICE.md)。

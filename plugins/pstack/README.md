@@ -1,6 +1,6 @@
-# pstack
+# potluck
 
-Lauren Tan's [pstack](https://github.com/cursor/plugins/tree/main/pstack) is an opinionated skill stack that improves agent outcomes. This is the port for Claude Code, Codex, and other agent harnesses: the same skills, with Cursor primitives translated to each runtime's tools.
+potluck is built on Lauren Tan's [pstack](https://github.com/cursor/plugins/tree/main/pstack) is an opinionated skill stack that improves agent outcomes. It forks Michael Denyer's port for Claude Code, Codex, and other agent harnesses: the same skills, with Cursor primitives translated to each runtime's tools.
 
 Tell `poteto-mode` your goal and it invokes the workflow that fits: reproduce and root-cause a bug, sketch a design with `architect`, race candidates in `arena`, review a diff with `interrogate`, cut prose with `unslop`. It keeps code concise, simple, and verified, and it reports what it checked.
 
@@ -18,10 +18,10 @@ pstack has no server or telemetry. Anything its skills ask your agent to read, i
 
 ## Links
 
-- [Skills, slash commands, runtime setup, and model configuration](https://github.com/michael-denyer/pstack-claude/blob/main/docs/reference.md)
-- [Issues and support](https://github.com/michael-denyer/pstack-claude/issues)
-- [Security policy](https://github.com/michael-denyer/pstack-claude/blob/main/SECURITY.md)
+- [Skills, slash commands, runtime setup, and model configuration](https://github.com/Thomas-Melonesoda/potluck/blob/main/docs/reference.md)
+- [Issues and support](https://github.com/Thomas-Melonesoda/potluck/issues)
+- [Security policy](https://github.com/Thomas-Melonesoda/potluck/blob/main/SECURITY.md)
 
 ## License
 
-MIT for this port and its additions, © 2026 Michael Denyer. Original pstack © 2026 Lauren Tan; imported cursor-team-kit skills © 2026 Cursor. See [NOTICE.md](https://github.com/michael-denyer/pstack-claude/blob/main/NOTICE.md).
+MIT. Original pstack © 2026 Lauren Tan; the pstack-claude port © 2026 Michael Denyer; potluck's additions © 2026 Thomas-Melonesoda; imported cursor-team-kit skills © 2026 Cursor. See [NOTICE.md](https://github.com/Thomas-Melonesoda/potluck/blob/main/NOTICE.md).
