@@ -110,7 +110,7 @@ export function guardSource(path = FLOOR_GUARD) {
 }
 
 // Formats that are binary by nature. Any other changed file must diff as text.
-const BINARY = /\.(?:png|jpe?g|gif|webp|avif|bmp|ico|icns|tiff?|psd|heic|pdf|woff2?|ttf|otf|eot|mp3|mp4|m4a|wav|ogg|flac|mov|webm|avi|zip|gz|tgz|bz2|xz|7z|rar|jar|war|wasm|so|dylib|dll|exe|class|pyc|o|a|lib|sqlite3?|db|docx?|xlsx?|pptx?|keynote|sketch|fig)$/i;
+const BINARY = /\.(?:png|jpe?g|gif|webp|avif|bmp|ico|icns|tiff?|psd|heic|pdf|woff2?|ttf|otf|eot|mp3|mp4|m4a|wav|ogg|flac|mov|webm|avi|zip|gz|tgz|bz2|xz|7z|rar|jar|war|wasm|so|dylib|dll|exe|class|pyc|o|a|lib|sqlite3?|db|lockb|docx?|xlsx?|pptx?|keynote|sketch|fig)$/i;
 
 const gitIn = (cwd, args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity, timeout: 300_000 });
 
@@ -186,15 +186,20 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
     // (one NUL byte is enough) would hide every finding in it. Only known
     // binary formats (images, fonts, media, archives, documents) may be binary.
     const numstat = isolated(["diff", "--numstat", "-z", base, "HEAD"]).split("\0").filter(Boolean);
-    const opaque = numstat.filter((l) => /^-\t-\t/.test(l)).map((l) => l.slice(4)).filter((f) => !BINARY.test(f));
+    // A deleted file hides nothing, so only files present in the head count.
+    const present = new Set(isolated(["ls-tree", "-r", "-z", "--name-only", "HEAD"]).split("\0").filter(Boolean));
+    const opaque = numstat.filter((l) => /^-\t-\t/.test(l)).map((l) => l.slice(4)).filter((f) => present.has(f) && !BINARY.test(f));
     if (opaque.length) return { ok: false, reasons: opaque.map((f) => `floor: [binary-source] ${f}: git reads this file as binary, so the floor cannot check it; remove the NUL or control bytes, or use a binary format's usual extension`) };
-    const workflows = (() => {
+    // Workflows count from the base or the head, so a PR cannot escape the
+    // no-CI rule by deleting or renaming the CI it would have to pass.
+    const hasWorkflows = (rev) => {
       try {
-        return isolated(["ls-tree", "--name-only", "HEAD", ".github/workflows/"]).split("\n").some((f) => /\.ya?ml$/.test(f));
+        return isolated(["ls-tree", "--name-only", rev, ".github/workflows/"]).split("\n").some((f) => /\.ya?ml$/.test(f));
       } catch {
         return false;
       }
-    })();
+    };
+    const workflows = hasWorkflows(base) || hasWorkflows("HEAD");
     const script = join(scratch, "floor-guard.mjs");
     writeFileSync(script, source);
     const run = spawnSync(process.execPath, [script, "--base", base], { cwd: tree, env: { ...env, ...attrs }, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });

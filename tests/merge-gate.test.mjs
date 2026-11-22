@@ -301,6 +301,18 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons[0]).toContain("no CI result on");
   });
 
+  test("a PR that deletes the base's CI cannot merge without a CI result", () => {
+    const { run } = fake({ runs: [], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" }, remove: [".github/workflows/ci.yml"] } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("no CI result on");
+  });
+
+  test("deleting a committed binary file passes the binary check", () => {
+    const { run } = fake({ setup: { base: { ".DS_Store": Buffer.from([0, 1, 2, 3, 0]) }, remove: [".DS_Store"] } });
+    expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
   test("a NUL byte in an extension-less script is refused too", () => {
     const { run } = fake({ change: { path: "bin/run", text: `#!/usr/bin/env node\n/*\0*/\n// eslint-${"disable"}\n` } });
     const r = run(...merge, "--dry-run");
