@@ -41,6 +41,16 @@ describe("register fields in parseForks", () => {
   });
 });
 
+test("every entry in potluck's tools/forks.json carries the whole register", () => {
+  const registry = JSON.parse(readFileSync(join(repo, "tools/forks.json"), "utf8"));
+  const fields = ["source", "choice", "row", "ruling", "decided"];
+  const incomplete = Object.values(registry)
+    .flatMap((entries) => Object.entries(entries))
+    .filter(([, entry]) => fields.some((field) => entry[field] == null || entry[field] === ""))
+    .map(([path]) => path);
+  expect(incomplete).toEqual([]);
+});
+
 describe("renderDecisions", () => {
   test("groups by source, labels both languages, and escapes table pipes", () => {
     const text = renderDecisions({
