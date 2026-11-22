@@ -10,8 +10,8 @@
 //     and its branch are untouched, and no hook runs)
 //   - every untracked file, ignored files outside the audit's DISPOSABLE
 //     build and cache directories (such as .env), and the on-disk copy of each
-//     changed tracked file (which a clean filter may have altered in the wip
-//     commit), as a tar.gz under <trash>/<date>/, never in git
+//     changed tracked file and of every tracked file with a clean filter (which
+//     can alter what git stores), as a tar.gz under <trash>/<date>/, never in git
 //   - commits that only the worktree's HEAD or HEAD reflog reaches, as branches
 //     `backup/<name>-<date>-head` and `backup/<name>-<date>-reflog-<sha>`
 // It refuses (exit 3, "hold") a worktree that is locked, has any initialized
@@ -208,6 +208,7 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
   const changed = [
     ...z(git(worktree, ["ls-files", "-z", "--modified"])),
     ...z(git(worktree, ["diff", "-z", "--cached", "--name-only", "--no-renames", "--ignore-submodules=all", "HEAD", "--"])),
+    ...filtered(worktree),
   ].filter((path) => onDisk(join(worktree, path)) && !hasFiles(join(worktree, path)));
   const keep = [...new Set([...others, ...ignored, ...changed])];
   if (keep.length) {
@@ -225,6 +226,23 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
   }
   if (!result.branches.length && !result.tarball) result.kind = "nothing-to-back-up";
   return result;
+}
+
+// Tracked files with a clean filter, whatever their status: once the filtered
+// form is staged or committed, git reports no change while the file on disk
+// still holds what the filter strips (nbstripout outputs, a redacted secret).
+// Git LFS is left out, since its objects live in the shared git dir.
+function filtered(worktree) {
+  const tracked = git(worktree, ["ls-files", "-z"]);
+  if (!tracked) return [];
+  const out = execFileSync("git", ["-C", worktree, "check-attr", "--stdin", "-z", "filter"], { input: tracked, encoding: "utf8" });
+  const fields = out.split("\0");
+  const paths = [];
+  for (let i = 0; i + 2 < fields.length; i += 3) {
+    const value = fields[i + 2];
+    if (!["unspecified", "unset", "set", "lfs"].includes(value)) paths.push(fields[i]);
+  }
+  return paths;
 }
 
 function isAncestor(worktree, a, b) {

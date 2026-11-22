@@ -345,8 +345,30 @@ describe("worktree-backup", () => {
     const r = run();
     expect(r.json.kind).toBe("backed-up");
     expect(git(wt, "show", `${r.json.branches[0].branch}:secret.conf`)).toBe("pw=REDACTED");
-    const out = join(trash, "out");
-    mkdirSync(out);
+    const out = mkdtempSync(join(tmpdir(), "potluck-untar-"));
+    roots.push(out);
+    spawnSync("tar", ["-xzf", r.json.tarball.path, "-C", out]);
+    expect(readFileSync(join(out, "secret.conf"), "utf8")).toBe("pw=hunter2\n");
+  });
+
+  test("a filtered file stays raw in the tarball after its filtered form is committed", () => {
+    const { repo, wt, git, run, trash } = setup();
+    writeFileSync(join(repo, ".gitattributes"), "*.conf filter=redact\n");
+    git(repo, "config", "filter.redact.clean", "sed 's/^pw=.*/pw=REDACTED/'");
+    git(repo, "config", "filter.redact.smudge", "cat");
+    writeFileSync(join(repo, "secret.conf"), "pw=REDACTED\n");
+    git(repo, "add", ".gitattributes", "secret.conf");
+    git(repo, "commit", "-q", "-m", "filtered");
+    git(wt, "merge", "-q", "main");
+    writeFileSync(join(wt, "secret.conf"), "pw=hunter2\n");
+    writeFileSync(join(wt, "a.txt"), "edited\n");
+    git(wt, "add", "-A");
+    git(wt, "commit", "-q", "-m", "work");
+    expect(git(wt, "status", "--porcelain")).toBe("");
+    const r = run();
+    expect(r.json.kind).toBe("backed-up");
+    const out = mkdtempSync(join(tmpdir(), "potluck-untar-"));
+    roots.push(out);
     spawnSync("tar", ["-xzf", r.json.tarball.path, "-C", out]);
     expect(readFileSync(join(out, "secret.conf"), "utf8")).toBe("pw=hunter2\n");
   });
