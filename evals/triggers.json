@@ -26,7 +26,7 @@
     {"prompt": "resolve the merge conflicts on this branch and make sure the build and tests pass", "skill": "fix-merge-conflicts"},
     {"prompt": "what did the reviewers say on my pull request", "skill": "get-pr-comments"},
     {"prompt": "how does the auth middleware work, walk me through the code", "skill": "how"},
-    {"prompt": "tell me back what you think I'm asking for before doing anything", "skill": "in-your-own-words", "known": "the description shares what, think with how a user asks; principle-foundational-thinking shares what, think, ask, befor and ranks first"},
+    {"prompt": "tell me back what you think I'm asking for before doing anything", "skill": "in-your-own-words", "known": "the description shares what, think with how a user asks; grill shares what, ask, befor, anyth and ranks first"},
     {"prompt": "have other models poke holes in this plan before we build it", "skill": "interrogate", "known": "the description shares model with how a user asks; domain-modeling shares model, build and ranks first"},
     {"prompt": "I stepped away for a bit, what did you do while I was gone", "skill": "ketchup", "known": "the description shares what with how a user asks; what-did-i-get-done shares what, did and ranks first"},
     {"prompt": "give me a quick video recap of what happened", "skill": "ketchup-video"},
@@ -57,6 +57,7 @@
     {"prompt": "walk me step by step through getting the Stripe keys and putting them into our CI secrets", "skill": "wizard"},
     {"prompt": "we keep using account to mean two different things, pin down our terms and write them down", "skill": "domain-modeling", "known": "the description shares writ with how a user asks; principle-attack-the-premise shares two, down, writ and ranks first"},
     {"prompt": "set up our quality standards so the agent stops cutting corners", "skill": "constraint-driven-development"},
+    {"prompt": "I have an idea for an app that splits bills between flatmates, but I'm not sure exactly what it should do yet", "skill": "grill"},
     {"prompt": "fix the off-by-one in the date helper", "not": ["fix-ci", "thermos", "arena", "figure-it-out"]},
     {"prompt": "what does this error message mean", "not": ["ketchup", "tdd", "correct"], "known": "what and message are in ketchup's description (changes since the user's last message)"},
     {"prompt": "rename this variable", "not": ["architect", "figure-it-out", "swarm", "deslop"]}
