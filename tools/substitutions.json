@@ -582,6 +582,42 @@
       "files": "^(?:0\\d|10)-[a-z-]+\\.md$|^README\\.md$"
     },
     {
+      "pattern": "commit it to a throwaway branch, out of main, and leave a context pointer to that branch on the implementation issue. Capture the answer too (the verdict and the question it settled) in the issue or a commit.",
+      "replacement": "commit it to a throwaway branch, out of main, and leave a pointer to that branch where the decision is recorded, such as an ADR in the **domain-modeling** skill's format. Capture the answer too (the verdict and the question it settled) there or in a commit.",
+      "rationale": "potluck: pstack works without an issue tracker; a settled prototype question goes into the project's decision record (design row G6)",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "pattern": "[Ordering](./src/ordering/GLOSSARY.md)",
+      "replacement": "Ordering (`src/ordering/GLOSSARY.md`)",
+      "rationale": "potluck: the skills-tree link check resolves every Markdown link, fenced examples included, and these example paths exist only in the reader's project",
+      "files": "^GLOSSARY-FORMAT\\.md$"
+    },
+    {
+      "pattern": "[Billing](./src/billing/GLOSSARY.md)",
+      "replacement": "Billing (`src/billing/GLOSSARY.md`)",
+      "rationale": "potluck: the skills-tree link check resolves every Markdown link, fenced examples included, and these example paths exist only in the reader's project",
+      "files": "^GLOSSARY-FORMAT\\.md$"
+    },
+    {
+      "pattern": "[Fulfillment](./src/fulfillment/GLOSSARY.md)",
+      "replacement": "Fulfillment (`src/fulfillment/GLOSSARY.md`)",
+      "rationale": "potluck: the skills-tree link check resolves every Markdown link, fenced examples included, and these example paths exist only in the reader's project",
+      "files": "^GLOSSARY-FORMAT\\.md$"
+    },
+    {
+      "pattern": "on the existing `/settings` route.",
+      "replacement": "on the existing settings route.",
+      "rationale": "potluck: the skill-reference test reads a backticked /name as a slash command, and this one is an app's URL route",
+      "files": "^UI\\.md$"
+    },
+    {
+      "pattern": "$e[Enter keeps current]",
+      "replacement": "${e}[Enter keeps current]",
+      "rationale": "potluck: shellcheck reads $e[ as an array expansion (SC1087) and fails CI and every wizard copied from this template; braces keep the same output",
+      "files": "^template\\.sh$"
+    },
+    {
       "pattern": "Other skills in this pack describe what good looks like. `code-review-and-quality` gives you five axes. `test-driven-development` gives you a cycle. `security-and-hardening` gives you a threat list.",
       "replacement": "Other skills describe what good looks like. The **thermos** reviews give you a strict pass over a diff. The **tdd** skill gives you a cycle. The **thermo-nuclear-review** skill gives you a security audit.",
       "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",

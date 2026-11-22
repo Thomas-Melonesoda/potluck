@@ -10,12 +10,12 @@ potluck 是一个开源的 agent 工作系统。它想同时做到两件事：ag
 | --- | --- |
 | Lauren Tan 的 [pstack](https://github.com/cursor/plugins/tree/main/pstack) | 主体：`poteto-mode`、它的 playbook、原则和验证方法。pstack 有现成做法的地方，potluck 就用它的。 |
 | Michael Denyer 的 [pstack-claude](https://github.com/michael-denyer/pstack-claude) | 本仓库 fork 的基础：把 pstack 翻译到 Claude Code、Codex、Pi、GitHub Copilot、Muse 等工具上，以及他的同步工具。 |
-| Matt Pocock 的 [skills](https://github.com/mattpocock/skills) | 计划借用：grilling、原型、wizard、术语表和决定记录的格式。 |
+| Matt Pocock 的 [skills](https://github.com/mattpocock/skills) | `prototype`、`wizard` 和 `domain-modeling`（术语表和决定记录的格式），从上游同步。计划借用：grilling。 |
 | Addy Osmani 的 [agent-skills](https://github.com/addyosmani/agent-skills) | `constraint-driven-development`（`CONSTRAINTS.md` 和始终生效的质量底线），从上游同步；potluck 分层 skill eval 的思路也来自他。 |
 
 potluck 和各上游不一样的每一处，都登记在 [`tools/forks.json`](tools/forks.json) 里。
 
-> **现状：施工中。** 目前本仓库的内容和 Michael Denyer 的 pstack-claude v0.9.146 一致，只改了对外名称。插件安装后的内部 ID 仍是 `pstack`，各个 skill 也保留上游的名字（比如 `poteto-mode`），这样跟进上游更新的成本最低。上面说的政策调整和借用的 skill 还没有加进来。
+> **现状：施工中。** 目前本仓库的内容和 Michael Denyer 的 pstack-claude v0.9.146 一致，只改了对外名称。插件安装后的内部 ID 仍是 `pstack`，各个 skill 也保留上游的名字（比如 `poteto-mode`），这样跟进上游更新的成本最低。阶段 3 的政策调整已经加进来，阶段 4 正在加借用的 skill，进度见[路线图](docs/roadmap.md)。
 
 把目标告诉 `poteto-mode`，它会为这个任务选对工作流程，让代码保持简洁、简单、经过验证。
 
@@ -44,6 +44,10 @@ codex plugin add pstack@potluck
 ```
 
 输入 `$` 加 skill 名（比如 `$poteto-mode`）来调用，`/skills` 会列出所有 skill。
+
+## git 护栏
+
+在 Claude Code 里，agent 每次执行 shell 命令前，potluck 会先检查一下。仓库里有未提交的改动、未跟踪的文件，或者只有这里才有的提交时，它会拦住会弄丢这些东西的 git 命令：`reset --hard`、`clean -f`、会丢掉改动的 `checkout`、`switch` 或 `restore`、不带 `--force-with-lease` 的强推，以及删除一个提交只在它上面的分支。报错会告诉 agent 先怎么保存，所以它不用等你就能接着做。仓库干净时、普通的 push、带 lease 的强推，都直接放行。这项检查需要电脑上有 `node`；没有的话，命令照常执行。
 
 ## 开始使用
 

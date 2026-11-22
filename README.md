@@ -10,12 +10,12 @@ It is a potluck of four open-source projects:
 | --- | --- |
 | Lauren Tan's [pstack](https://github.com/cursor/plugins/tree/main/pstack) | The core: `poteto-mode`, its playbooks, principles, and verification. Where pstack has a way of doing something, potluck uses it. |
 | Michael Denyer's [pstack-claude](https://github.com/michael-denyer/pstack-claude) | The base this repository forks: pstack translated for Claude Code, Codex, Pi, GitHub Copilot, Muse, and other harnesses, plus its sync tooling. |
-| Matt Pocock's [skills](https://github.com/mattpocock/skills) | Planned: grilling, prototypes, wizards, glossary and decision-record formats. |
+| Matt Pocock's [skills](https://github.com/mattpocock/skills) | `prototype`, `wizard`, and `domain-modeling` (glossary and decision-record formats), synced from upstream. Planned: grilling. |
 | Addy Osmani's [agent-skills](https://github.com/addyosmani/agent-skills) | `constraint-driven-development` (`CONSTRAINTS.md` and the always-on quality floor), synced from upstream, and the idea behind potluck's layered skill evals. |
 
 Each place where potluck differs from its upstreams is declared in [`tools/forks.json`](tools/forks.json).
 
-> **Status: under construction.** This repository currently matches Michael Denyer's pstack-claude v0.9.146 with the public names changed. The plugin still installs under its internal ID `pstack`, and skills keep their upstream names (such as `poteto-mode`) to keep syncing cheap. The policy changes and borrowed skills described above are not in yet.
+> **Status: under construction.** This repository currently matches Michael Denyer's pstack-claude v0.9.146 with the public names changed. The plugin still installs under its internal ID `pstack`, and skills keep their upstream names (such as `poteto-mode`) to keep syncing cheap. Stage 3's policy changes are in, and stage 4 is bringing in the borrowed skills: see the [roadmap](docs/roadmap.md).
 
 Tell `poteto-mode` your goal and it will invoke the correct workflow for the task. It keeps your code concise, simple and verified.
 
@@ -228,6 +228,10 @@ To update, run `git pull` in the clone, then run the `for` loop again to link sk
 pstack provides automatic routing on Claude Code, Codex, GitHub Copilot, Muse, MiniMax Code, Antigravity, Pi, Kimi Code CLI, OMP, and OpenCode 2. The runtimes deliver the instruction at different points: Kimi adds it while the plugin is enabled, OMP adds it before each main-agent turn, and OpenCode adds it at each model step in root sessions. Grok Build exposes a routing hint through a skill description; the model may not follow it. Codex requires hook trust through `/hooks`, and Muse requires `muse plugins approve pstack`. Other harnesses have no automatic routing.
 
 Run `setup-pstack` to turn automatic routing on or off, change model defaults, or set a reasoning effort per role (`arena runners: opus @xhigh, fable @max`). On OMP, the session hook setting applies globally across profiles; on Kimi, enable or disable the plugin to control routing. See the [routing reference](docs/reference.md#automatic-routing).
+
+## Git guardrail
+
+On Claude Code, potluck checks each shell command the agent runs before it runs. In a repository with uncommitted changes, untracked files, or commits nothing else holds, it blocks the git commands that would lose them: `reset --hard`, `clean -f`, a `checkout`, `switch`, or `restore` that discards changes, a force push without `--force-with-lease`, and deleting a branch whose commits exist nowhere else. The message tells the agent how to save the work first, so it carries on without you. A clean repository, a plain push, and a push with a lease always pass. The check needs `node` on your PATH; without it, commands run as before.
 
 ## Getting started
 
