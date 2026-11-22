@@ -580,6 +580,72 @@
       "replacement": "](../../plugins/pstack/agents/",
       "rationale": "potluck guide: the guide lives at docs/guide/, two levels above the plugin's agents",
       "files": "^(?:0\\d|10)-[a-z-]+\\.md$|^README\\.md$"
+    },
+    {
+      "pattern": "Other skills in this pack describe what good looks like. `code-review-and-quality` gives you five axes. `test-driven-development` gives you a cycle. `security-and-hardening` gives you a threat list.",
+      "replacement": "Other skills describe what good looks like. The **thermos** reviews give you a strict pass over a diff. The **tdd** skill gives you a cycle. The **thermo-nuclear-review** skill gives you a security audit.",
+      "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "pattern": "You're about to run `/build auto` or any autonomous loop,",
+      "replacement": "You're about to run an autonomous loop (the Autonomous run or Autopilot-full playbook),",
+      "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "pattern": "The user wants a code review right now (`code-review-and-quality`) or a CI pipeline built (`ci-cd-and-automation`)",
+      "replacement": "The user wants a code review right now (the **thermos** skill) or a CI pipeline built",
+      "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "pattern": "Follow the one-question-at-a-time discipline from `interview-me`, with one change: every question here has a default,",
+      "replacement": "Ask them one at a time, with one change from a plain interview: every question here has a default,",
+      "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "pattern": "| Phase | Command | What runs | Budget |",
+      "replacement": "| Phase | When | What runs | Budget |",
+      "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "pattern": "| BUILD | `/build` |",
+      "replacement": "| BUILD | after each edit |",
+      "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "pattern": "| VERIFY | `/test` |",
+      "replacement": "| VERIFY | at self-proof, before the PR |",
+      "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "pattern": "| REVIEW | `/review` |",
+      "replacement": "| REVIEW | the verification swarm on the PR |",
+      "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "pattern": "| SHIP | `/ship` |",
+      "replacement": "| SHIP | before the merge, in CI |",
+      "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "regex": "## Common Rationalizations\\n[\\s\\S]*?(?=## Red Flags)",
+      "replacement": "",
+      "rationale": "potluck: the owner ruled out Addy's rationalization tables (design row D7); a repeated excuse becomes a check through /correct instead",
+      "files": "^SKILL\\.md$"
+    },
+    {
+      "regex": "## See Also\\n[\\s\\S]*$",
+      "replacement": "## See Also\n\n- **tdd**: the suite that coverage and mutation constraints measure\n- **thermos**: the strict review of a diff against this bar\n- **thermo-nuclear-review**: what the security dimension should contain\n- **benchmark-checklist**: how to vet a performance number before it becomes a budget\n",
+      "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
+      "files": "^SKILL\\.md$"
     }
   ],
   "denylist": [

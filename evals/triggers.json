@@ -17,7 +17,7 @@
     {"prompt": "I measured a 30% speedup on the parser, check the benchmark before I report it", "skill": "benchmark-checklist"},
     {"prompt": "before I merge, what other parts of the app might this quietly break", "skill": "blast-radius"},
     {"prompt": "I didn't follow that, explain it like I'm not an engineer", "skill": "bro", "known": "the description shares no word with how a user asks; teach shares explain and ranks first"},
-    {"prompt": "the agent broke the same import rule three times this week, stop it for good", "skill": "correct"},
+    {"prompt": "the agent broke the same import rule three times this week, stop it for good", "skill": "correct", "known": "the description shares agent, tim with how a user asks; principle-encode-lessons-in-structure shares sam, rul, tim and ranks first"},
     {"prompt": "model-check the job scheduler so it can never run the same job twice", "skill": "create-formal-verification-skill", "known": "the description shares model, check with how a user asks; principle-never-block-on-the-human shares never and ranks first"},
     {"prompt": "set up a way for agents to click through my app and check their own changes", "skill": "create-verification-skill"},
     {"prompt": "this code reads like a chatbot wrote it, clean it up", "skill": "deslop"},
@@ -53,6 +53,7 @@
     {"prompt": "cut the AI tells from this blog post", "skill": "unslop"},
     {"prompt": "summarize the commits I authored over the last two weeks into an update", "skill": "what-did-i-get-done"},
     {"prompt": "why did we pick Postgres over Mongo here, what was the rationale", "skill": "why"},
+    {"prompt": "the agent keeps skipping tests and adding ignore comments to get green, write down our quality bar so it can't", "skill": "constraint-driven-development"},
     {"prompt": "fix the off-by-one in the date helper", "not": ["fix-ci", "thermos", "arena", "figure-it-out"]},
     {"prompt": "what does this error message mean", "not": ["ketchup", "tdd", "correct"], "known": "what and message are in ketchup's description (changes since the user's last message)"},
     {"prompt": "rename this variable", "not": ["architect", "figure-it-out", "swarm", "deslop"]}

@@ -77,6 +77,7 @@ export const PORTABLE_ASSETS = [
     target: "poteto-mode/references/licenses/LICENSE-cursor-team-kit",
   },
   { source: "LICENSE-thermos", target: "poteto-mode/references/licenses/LICENSE-thermos" },
+  { source: "LICENSE-addyosmani-agent-skills", target: "poteto-mode/references/licenses/LICENSE-addyosmani-agent-skills" },
   { source: "NOTICE-skills.md", target: "poteto-mode/references/licenses/NOTICE.md" },
 ];
 

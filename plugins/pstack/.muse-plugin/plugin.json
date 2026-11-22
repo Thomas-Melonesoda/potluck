@@ -46,6 +46,11 @@
         "enabledDefault": true
       },
       {
+        "id": "constraint-driven-development",
+        "path": "skills/constraint-driven-development/SKILL.md",
+        "enabledDefault": true
+      },
+      {
         "id": "correct",
         "path": "skills/correct/SKILL.md",
         "enabledDefault": true
