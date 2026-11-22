@@ -13,6 +13,16 @@
 //   - that head carries a `potluck/verdict` status of success
 //   - every other check run and commit status on that head finished green
 //     (a head with no CI passes this one)
+//   - the quality floor passes on that head (design rows D5 and A8): Addy
+//     Osmani's floor guard, taken unchanged from the synced
+//     constraint-driven-development skill, runs in a throwaway clone of the
+//     verified head (sharing the checkout's objects, none of its config)
+//     against the PR's base. It refuses a change that lowers the
+//     bar: a weakened CONSTRAINTS.md, a test made easier, a new suppression
+//     comment, a stub or empty catch, a new exception row. Findings in Markdown
+//     other than CONSTRAINTS.md are dropped, since docs only describe these
+//     moves. A guard that cannot run refuses too. Run the gate from a checkout
+//     whose origin is the repo.
 // It merges with `gh pr merge --squash --match-head-commit <sha>`, never
 // `--auto`, so GitHub itself refuses if the head moves after the checks, and
 // it reads the PR back to confirm the merge.
@@ -23,7 +33,11 @@
 // merged, would-merge, or recorded; 1 on refused or unconfirmed; 2 on a usage
 // error.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 export const CONTEXT = "potluck/verdict";
@@ -45,7 +59,7 @@ function pages(path, field) {
 export function readFacts(repo, pr, sha, read = { ghJson, pages }) {
   const view = read.ghJson([
     "pr", "view", String(pr), "--repo", repo,
-    "--json", "state,isDraft,headRefOid,mergeable,baseRefName",
+    "--json", "state,isDraft,headRefOid,mergeable,baseRefName,baseRefOid",
   ]);
   const statuses = read.pages(`repos/${repo}/commits/${sha}/statuses`);
   const runs = read.pages(`repos/${repo}/commits/${sha}/check-runs?per_page=100`, "check_runs");
@@ -82,6 +96,141 @@ export function refusals({ view, statuses, runs }, sha) {
     else if (!GREEN.has(run.conclusion)) reasons.push(`check ${run.name} concluded ${run.conclusion}`);
   }
   return reasons;
+}
+
+export const FLOOR_GUARD = join(dirname(fileURLToPath(import.meta.url)), "../../constraint-driven-development/references/floor-guard.md");
+
+// The guard's code is the one fenced js block in floor-guard.md, so a sync of
+// Addy's skill updates the guard and nothing here copies it.
+export function guardSource(path = FLOOR_GUARD) {
+  const text = readFileSync(path, "utf8");
+  const blocks = [...text.matchAll(/^```js\n([\s\S]*?)^```$/gm)];
+  if (blocks.length !== 1) throw new Error(`${path} has ${blocks.length} js blocks, expected one`);
+  return blocks[0][1];
+}
+
+// Formats that are binary by nature. Any other changed file must diff as text.
+const BINARY = /\.(?:png|jpe?g|gif|webp|avif|bmp|ico|icns|tiff?|psd|heic|pdf|woff2?|ttf|otf|eot|mp3|mp4|m4a|wav|ogg|flac|mov|webm|avi|zip|gz|tgz|bz2|xz|7z|rar|jar|war|wasm|so|dylib|dll|exe|class|pyc|o|a|lib|sqlite3?|db|lockb|docx?|xlsx?|pptx?|keynote|sketch|fig)$/i;
+
+const gitIn = (cwd, args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity, timeout: 300_000 });
+
+// Runs the floor guard on the verified head. Returns { ok, reasons }.
+export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
+  let top;
+  try {
+    top = gitIn(cwd, ["rev-parse", "--show-toplevel"]).trim();
+  } catch {
+    return { ok: false, reasons: [`floor guard could not run: ${cwd} is not a git checkout; run the gate from a checkout of ${repo}`] };
+  }
+  const origin = (() => {
+    try {
+      return gitIn(top, ["remote", "get-url", "origin"]).trim();
+    } catch {
+      return "";
+    }
+  })();
+  const [owner, name] = repo.toLowerCase().split("/");
+  const slug = origin.toLowerCase().replace(/\.git$/, "").replace(/\/+$/, "");
+  if (!slug.endsWith(`/${owner}/${name}`) && !slug.endsWith(`:${owner}/${name}`)) {
+    return { ok: false, reasons: [`floor guard could not run: origin of ${top} is not ${repo}`] };
+  }
+  let source;
+  try {
+    source = guardSource();
+  } catch (error) {
+    return { ok: false, reasons: [`floor guard could not run: ${error.message.split("\n")[0]}`] };
+  }
+  const scratch = mkdtempSync(join(tmpdir(), "potluck-floor-"));
+  const tree = join(scratch, "tree");
+  // The guard runs in a throwaway clone that shares the checkout's objects but
+  // none of its config, hooks, or worktrees, with global and system config off.
+  // Attributes come from the base commit, so a PR's own .gitattributes cannot
+  // mark files -diff or binary; renames are off, so a renamed test file shows
+  // as deleted; colour and path quoting are off, so the guard reads plain names.
+  // Variables that would point git elsewhere or swap its diff are dropped.
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|EXTERNAL_DIFF|DIFF_OPTS|ATTR_SOURCE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|CONFIG.*|NAMESPACE|CEILING_DIRECTORIES|COMMON_DIR)$/.test(k)),
+  );
+  const env = {
+    ...inherited,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_COUNT: "4",
+    GIT_CONFIG_KEY_0: "diff.renames", GIT_CONFIG_VALUE_0: "false",
+    GIT_CONFIG_KEY_1: "color.ui", GIT_CONFIG_VALUE_1: "never",
+    GIT_CONFIG_KEY_2: "color.diff", GIT_CONFIG_VALUE_2: "never",
+    GIT_CONFIG_KEY_3: "core.quotePath", GIT_CONFIG_VALUE_3: "false",
+  };
+  let attrs = {};
+  const isolated = (args) => execFileSync("git", ["-C", tree, ...args], { encoding: "utf8", env: { ...env, ...attrs }, stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity, timeout: 300_000 });
+  try {
+    gitIn(top, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", `refs/pull/${pr}/head`, `refs/heads/${view.baseRefName}`]);
+    gitIn(top, ["cat-file", "-e", `${sha}^{commit}`]);
+    const base = view.baseRefOid && /^[0-9a-f]{40}$/.test(view.baseRefOid) ? view.baseRefOid : null;
+    if (!base) return { ok: false, reasons: ["floor guard could not run: GitHub gave no base commit for the PR"] };
+    gitIn(top, ["cat-file", "-e", `${base}^{commit}`]);
+    // A fresh repository that borrows the checkout's objects through
+    // alternates (git clone --shared silently copies instead from a shallow
+    // source, and would miss the fetched head), plus its shallow boundary.
+    execFileSync("git", ["init", "--quiet", tree], { env, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 });
+    const objects = join(gitIn(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim(), "objects");
+    writeFileSync(join(tree, ".git", "objects", "info", "alternates"), `${objects}\n`);
+    const shallow = gitIn(top, ["rev-parse", "--path-format=absolute", "--git-path", "shallow"]).trim();
+    if (existsSync(shallow)) copyFileSync(shallow, join(tree, ".git", "shallow"));
+    // From here, attributes come from the base commit, so the PR's own
+    // .gitattributes can neither re-encode files on checkout nor hide a diff.
+    attrs = { GIT_ATTR_SOURCE: base };
+    isolated(["checkout", "--quiet", "--detach", sha]);
+    const changed = isolated(["diff", "--name-only", "-z", base, "HEAD"]).split("\0").filter(Boolean);
+    // The guard reads text diffs only, so any changed file git sees as binary
+    // (one NUL byte is enough) would hide every finding in it. Only known
+    // binary formats (images, fonts, media, archives, documents) may be binary.
+    const numstat = isolated(["diff", "--numstat", "-z", base, "HEAD"]).split("\0").filter(Boolean);
+    // A deleted file hides nothing, so only files present in the head count.
+    const present = new Set(isolated(["ls-tree", "-r", "-z", "--name-only", "HEAD"]).split("\0").filter(Boolean));
+    const opaque = numstat.filter((l) => /^-\t-\t/.test(l)).map((l) => l.slice(4)).filter((f) => present.has(f) && !BINARY.test(f));
+    if (opaque.length) return { ok: false, reasons: opaque.map((f) => `floor: [binary-source] ${f}: git reads this file as binary, so the floor cannot check it; remove the NUL or control bytes, or use a binary format's usual extension`) };
+    // Workflows count from the base or the head, so a PR cannot escape the
+    // no-CI rule by deleting or renaming the CI it would have to pass.
+    const hasWorkflows = (rev) => {
+      try {
+        return isolated(["ls-tree", "--name-only", rev, ".github/workflows/"]).split("\n").some((f) => /\.ya?ml$/.test(f));
+      } catch {
+        return false;
+      }
+    };
+    const workflows = hasWorkflows(base) || hasWorkflows("HEAD");
+    const script = join(scratch, "floor-guard.mjs");
+    writeFileSync(script, source);
+    const run = spawnSync(process.execPath, [script, "--base", base], { cwd: tree, env: { ...env, ...attrs }, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
+    const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trimEnd()).filter(Boolean);
+    if (run.status === 0) return { ok: true, reasons: [], workflows };
+    if (run.status === 1) {
+      // The guard reads every file. Markdown other than CONSTRAINTS.md only
+      // describes these moves and cannot silence a checker, so its findings
+      // are dropped (the owner's ruling, 2026-11-22); a change to
+      // CONSTRAINTS.md still counts. A finding names its file before ": ";
+      // it is matched against the changed paths, longest first, so a colon
+      // or space in a name cannot shift the cut, and a finding whose file is
+      // not a changed path is kept.
+      const findings = lines.filter((l) => /^\[[a-z-]+\] /.test(l.trim()));
+      const byLength = [...changed].sort((a, b) => b.length - a.length);
+      const kept = findings.filter((l) => {
+        const rest = l.trim().replace(/^\[[a-z-]+\] /, "");
+        const file = byLength.find((p) => rest.startsWith(`${p}: `) || rest.startsWith(`${p}\t: `));
+        if (file === undefined) return true;
+        return !/\.(md|markdown)$/i.test(file) || /(^|\/)CONSTRAINTS\.md$/.test(file);
+      });
+      if (findings.length && !kept.length) return { ok: true, reasons: [], workflows };
+      return { ok: false, reasons: (kept.length ? kept : lines).map((l) => `floor: ${l.trim()}`) };
+    }
+    return { ok: false, reasons: [`floor guard could not run: ${lines[0] ?? `exit ${run.status ?? run.signal}`}`] };
+  } catch (error) {
+    const detail = String(error?.stderr || error?.message || error).trim().split("\n")[0];
+    return { ok: false, reasons: [`floor guard could not run: ${detail}`] };
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }
 
 function out(result) {
@@ -138,8 +287,16 @@ function run(argv) {
   if (command === "merge") {
     if (!/^\d+$/.test(values.pr ?? "")) return usage("--pr must be a number");
     const pr = Number(values.pr);
-    const reasons = refusals(readFacts(repo, pr, sha), sha);
+    const facts = readFacts(repo, pr, sha);
+    const reasons = refusals(facts, sha);
     if (reasons.length) return out({ kind: "refused", repo, pr, sha, reasons });
+    const guard = floor({ repo, pr, sha, view: facts.view });
+    if (!guard.ok) return out({ kind: "refused", repo, pr, sha, reasons: guard.reasons });
+    // A head whose repository has CI workflows but shows no CI result yet has
+    // not been tested: CI may not have started, or may never fire. Only a
+    // repository with no workflows merges on the verdict alone.
+    const ciResults = facts.runs.length + facts.statuses.filter((s) => s.context !== CONTEXT).length;
+    if (guard.workflows && ciResults === 0) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha} yet, though the repository has workflows; wait for CI, or push again if it never started`] });
     if (values["dry-run"]) return out({ kind: "would-merge", repo, pr, sha });
     const author = values["author-email"] ? ["--author-email", values["author-email"]] : [];
     // From here the merge request may have reached GitHub, so a failure is
