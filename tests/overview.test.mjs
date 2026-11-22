@@ -158,3 +158,26 @@ describe("scope and parsing", () => {
     expect(build(renamed).text.split("\n")[0]).not.toBe(text.split("\n")[0]);
   });
 });
+
+describe("files that are not features", () => {
+  test("a .DS_Store and a README.md index in docs/features are skipped", () => {
+    const root = project({ "docs/features/.DS_Store": "\0\0", "docs/features/README.md": "# Features\n", "docs/features/a.md": "# A\n\n## Done when\n\n- [ ] x\n" });
+    const { text, problems } = build(root);
+    expect(problems).toEqual([]);
+    expect(text).toContain("1 feature;");
+  });
+
+  test("features only in a subfolder are an error, not a silent pass", () => {
+    const root = project({ "docs/features/sub/a.md": "# A\n\n## Done when\n\n- [ ] x\n" });
+    expect(main(["--root", root, "--check"])).toBe(1);
+  });
+
+  test("a README change outside its title and first paragraph leaves the overview current", () => {
+    const root = project({ "README.md": "# Club\n\nVotes.\n\n## Install\n\nnpm i\n", "docs/features/a.md": "# A\n\n## Done when\n\n- [ ] x\n" });
+    expect(main(["--root", root, "--write"])).toBe(0);
+    writeFileSync(join(root, "README.md"), "# Club\n\nVotes.\n\n## Install\n\nnpm install\n");
+    expect(main(["--root", root, "--check"])).toBe(0);
+    writeFileSync(join(root, "README.md"), "# Club\n\nVotes on books.\n");
+    expect(main(["--root", root, "--check"])).toBe(1);
+  });
+});
