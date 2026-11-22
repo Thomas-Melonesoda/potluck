@@ -56,7 +56,7 @@
     {"prompt": "I'm not sure the order flow feels right, make something throwaway I can click through to try it", "skill": "prototype"},
     {"prompt": "walk me step by step through getting the Stripe keys and putting them into our CI secrets", "skill": "wizard"},
     {"prompt": "we keep using account to mean two different things, pin down our terms and write them down", "skill": "domain-modeling", "known": "the description shares writ with how a user asks; principle-attack-the-premise shares two, down, writ and ranks first"},
-    {"prompt": "the agent keeps skipping tests and adding ignore comments to get green, write down our quality bar so it can't", "skill": "constraint-driven-development"},
+    {"prompt": "set up our quality standards so the agent stops cutting corners", "skill": "constraint-driven-development"},
     {"prompt": "fix the off-by-one in the date helper", "not": ["fix-ci", "thermos", "arena", "figure-it-out"]},
     {"prompt": "what does this error message mean", "not": ["ketchup", "tdd", "correct"], "known": "what and message are in ketchup's description (changes since the user's last message)"},
     {"prompt": "rename this variable", "not": ["architect", "figure-it-out", "swarm", "deslop"]}

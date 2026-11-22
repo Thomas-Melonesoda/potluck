@@ -137,7 +137,7 @@ number and no command in this column is an aspiration, not a constraint.
 | W1 | `no-explicit-any` | `src/legacy/**` | Rewrite tracked in ENG-441 | @addy | 2026-11-01 |
 ```
 
-Then add one line to `AGENTS.md` and `CLAUDE.md`: `Read CONSTRAINTS.md before writing code. Do not weaken it to make a change pass.`
+Then add one line to the project's instructions file (`AGENTS.md`, which Claude Code reads through a `CLAUDE.md` that imports it): `Read CONSTRAINTS.md before writing code. Do not weaken it to make a change pass.`
 
 ### Step 4: Install what each dimension needs
 
@@ -197,7 +197,7 @@ The single biggest mistake is running everything everywhere. A check that stalls
 | Phase | When | What runs | Budget |
 |-------|---------|-----------|--------|
 | BUILD | after each edit | Types, lint, secrets, the floor | under 5s, changed file only |
-| VERIFY | at self-proof, before the PR | Related tests, coverage on changed lines | under 90s |
+| VERIFY | at self-proof, before the swarm | Related tests, coverage on changed lines | under 90s |
 | REVIEW | the verification swarm on the PR | Everything, plus the guards below | minutes |
 | SHIP | before the merge: CI, and potluck's merge gate, which runs the floor guard | Direction checks, no regressions | CI |
 
@@ -302,5 +302,5 @@ The skill was applied correctly when:
 
 - **tdd**: the suite that coverage and mutation constraints measure
 - **thermos**: the strict review of a diff against this bar
-- **thermo-nuclear-review**: what the security dimension should contain
-- **benchmark-checklist**: how to vet a performance number before it becomes a budget
+- **thermo-nuclear-review**: a security audit of a diff, one input to the security dimension
+- **benchmark-checklist**: how to vet a measured number before it becomes a budget

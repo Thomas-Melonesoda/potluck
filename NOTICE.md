@@ -63,4 +63,4 @@ Port-authored files covered by this notice include:
 - `README.md`
 - `CHANGES.md`
 
-`LICENSE-cursor-team-kit` and `LICENSE-thermos` are copied verbatim from upstream cursor-team-kit and thermos rather than authored for this port.
+`LICENSE-cursor-team-kit`, `LICENSE-thermos`, `LICENSE-mattpocock-skills`, and `LICENSE-addyosmani-agent-skills` are copied verbatim from their upstreams rather than authored for this port.
