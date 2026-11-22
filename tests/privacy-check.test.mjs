@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { checkLine, checkPath, loadPrivateRules } from "../tools/privacy-check.mjs";
+import { checkIdentity, checkLine, checkPath, loadPrivateRules } from "../tools/privacy-check.mjs";
 
 const tool = fileURLToPath(new URL("../tools/privacy-check.mjs", import.meta.url));
 const none = { terms: [], vaultFiles: new Set(), vaultTitles: [] };
@@ -40,6 +40,13 @@ describe("public rules", () => {
     expect(checkPath(".env.example", none)).toEqual([]);
     expect(checkPath("docs/env.md", none)).toEqual([]);
   });
+});
+
+test("commit identities on machine-local hosts are flagged", () => {
+  expect(checkIdentity("A B <ab@Someones-MacBook.local>", none)).toEqual(["local-email"]);
+  expect(checkIdentity("A B <ab@localhost>", none)).toEqual(["local-email"]);
+  expect(checkIdentity("A B <1+ab@users.noreply.github.com>", none)).toEqual([]);
+  expect(checkIdentity("Real Person <x@example.com>", { ...none, terms: ["real person"] })).toEqual(["private-term"]);
 });
 
 describe("private rules", () => {

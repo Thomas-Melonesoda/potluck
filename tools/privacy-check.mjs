@@ -11,10 +11,13 @@
 //   vault-name   the name of a personal notes vault
 //   env-file     a committed .env or .env.* file (.env.example passes)
 //   local-json   a committed *.local.json file
+//   local-email  a commit author or committer email on a machine-local host (name@host.local),
+//                which leaks the account and machine name; use a GitHub noreply address
 //
 // Private rules, which run only where the owner keeps a terms file outside the repository
 // ($POTLUCK_PRIVATE_TERMS, else ${XDG_CONFIG_HOME:-~/.config}/potluck/private-terms.txt):
-//   private-term     any line of that file, matched case-insensitively
+//   private-term     any line of that file, matched case-insensitively, in content, file names,
+//                    and commit author and committer identities
 //   vault-file       with a `vault: <dir>` line, a committed file whose name matches a file in
 //                    that directory, or content quoting a note title; only distinctive names count
 //                    (a non-ASCII name of 4+ characters, or an ASCII name of 16+)
@@ -111,6 +114,14 @@ export function checkLine(line, rules) {
   return found;
 }
 
+export function checkIdentity(ident, rules) {
+  const found = [];
+  if (/@(?:localhost|[^>\s]*\.(?:local|lan|localdomain|home|internal))>?\s*$/i.test(ident)) found.push("local-email");
+  const lower = ident.toLowerCase();
+  if (rules.terms.some((t) => lower.includes(t))) found.push("private-term");
+  return found;
+}
+
 function scanText(where, text, rules, out) {
   if (text.includes("\0")) return;
   text.split("\n").forEach((line, i) => {
@@ -125,6 +136,10 @@ function stagedFindings(cwd, rules) {
     for (const rule of checkPath(path, rules)) out.push(`${path}: ${rule}`);
     for (const rule of checkLine(path, rules)) out.push(`${path}: ${rule} (in the file name)`);
     scanText(path, git(["show", `:${path}`], cwd), rules, out);
+  }
+  for (const role of ["AUTHOR", "COMMITTER"]) {
+    const ident = git(["var", `GIT_${role}_IDENT`], cwd).replace(/ \d+ [+-]\d{4}\s*$/, "");
+    for (const rule of checkIdentity(ident, rules)) out.push(`commit ${role.toLowerCase()}: ${rule}`);
   }
   return out;
 }
@@ -157,6 +172,11 @@ function historyFindings(cwd, rules) {
       for (const rule of checkLine(line.slice(1), rules)) out.add(`${commit} ${file}: ${rule}`);
     }
   }
+  const idents = git(["log", "--all", "--format=%h author %an <%ae>%n%h committer %cn <%ce>"], cwd);
+  for (const line of idents.split("\n").filter(Boolean)) {
+    const [commit, role, ...rest] = line.split(" ");
+    for (const rule of checkIdentity(rest.join(" "), rules)) out.add(`${commit} commit ${role}: ${rule}`);
+  }
   return [...out];
 }
 
@@ -178,7 +198,8 @@ function main(argv) {
   process.stderr.write(`privacy check ${mode.slice(2)} found ${findings.length} problem(s), ${scope}:\n`);
   for (const f of findings) process.stderr.write(`  ${f}\n`);
   process.stderr.write(
-    "Remove the personal content, or replace a home path with a placeholder such as /Users/you.\n",
+    "Remove the personal content, or replace a home path with a placeholder such as /Users/you.\n" +
+      "For a commit identity, set this repository's user.name and user.email (for example a GitHub noreply address).\n",
   );
   return 1;
 }
