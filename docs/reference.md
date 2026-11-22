@@ -4,7 +4,7 @@ Start with the [README](../README.md) for installation and your first task.
 
 ## Slash commands
 
-The package includes 71 skill directories: 47 public skills and 24 `principle-*` references. Claude Code uses `/pstack:<name>`, Pi uses `/skill:<name>`, and Muse lists each user-invocable skill as `/<name>`. In Codex, mention a skill with `$<name>`, such as `$poteto-mode`, or pick one from `/skills`.
+The package includes 72 skill directories: 48 public skills and 24 `principle-*` references. Claude Code uses `/pstack:<name>`, Pi uses `/skill:<name>`, and Muse lists each user-invocable skill as `/<name>`. In Codex, mention a skill with `$<name>`, such as `$poteto-mode`, or pick one from `/skills`.
 
 Find each skill's instructions in the [skills tree](../plugins/pstack/skills/).
 
@@ -57,6 +57,7 @@ Find each skill's instructions in the [skills tree](../plugins/pstack/skills/).
 | `/wizard` | generate a bash script that walks a person through steps only they can do, such as keys and third-party dashboards (from Matt Pocock) |
 | `/domain-modeling` | sharpen the project's terms in `GLOSSARY.md` and record hard-to-reverse decisions as ADRs (from Matt Pocock) |
 | `/constraint-driven-development` | write the project's quality bar into `CONSTRAINTS.md`, each line with the command that judges it, plus the always-on floor (from Addy Osmani) |
+| `/grill` | settle a new project or an unclear large feature with the user, one round of questions at a time, each with a recommended answer and a default, and write its feature files, glossary, constraints, and rulings (potluck's own, after Matt Pocock's grilling) |
 
 ## Runtime support
 

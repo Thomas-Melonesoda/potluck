@@ -96,6 +96,11 @@
         "enabledDefault": true
       },
       {
+        "id": "grill",
+        "path": "skills/grill/SKILL.md",
+        "enabledDefault": true
+      },
+      {
         "id": "how",
         "path": "skills/how/SKILL.md",
         "enabledDefault": true
