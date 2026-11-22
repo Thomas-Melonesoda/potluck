@@ -90,13 +90,13 @@
     },
     "plugins/pstack/skills/poteto-mode/playbooks/autopilot-full.md": {
       "kind": "policy",
-      "why": "Each owner merges its verified PR itself, but only through potluck's merge gate (merge-gate.mjs, which needs a potluck/verdict status a verifier recorded on the exact head, green checks, and --match-head-commit), and the root writes the program objective into the store's notes.md on the go and re-reads it each tick, arms the tick as a dynamic-mode /loop, states the program's size before the first owner starts without waiting on it, scopes review lanes to what the diff breaks, and after two fix-forwards picks a fresh owner, a split, or a parked draft itself.",
+      "why": "Each owner merges its verified PR itself, but only through potluck's merge gate (merge-gate.mjs, which needs a potluck/verdict status a verifier recorded on the exact head, green checks, and --match-head-commit), and the root writes the program objective into the store's notes.md on the go and re-reads it each tick, arms the tick as a dynamic-mode /loop, states the program's size before the first owner starts without waiting on it, scopes review lanes to what the diff breaks, and after two fix-forwards picks a fresh owner, a split, or a parked draft itself, and has the owner rebase its own branch on a conflict-free rebase or behind-base, sending a conflict or a refused lease to the root.",
       "since": "0.9.39",
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
-      "row": "A1, A2, A3, A4, A5, A6",
-      "ruling": "The lead agent merges on a clean verdict with no human step, as in Lauren's design (A1). Keep Michael's notes.md objective, diff-scoped review, and dynamic loop (A2, A4, A5). State the program's size but do not wait for a go above three owners (A3). Keep two fix rounds per PR, then the root agent retries with a fresh approach, splits the PR, or parks it as a draft, without waiting (A6).",
+      "row": "A1, A2, A3, A4, A5, A6, C4",
+      "ruling": "The lead agent merges on a clean verdict with no human step, as in Lauren's design (A1). Keep Michael's notes.md objective, diff-scoped review, and dynamic loop (A2, A4, A5). State the program's size but do not wait for a go above three owners (A3). Keep two fix rounds per PR, then the root agent retries with a fresh approach, splits the PR, or parks it as a draft, without waiting (A6). Babysit keeps reporting conflicts and behind-base, and the owner rebases a conflict-free branch itself, reporting only a conflict or a push that would need force beyond its lease (C4).",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/autopilot-stack.md": {
