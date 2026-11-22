@@ -2,7 +2,7 @@
 // potluck: the deterministic merge gate (design row A8).
 //
 //   node merge-gate.mjs verdict --repo <owner/repo> --sha <head> --state pass|fail [--description <text>]
-//   node merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--dry-run]
+//   node merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--author-email <email>] [--dry-run]
 //
 // `verdict` records a verifier's result as the `potluck/verdict` commit status
 // on that exact head, so the result is a fact GitHub holds, not a comment.
@@ -88,7 +88,7 @@ function out(result) {
 }
 
 function usage(message) {
-  process.stderr.write(`${message}\nusage: merge-gate.mjs verdict --repo <owner/repo> --sha <head> --state pass|fail [--description <text>]\n       merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--dry-run]\n`);
+  process.stderr.write(`${message}\nusage: merge-gate.mjs verdict --repo <owner/repo> --sha <head> --state pass|fail [--description <text>]\n       merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--author-email <email>] [--dry-run]\n`);
   return 2;
 }
 
@@ -114,6 +114,7 @@ function run(argv) {
         pr: { type: "string" },
         state: { type: "string" },
         description: { type: "string" },
+        "author-email": { type: "string" },
         "dry-run": { type: "boolean" },
       },
     }));
@@ -138,7 +139,8 @@ function run(argv) {
     const reasons = refusals(readFacts(repo, pr, sha), sha);
     if (reasons.length) return out({ kind: "refused", repo, pr, sha, reasons });
     if (values["dry-run"]) return out({ kind: "would-merge", repo, pr, sha });
-    gh(["pr", "merge", String(pr), "--repo", repo, "--squash", "--match-head-commit", sha]);
+    const author = values["author-email"] ? ["--author-email", values["author-email"]] : [];
+    gh(["pr", "merge", String(pr), "--repo", repo, "--squash", "--match-head-commit", sha, ...author]);
     const after = ghJson(["pr", "view", String(pr), "--repo", repo, "--json", "state,mergeCommit,headRefOid"]);
     if (after.state !== "MERGED" || !after.mergeCommit?.oid || after.headRefOid !== sha) {
       return out({ kind: "refused", repo, pr, sha, reasons: [`merge not confirmed: state ${after.state}, head ${after.headRefOid}`] });

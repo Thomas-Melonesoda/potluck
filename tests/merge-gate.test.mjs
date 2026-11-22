@@ -101,6 +101,14 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(calls().flat()).not.toContain("--auto");
   });
 
+  test("--author-email is passed to the merge", () => {
+    const { run, calls } = fake();
+    run(...merge, "--author-email", "1+me@users.noreply.github.com");
+    expect(calls().find((a) => a[1] === "merge")).toEqual([
+      "pr", "merge", "7", "--repo", "o/r", "--squash", "--match-head-commit", sha, "--author-email", "1+me@users.noreply.github.com",
+    ]);
+  });
+
   test("refuses without merging when the verdict is missing", () => {
     const { run, calls } = fake({ statuses: [] });
     const r = run(...merge);
