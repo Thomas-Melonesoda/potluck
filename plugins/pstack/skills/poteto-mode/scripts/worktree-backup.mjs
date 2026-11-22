@@ -33,8 +33,9 @@ import { parseArgs } from "node:util";
 
 import { DISPOSABLE } from "./worktree-audit.mjs";
 
+// No output cap: a large repo's `ls-files` runs past Node's default 1 MB.
 const git = (cwd, args, env) =>
-  execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } });
+  execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env }, maxBuffer: Infinity });
 const lines = (text) => text.split("\n").filter(Boolean);
 const z = (text) => text.split("\0").filter(Boolean);
 
@@ -235,7 +236,7 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
 function filtered(worktree) {
   const tracked = git(worktree, ["ls-files", "-z"]);
   if (!tracked) return [];
-  const out = execFileSync("git", ["-C", worktree, "check-attr", "--stdin", "-z", "filter"], { input: tracked, encoding: "utf8" });
+  const out = execFileSync("git", ["-C", worktree, "check-attr", "--stdin", "-z", "filter"], { input: tracked, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: Infinity });
   const fields = out.split("\0");
   const paths = [];
   for (let i = 0; i + 2 < fields.length; i += 3) {

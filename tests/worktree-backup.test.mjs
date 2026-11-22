@@ -425,6 +425,21 @@ describe("worktree-backup", () => {
     expect(r.stderr).toContain("not its top level");
   });
 
+  test("a repo whose file list passes 1 MB still backs up", () => {
+    const { repo, wt, git, run } = setup();
+    const dir = join(repo, "many");
+    mkdirSync(dir);
+    const name = "f".repeat(80);
+    for (let i = 0; i < 12000; i++) writeFileSync(join(dir, `${name}-${i}`), "");
+    git(repo, "add", "many");
+    git(repo, "commit", "-q", "-m", "many");
+    git(wt, "merge", "-q", "main");
+    writeFileSync(join(wt, "notes.txt"), "mine\n");
+    const r = run();
+    expect(r.stderr).toBe("");
+    expect(r.json.kind).toBe("backed-up");
+  }, 60_000);
+
   test("usage errors exit 2", () => {
     expect(spawnSync("node", [script], { encoding: "utf8" }).status).toBe(2);
     const { run } = setup();
