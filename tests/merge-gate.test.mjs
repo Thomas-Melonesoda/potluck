@@ -142,7 +142,12 @@ else if (line.includes("POST")) process.stdout.write("{}");
       return { ...r, json: r.stdout ? JSON.parse(r.stdout) : null };
     };
     const calls = () => readFileSync(join(dir, "calls"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-    return { run, calls, head, work: repoDir.work };
+    const setView = (over) => {
+      const f = JSON.parse(readFileSync(join(dir, "fixture.json"), "utf8"));
+      f.view = { ...f.view, ...over };
+      writeFileSync(join(dir, "fixture.json"), JSON.stringify(f));
+    };
+    return { run, calls, head, work: repoDir.work, setView };
   }
   // Stands for the fixture's PR head in a command line.
   const SHA = "<head>";
@@ -272,6 +277,36 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const r = run(...merge, "--dry-run");
     expect(r.json.kind).toBe("refused");
     expect(r.json.reasons.some((l) => l.includes("[test-made-easier]"))).toBe(true);
+  });
+
+  test("a PR's .gitattributes cannot re-encode a test file on checkout to hide it", () => {
+    const { run } = fake({ change: { path: ".gitattributes", text: "*.test.js working-tree-encoding=UTF-16LE-BOM\n" }, setup: { base: { [TEST]: ASSERT }, files: { [TEST]: `${ASSERT}test.${"skip"}("later", () => {});\n` } } });
+    const r = run(...merge, "--dry-run");
+    // The fixture commits the attribute and the file together, so git converts
+    // the blob on add; either way the floor must see the change and refuse.
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.every((l) => l.startsWith("floor: ["))).toBe(true);
+  });
+
+  test("a NUL byte that makes a source file binary is refused, since the floor cannot read it", () => {
+    const { run } = fake({ setup: { base: { [TEST]: ASSERT }, files: { [TEST]: `/*\0*/\n${ASSERT}test.${"skip"}("later", () => {});\n` } } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("[binary-source] src/app.test.js");
+  });
+
+  test("a guard that exits 2 refuses: no merge base with the PR's base", () => {
+    const { run, work, setView } = fake();
+    git(work, "switch", "-q", "--orphan", "lonely");
+    writeFileSync(join(work, "lonely.txt"), "x\n");
+    git(work, "add", "lonely.txt");
+    git(work, "commit", "-q", "-m", "lonely");
+    const lonely = git(work, "rev-parse", "HEAD");
+    git(work, "switch", "-q", "main");
+    setView({ baseRefOid: lonely });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("floor guard could not run");
   });
 
   test("a guard that cannot run refuses: no PR ref to fetch", () => {

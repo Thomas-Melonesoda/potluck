@@ -34,7 +34,7 @@
 // error.
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -109,6 +109,9 @@ export function guardSource(path = FLOOR_GUARD) {
   return blocks[0][1];
 }
 
+// Files the floor must be able to read as text: code, tests, config, and Markdown.
+const SOURCE = /\.(?:[cm]?[jt]sx?|py|rb|go|rs|java|kt|kts|scala|swift|c|cc|cpp|h|hpp|cs|php|sh|bash|zsh|ps1|lua|dart|ex|exs|clj|vue|svelte|ya?ml|json|toml|md|markdown)$/i;
+
 const gitIn = (cwd, args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity, timeout: 300_000 });
 
 // Runs the floor guard on the verified head. Returns { ok, reasons }.
@@ -144,8 +147,12 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
   // Attributes come from the base commit, so a PR's own .gitattributes cannot
   // mark files -diff or binary; renames are off, so a renamed test file shows
   // as deleted; colour and path quoting are off, so the guard reads plain names.
+  // Variables that would point git elsewhere or swap its diff are dropped.
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|EXTERNAL_DIFF|DIFF_OPTS|ATTR_SOURCE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|CONFIG.*|NAMESPACE|CEILING_DIRECTORIES|COMMON_DIR)$/.test(k)),
+  );
   const env = {
-    ...process.env,
+    ...inherited,
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_COUNT: "4",
@@ -154,7 +161,8 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
     GIT_CONFIG_KEY_2: "color.diff", GIT_CONFIG_VALUE_2: "never",
     GIT_CONFIG_KEY_3: "core.quotePath", GIT_CONFIG_VALUE_3: "false",
   };
-  const isolated = (args) => execFileSync("git", ["-C", tree, ...args], { encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity, timeout: 300_000 });
+  let attrs = {};
+  const isolated = (args) => execFileSync("git", ["-C", tree, ...args], { encoding: "utf8", env: { ...env, ...attrs }, stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity, timeout: 300_000 });
   try {
     gitIn(top, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", `refs/pull/${pr}/head`, `refs/heads/${view.baseRefName}`]);
     gitIn(top, ["cat-file", "-e", `${sha}^{commit}`]);
@@ -162,11 +170,22 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
     if (!base) return { ok: false, reasons: ["floor guard could not run: GitHub gave no base commit for the PR"] };
     gitIn(top, ["cat-file", "-e", `${base}^{commit}`]);
     execFileSync("git", ["clone", "--quiet", "--shared", "--no-checkout", top, tree], { env, stdio: ["ignore", "pipe", "pipe"], timeout: 300_000 });
+    // A shallow checkout's history boundary travels with the clone.
+    const shallow = gitIn(top, ["rev-parse", "--path-format=absolute", "--git-path", "shallow"]).trim();
+    if (existsSync(shallow)) copyFileSync(shallow, join(tree, ".git", "shallow"));
+    // From here, attributes come from the base commit, so the PR's own
+    // .gitattributes can neither re-encode files on checkout nor hide a diff.
+    attrs = { GIT_ATTR_SOURCE: base };
     isolated(["checkout", "--quiet", "--detach", sha]);
     const changed = isolated(["diff", "--name-only", "-z", base, "HEAD"]).split("\0").filter(Boolean);
+    // The guard reads text diffs only, so a source file git sees as binary
+    // (one NUL byte is enough) would hide every finding in it.
+    const numstat = isolated(["diff", "--numstat", "-z", base, "HEAD"]).split("\0").filter(Boolean);
+    const opaque = numstat.filter((l) => /^-\t-\t/.test(l)).map((l) => l.slice(4)).filter((f) => SOURCE.test(f));
+    if (opaque.length) return { ok: false, reasons: opaque.map((f) => `floor: [binary-source] ${f}: git reads this source file as binary, so the floor cannot check it; remove the NUL or control bytes`) };
     const script = join(scratch, "floor-guard.mjs");
     writeFileSync(script, source);
-    const run = spawnSync(process.execPath, [script, "--base", base], { cwd: tree, env: { ...env, GIT_ATTR_SOURCE: base }, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
+    const run = spawnSync(process.execPath, [script, "--base", base], { cwd: tree, env: { ...env, ...attrs }, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
     const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trimEnd()).filter(Boolean);
     if (run.status === 0) return { ok: true, reasons: [] };
     if (run.status === 1) {
