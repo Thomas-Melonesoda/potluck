@@ -3,6 +3,7 @@
 //
 //   bun tools/sync.mjs <component> <new-sha> [--dry-run]
 //   bun tools/sync.mjs --check-rules
+//   bun tools/sync.mjs revert <component> <path>   (potluck: restore one file to upstream)
 //
 // Reads tools/upstream.json (each component's remote and pin, and the `exclude`
 // list of upstream paths the port deliberately does not carry) and
@@ -670,9 +671,96 @@ function checkRules() {
   }
 }
 
+// potluck: the port form of one upstream file, as a sync would write it.
+// Returns `{ bytes, mode, hits }`; `hits` lists denylist matches, and a caller
+// must not write bytes that have any.
+export function revertedForm({ file, rel, rules, denylist = [], derive = (_, t) => t, label = rel }) {
+  const stat = lstatSync(file);
+  if (stat.isSymbolicLink()) throw new Error(`${label} is a symlink upstream; a revert never follows one`);
+  const raw = readFileSync(file);
+  const mode = gitMode(stat.mode);
+  if (isBinary(rel, raw)) return { bytes: raw, mode, hits: [] };
+  const text = derive(rel, applySubstitutions(raw.toString("utf8"), rules, rel).text);
+  return { bytes: Buffer.from(text), mode, hits: denylistHits(label, text, denylist) };
+}
+
+// potluck: `revert <component> <path>` puts one file back to its upstream
+// version at the component's pin, with the substitutions and generator stamps
+// a sync applies, then drops the file's tools/forks.json entry. It writes
+// nothing when the path is not under the component, is excluded, is missing
+// upstream at the pin, or would carry a denylist hit.
+function revert(component, path) {
+  const upstreamPath = join(repo, "tools/upstream.json");
+  const upstream = parseUpstream(JSON.parse(readFileSync(upstreamPath, "utf8")));
+  const spec = upstream.components[component];
+  const fail = (message) => {
+    console.error(`FAIL: ${message}`);
+    process.exitCode = 1;
+  };
+  if (!spec) {
+    console.error(`usage: bun tools/sync.mjs revert <${Object.keys(upstream.components).join("|")}> <path>`);
+    process.exit(2);
+  }
+  const prefix = `${spec.localPath}/`;
+  if (!path?.startsWith(prefix)) return fail(`${path} is not under ${spec.localPath}`);
+  const rel = path.slice(prefix.length);
+  if (isExcluded(rel, spec.exclude ?? [])) return fail(`${path} is excluded in tools/upstream.json; there is no upstream copy to keep`);
+  const { substitutions, denylist } = parseSubstitutions(
+    JSON.parse(readFileSync(join(repo, "tools/substitutions.json"), "utf8")),
+  );
+  const forksPath = join(repo, "tools/forks.json");
+  const registry = JSON.parse(readFileSync(forksPath, "utf8"));
+  parseForks(registry, upstream.components);
+  const models = loadModels(repo);
+  const leads = loadLeadLines(repo);
+
+  const scratch = mkdtempSync(join(tmpdir(), "pstack-sync-"));
+  try {
+    const dest = join(scratch, "pin");
+    git(["-C", clones(scratch)(remoteOf(upstream, component)), "worktree", "add", "--detach", dest, spec.sha]);
+    const file = join(dest, spec.upstreamPath, rel);
+    if (!lstatSync(file, { throwIfNoEntry: false })) {
+      return fail(`upstream has no ${join(spec.upstreamPath, rel)} at ${spec.sha}; nothing to revert to`);
+    }
+    const { bytes, mode, hits } = revertedForm({
+      file,
+      rel,
+      rules: substitutions,
+      denylist,
+      derive: (r, text) => deriveSkill(join(spec.localPath, r), text, models, leads),
+      label: path,
+    });
+    if (hits.length) {
+      fail(`Cursor-isms in the reverted text; add a substitution, then rerun. Nothing was written:`);
+      for (const hit of hits) console.error(`  ${hit}`);
+      return;
+    }
+    const local = join(repo, path);
+    mkdirSync(dirname(local), { recursive: true });
+    writeFileSync(local, bytes, { mode });
+    chmodSync(local, mode);
+    console.log(`reverted: ${path} to ${component} @ ${spec.sha.slice(0, 7)}`);
+    if (registry[component]?.[path]) {
+      delete registry[component][path];
+      writeFileSync(forksPath, JSON.stringify(registry, null, 2) + "\n");
+      console.log(`removed: tools/forks.json entry for ${path}`);
+    }
+    console.log(`next: bun tools/generate.mjs --check, then bun tools/sync.mjs ${component} ${spec.sha} --dry-run`);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
 function main() {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === "--check-rules") return checkRules();
+  if (args[0] === "revert") {
+    if (args.length !== 3) {
+      console.error("usage: bun tools/sync.mjs revert <component> <path>");
+      process.exit(2);
+    }
+    return revert(args[1], args[2]);
+  }
   const dryRun = args.includes("--dry-run");
   const [component, newSha, ...stray] = args.filter((a) => a !== "--dry-run");
   const upstreamPath = join(repo, "tools/upstream.json");
@@ -682,6 +770,7 @@ function main() {
     for (const arg of stray) console.error(`unexpected argument: ${JSON.stringify(arg)}`);
     console.error(`usage: bun tools/sync.mjs <${Object.keys(upstream.components).join("|")}> <new-sha> [--dry-run]`);
     console.error("       bun tools/sync.mjs --check-rules");
+    console.error("       bun tools/sync.mjs revert <component> <path>");
     process.exit(2);
   }
   const { substitutions, denylist } = parseSubstitutions(
