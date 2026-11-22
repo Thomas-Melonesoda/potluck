@@ -18,8 +18,10 @@
 // it reads the PR back to confirm the merge.
 //
 // Output is one JSON line: { kind: "merged" | "would-merge" | "refused" |
-// "recorded", ... }. Exit 0 on merged, would-merge, or recorded; 1 on refused;
-// 2 on a usage error.
+// "unconfirmed" | "recorded", ... }. "unconfirmed" means the merge was
+// requested but not read back as merged, so it may have landed. Exit 0 on
+// merged, would-merge, or recorded; 1 on refused or unconfirmed; 2 on a usage
+// error.
 
 import { execFileSync } from "node:child_process";
 import { parseArgs } from "node:util";
@@ -84,7 +86,7 @@ export function refusals({ view, statuses, runs }, sha) {
 
 function out(result) {
   process.stdout.write(`${JSON.stringify(result)}\n`);
-  return result.kind === "refused" ? 1 : 0;
+  return result.kind === "refused" || result.kind === "unconfirmed" ? 1 : 0;
 }
 
 function usage(message) {
@@ -140,10 +142,18 @@ function run(argv) {
     if (reasons.length) return out({ kind: "refused", repo, pr, sha, reasons });
     if (values["dry-run"]) return out({ kind: "would-merge", repo, pr, sha });
     const author = values["author-email"] ? ["--author-email", values["author-email"]] : [];
-    gh(["pr", "merge", String(pr), "--repo", repo, "--squash", "--match-head-commit", sha, ...author]);
-    const after = ghJson(["pr", "view", String(pr), "--repo", repo, "--json", "state,mergeCommit,headRefOid"]);
+    // From here the merge request may have reached GitHub, so a failure is
+    // "unconfirmed", never "refused": the PR may already be merged.
+    let after;
+    try {
+      gh(["pr", "merge", String(pr), "--repo", repo, "--squash", "--match-head-commit", sha, ...author]);
+      after = ghJson(["pr", "view", String(pr), "--repo", repo, "--json", "state,mergeCommit,headRefOid"]);
+    } catch (error) {
+      const detail = String(error?.stderr || error?.message || error).trim().split("\n")[0];
+      return out({ kind: "unconfirmed", repo, pr, sha, reasons: [`merge requested, then gh failed: ${detail}; read the PR back before anything else`] });
+    }
     if (after.state !== "MERGED" || !after.mergeCommit?.oid || after.headRefOid !== sha) {
-      return out({ kind: "refused", repo, pr, sha, reasons: [`merge not confirmed: state ${after.state}, head ${after.headRefOid}`] });
+      return out({ kind: "unconfirmed", repo, pr, sha, reasons: [`merge not confirmed: state ${after.state}, head ${after.headRefOid}`] });
     }
     return out({ kind: "merged", repo, pr, sha, mergeCommit: after.mergeCommit.oid });
   }
