@@ -2,7 +2,7 @@
 // lose, so an agent can delete a worktree without asking and still undo it.
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -54,7 +54,8 @@ describe("worktree-backup", () => {
     expect(git(wt, "show", `${wip.branch}:staged.txt`)).toBe("staged");
     expect(git(wt, "ls-tree", "-r", "--name-only", wip.branch)).not.toContain(".env");
     const listed = execFileSync("tar", ["-tzf", r.json.tarball.path], { encoding: "utf8" }).split("\n").filter(Boolean).sort();
-    expect(listed).toEqual([".env", "notes.txt"]);
+    // Changed tracked files go in raw too, beside the untracked and ignored ones.
+    expect(listed).toEqual([".env", "a.txt", "notes.txt", "staged.txt"]);
   });
 
   test("a commit only HEAD reaches gets a branch, and a second run the same day does not overwrite the first", () => {
@@ -329,6 +330,37 @@ describe("worktree-backup", () => {
     writeFileSync(join(wt, "a.txt"), "hidden edit\n");
     expect(git(wt, "status", "--porcelain").trim()).toBe("");
     expect(run().json).toMatchObject({ kind: "hold", reason: "skip-worktree or assume-unchanged files whose edits git does not track: a.txt" });
+  });
+
+  test("a changed file whose clean filter drops content is kept raw in the tarball", () => {
+    const { repo, wt, git, run, trash } = setup();
+    writeFileSync(join(repo, ".gitattributes"), "secret.conf filter=redact\n");
+    git(repo, "config", "filter.redact.clean", "sed 's/^pw=.*/pw=REDACTED/'");
+    git(repo, "config", "filter.redact.smudge", "cat");
+    writeFileSync(join(repo, "secret.conf"), "pw=REDACTED\n");
+    git(repo, "add", ".gitattributes", "secret.conf");
+    git(repo, "commit", "-q", "-m", "filtered");
+    git(wt, "merge", "-q", "main");
+    writeFileSync(join(wt, "secret.conf"), "pw=hunter2\n");
+    const r = run();
+    expect(r.json.kind).toBe("backed-up");
+    expect(git(wt, "show", `${r.json.branches[0].branch}:secret.conf`)).toBe("pw=REDACTED");
+    const out = join(trash, "out");
+    mkdirSync(out);
+    spawnSync("tar", ["-xzf", r.json.tarball.path, "-C", out]);
+    expect(readFileSync(join(out, "secret.conf"), "utf8")).toBe("pw=hunter2\n");
+  });
+
+  test("an assume-unchanged symlink pointed at a missing path is held", () => {
+    const { repo, wt, git, run } = setup();
+    symlinkSync("a.txt", join(repo, "link"));
+    git(repo, "add", "link");
+    git(repo, "commit", "-q", "-m", "link");
+    git(wt, "merge", "-q", "main");
+    git(wt, "update-index", "--assume-unchanged", "link");
+    rmSync(join(wt, "link"));
+    symlinkSync("missing-target", join(wt, "link"));
+    expect(run().json).toMatchObject({ kind: "hold", reason: "skip-worktree or assume-unchanged files whose edits git does not track: link" });
   });
 
   test("a sparse checkout's left-out files do not hold", () => {

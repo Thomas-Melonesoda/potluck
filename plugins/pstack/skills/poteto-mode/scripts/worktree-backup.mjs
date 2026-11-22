@@ -8,9 +8,10 @@
 //     `backup/<name>-<date>`: one for the index as staged, one on top for the
 //     files on disk (made with a private index, so the worktree, its index,
 //     and its branch are untouched, and no hook runs)
-//   - every untracked file, and ignored files outside the audit's DISPOSABLE
-//     build and cache directories (such as .env), as a tar.gz under
-//     <trash>/<date>/, never in git
+//   - every untracked file, ignored files outside the audit's DISPOSABLE
+//     build and cache directories (such as .env), and the on-disk copy of each
+//     changed tracked file (which a clean filter may have altered in the wip
+//     commit), as a tar.gz under <trash>/<date>/, never in git
 //   - commits that only the worktree's HEAD or HEAD reflog reaches, as branches
 //     `backup/<name>-<date>-head` and `backup/<name>-<date>-reflog-<sha>`
 // It refuses (exit 3, "hold") a worktree that is locked, has any initialized
@@ -25,7 +26,7 @@
 // Prints one JSON line. Exit 0 backed-up (or nothing to back up), 3 hold, 2 usage.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -61,6 +62,15 @@ function riskySubmodules(worktree) {
     .filter((entry) => entry.startsWith("160000 "))
     .map((entry) => entry.slice(entry.indexOf("\t") + 1));
   return [...new Set(paths)].filter((path) => hasFiles(join(worktree, path)));
+}
+// Present on disk, a symlink counted as itself even when its target is missing.
+function onDisk(path) {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 function hasFiles(dir) {
   try {
@@ -140,7 +150,7 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
   const skipped = z(git(worktree, ["ls-files", "-v", "-z"]))
     .filter((entry) => entry[0] === "S" || /[a-z]/.test(entry[0]))
     .map((entry) => entry.slice(2))
-    .filter((path) => existsSync(join(worktree, path)));
+    .filter((path) => onDisk(join(worktree, path)));
   if (skipped.length) return { kind: "hold", worktree, reason: `skip-worktree or assume-unchanged files whose edits git does not track: ${skipped.slice(0, 5).join(", ")}${skipped.length > 5 ? ", ..." : ""}` };
 
   const result = { kind: "backed-up", worktree, branches: [], tarball: null, prunedTrash: pruneTrash(trash, keepDays, now) };
@@ -190,7 +200,16 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
   const others = z(git(worktree, ["ls-files", "-z", "--others", "--exclude-standard"]));
   const ignored = z(git(worktree, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard"]))
     .filter((path) => !path.split("/").some((part) => DISPOSABLE.has(part)));
-  const keep = [...new Set([...others, ...ignored])];
+  // Changed tracked files as they are on disk too: the wip commit stores what
+  // git's clean filters make of them, which can drop content (a redacting or
+  // output-stripping filter), so the raw copy goes in the tarball as well.
+  // `ls-files -m` goes by file stat, so it lists an edit the filter hides from
+  // `git diff`; the staged list adds files changed only in the index.
+  const changed = [
+    ...z(git(worktree, ["ls-files", "-z", "--modified"])),
+    ...z(git(worktree, ["diff", "-z", "--cached", "--name-only", "--no-renames", "--ignore-submodules=all", "HEAD", "--"])),
+  ].filter((path) => onDisk(join(worktree, path)) && !hasFiles(join(worktree, path)));
+  const keep = [...new Set([...others, ...ignored, ...changed])];
   if (keep.length) {
     const dir = join(trash, date);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
