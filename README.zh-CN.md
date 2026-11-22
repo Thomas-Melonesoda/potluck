@@ -15,7 +15,7 @@ potluck 是一个开源的 agent 工作系统。它想同时做到两件事：ag
 
 potluck 和各上游不一样的每一处，都登记在 [`tools/forks.json`](tools/forks.json) 里。
 
-> **现状：施工中。** 目前本仓库的内容和 Michael Denyer 的 pstack-claude v0.9.146 一致，只改了对外名称。插件安装后的内部 ID 仍是 `pstack`，各个 skill 也保留上游的名字（比如 `poteto-mode`），这样跟进上游更新的成本最低。上面说的政策调整和借用的 skill 还没有加进来。
+> **现状：施工中。** 目前本仓库的内容和 Michael Denyer 的 pstack-claude v0.9.146 一致，只改了对外名称。插件安装后的内部 ID 仍是 `pstack`，各个 skill 也保留上游的名字（比如 `poteto-mode`），这样跟进上游更新的成本最低。阶段 3 的政策调整已经加进来，阶段 4 正在加借用的 skill，进度见[路线图](docs/roadmap.md)。
 
 把目标告诉 `poteto-mode`，它会为这个任务选对工作流程，让代码保持简洁、简单、经过验证。
 

@@ -610,6 +610,12 @@
       "replacement": "on the existing settings route.",
       "rationale": "potluck: the skill-reference test reads a backticked /name as a slash command, and this one is an app's URL route",
       "files": "^UI\\.md$"
+    },
+    {
+      "pattern": "$e[Enter keeps current]",
+      "replacement": "${e}[Enter keeps current]",
+      "rationale": "potluck: shellcheck reads $e[ as an array expansion (SC1087) and fails CI and every wizard copied from this template; braces keep the same output",
+      "files": "^template\\.sh$"
     }
   ],
   "denylist": [

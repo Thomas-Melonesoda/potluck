@@ -15,7 +15,7 @@ It is a potluck of four open-source projects:
 
 Each place where potluck differs from its upstreams is declared in [`tools/forks.json`](tools/forks.json).
 
-> **Status: under construction.** This repository currently matches Michael Denyer's pstack-claude v0.9.146 with the public names changed. The plugin still installs under its internal ID `pstack`, and skills keep their upstream names (such as `poteto-mode`) to keep syncing cheap. The policy changes and borrowed skills described above are not in yet.
+> **Status: under construction.** This repository currently matches Michael Denyer's pstack-claude v0.9.146 with the public names changed. The plugin still installs under its internal ID `pstack`, and skills keep their upstream names (such as `poteto-mode`) to keep syncing cheap. Stage 3's policy changes are in, and stage 4 is bringing in the borrowed skills: see the [roadmap](docs/roadmap.md).
 
 Tell `poteto-mode` your goal and it will invoke the correct workflow for the task. It keeps your code concise, simple and verified.
 
