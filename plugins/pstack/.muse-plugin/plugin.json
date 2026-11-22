@@ -66,6 +66,11 @@
         "enabledDefault": true
       },
       {
+        "id": "domain-modeling",
+        "path": "skills/domain-modeling/SKILL.md",
+        "enabledDefault": true
+      },
+      {
         "id": "figure-it-out",
         "path": "skills/figure-it-out/SKILL.md",
         "enabledDefault": true
@@ -261,6 +266,11 @@
         "enabledDefault": true
       },
       {
+        "id": "prototype",
+        "path": "skills/prototype/SKILL.md",
+        "enabledDefault": true
+      },
+      {
         "id": "recall",
         "path": "skills/recall/SKILL.md",
         "enabledDefault": true
@@ -343,6 +353,11 @@
       {
         "id": "why",
         "path": "skills/why/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "wizard",
+        "path": "skills/wizard/SKILL.md",
         "enabledDefault": true
       }
     ],
