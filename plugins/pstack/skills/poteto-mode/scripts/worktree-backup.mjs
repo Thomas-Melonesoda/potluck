@@ -14,7 +14,8 @@
 //   - commits that only the worktree's HEAD or HEAD reflog reaches, as branches
 //     `backup/<name>-<date>-head` and `backup/<name>-<date>-reflog-<sha>`
 // It refuses (exit 3, "hold") a worktree that is locked, has any initialized
-// submodule (or files in an uninitialized submodule's folder), has unmerged
+// submodule (or files in an uninitialized submodule's folder, or a submodule
+// repository left under its git dir), has unmerged
 // paths, or has no commit yet, and it writes nothing for them. Trash entries older than --keep-days (default 30, or
 // $POTLUCK_TRASH_DAYS) are deleted on each run. Backup branches stay local:
 // never push them.
@@ -112,6 +113,11 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
   if (locked) return { kind: "hold", worktree, reason: `locked: ${locked}` };
   const submodules = riskySubmodules(worktree);
   if (submodules.length) return { kind: "hold", worktree, reason: `submodules removal could lose work in: ${submodules.join(", ")}` };
+  // An initialized submodule keeps its repository under this worktree's own
+  // git dir, which removal deletes, even after its gitlink left the index
+  // (`git rm --cached`, `git rm`, a rename in the index only).
+  const modules = git(worktree, ["rev-parse", "--path-format=absolute", "--git-path", "modules"]).trim();
+  if (hasFiles(modules)) return { kind: "hold", worktree, reason: `submodule repositories under this worktree's git dir: ${modules}` };
   try {
     git(worktree, ["rev-parse", "--verify", "--quiet", "HEAD"]);
   } catch {

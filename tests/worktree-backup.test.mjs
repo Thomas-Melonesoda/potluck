@@ -210,6 +210,23 @@ describe("worktree-backup", () => {
     expect(run2().json).toMatchObject({ kind: "hold", reason: "submodules removal could lose work in: my sub" });
   });
 
+  test("a submodule repository stays held after its gitlink leaves the index", () => {
+    const { wt2, git, run2 } = withSubmodule();
+    git(wt2, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init");
+    const sub = join(wt2, "sub");
+    git(sub, "switch", "-q", "-c", "local-work");
+    writeFileSync(join(sub, "work.txt"), "w\n");
+    git(sub, "add", "work.txt");
+    git(sub, "commit", "-q", "-m", "local");
+    git(wt2, "rm", "-q", "--cached", "sub");
+    expect(run2().json).toMatchObject({ kind: "hold", reason: expect.stringContaining("submodule repositories under this worktree's git dir") });
+    git(wt2, "reset", "-q");
+    git(wt2, "add", "sub");
+    git(wt2, "commit", "-q", "-m", "bump sub");
+    git(wt2, "rm", "-q", "-f", "sub");
+    expect(run2().json).toMatchObject({ kind: "hold", reason: expect.stringContaining("submodule repositories under this worktree's git dir") });
+  });
+
   test("a gitlink with no .gitmodules entry holds when its folder has files, and does not crash", () => {
     const { root, repo, git } = setup();
     const emb = join(repo, "emb");
