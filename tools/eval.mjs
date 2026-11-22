@@ -226,12 +226,22 @@ export function layer2(skills, config) {
 
 // Layer 3 cases, run on request by `claude plugin eval plugins/pstack`.
 const GRADERS = new Set(["regex", "tool_used", "tool_order", "file_exists", "llm", "baseline"]);
+const PROMPT_KEYS = new Set(["name", "tags", "runs", "max_turns", "timeout_seconds", "allowed_tools", "disallowed_tools", "model", "append_system_prompt", "env"]);
+// Words a Skill grader's input_match uses that are regex or JSON, not a skill.
+const MATCH_WORDS = new Set(["skill", "s", "w", "d", "args", "pstack"]);
+const scalar = (value) => value.replace(/\s+#.*$/, "").trim().replace(/^(["'])(.*)\1$/, "$2");
 export function evalCaseProblems(root = ROOT, skillNames = new Set()) {
   const dir = join(root, "plugins/pstack/evals");
   if (!existsSync(dir)) return [];
   const problems = [];
   const front = (text) => /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text.replaceAll("\r\n", "\n"));
-  for (const entry of readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && e.name !== "results")) {
+  const keys = (block) => [...block.matchAll(/^([A-Za-z_][\w-]*):/gm)].map((m) => m[1]);
+  const field = (block, key) => {
+    const raw = new RegExp(`^${key}:[ \\t]*(.*)$`, "m").exec(block)?.[1];
+    return raw === undefined ? undefined : scalar(raw);
+  };
+  // `results` holds run output and `mocks` holds MCP stand-ins; neither is a case.
+  for (const entry of readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !["results", "mocks"].includes(e.name))) {
     const at = `plugins/pstack/evals/${entry.name}`;
     const prompt = join(dir, entry.name, "prompt.md");
     if (!existsSync(prompt)) {
@@ -241,20 +251,31 @@ export function evalCaseProblems(root = ROOT, skillNames = new Set()) {
     const parsed = front(readFileSync(prompt, "utf8"));
     if (!parsed) problems.push(`${at}/prompt.md: no frontmatter`);
     else {
-      const name = /^name:\s*(.+)$/m.exec(parsed[1])?.[1]?.trim();
+      const name = field(parsed[1], "name");
       if (name && name !== entry.name) problems.push(`${at}/prompt.md: name is ${name}, not the folder name`);
       if (!parsed[2].trim()) problems.push(`${at}/prompt.md: no prompt text`);
+      for (const k of keys(parsed[1])) if (!PROMPT_KEYS.has(k)) problems.push(`${at}/prompt.md: unknown frontmatter key ${k}`);
     }
     const graders = join(dir, entry.name, "graders");
     const files = existsSync(graders) ? readdirSync(graders).filter((f) => f.endsWith(".md")) : [];
     if (!files.length) problems.push(`${at}: no graders/*.md`);
     for (const f of files) {
+      const where = `${at}/graders/${f}`;
       const g = front(readFileSync(join(graders, f), "utf8"));
-      const type = g && /^type:\s*(\S+)/m.exec(g[1])?.[1];
-      if (!GRADERS.has(type)) problems.push(`${at}/graders/${f}: type must be one of ${[...GRADERS].join(", ")}`);
-      const skill = g && /^input_match:.*\?([a-z0-9-]+)"'?\s*$/m.exec(g[1])?.[1];
-      if (type === "tool_used" && /^tool:\s*Skill/m.test(g[1]) && skill && skillNames.size && !skillNames.has(skill)) {
-        problems.push(`${at}/graders/${f}: expects skill ${skill}, which is not a skill`);
+      if (!g) {
+        problems.push(`${where}: no frontmatter`);
+        continue;
+      }
+      const type = field(g[1], "type");
+      if (!GRADERS.has(type)) problems.push(`${where}: type must be one of ${[...GRADERS].join(", ")}`);
+      if (keys(g[1]).includes("with_only")) problems.push(`${where}: with_only is not a grader key; use arm: with-only or arm: both`);
+      if (type === "llm" && !g[2].trim()) problems.push(`${where}: an llm grader needs its criteria in the body`);
+      if (type === "tool_used" && field(g[1], "tool") === "Skill" && skillNames.size) {
+        const match = field(g[1], "input_match") ?? "";
+        const words = (match.match(/[a-z][a-z0-9-]*/g) ?? []).filter((w) => !MATCH_WORDS.has(w));
+        const skill = words.at(-1);
+        if (!skill) problems.push(`${where}: cannot tell which skill this Skill grader expects`);
+        else if (!skillNames.has(skill)) problems.push(`${where}: expects skill ${skill}, which is not a skill`);
       }
     }
   }

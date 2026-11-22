@@ -157,12 +157,22 @@ describe("layer 3 case structure", () => {
     writeFileSync(at("bad", "graders", "x.md"), "---\ntype: vibes\n---\n");
     writeFileSync(at("bad", "graders", "y.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: '\"skill\"\\s*:\\s*\"(?:[\\w-]+:)?ghost\"'\n---\n");
     mkdirSync(at("empty"), { recursive: true });
+    mkdirSync(at("forms", "graders"), { recursive: true });
+    writeFileSync(at("forms", "prompt.md"), '---\nname: "forms" # quoted, with a comment\nmaxturns: 3\n---\n\nGo.\n');
+    writeFileSync(at("forms", "graders", "a.md"), '---\ntype: "llm"\n---\n');
+    writeFileSync(at("forms", "graders", "b.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: '\"skill\"\\s*:\\s*\"pstack:grilll\"'\nwith_only: true\n---\n");
+    writeFileSync(at("forms", "graders", "c.md"), "---\ntype: tool_used\ntool: Skill\ninput_match: 'grill'\n---\n");
+    mkdirSync(at("mocks"), { recursive: true });
     expect(evalCaseProblems(root, new Set(["grill"])).sort()).toEqual([
       "plugins/pstack/evals/bad/graders/x.md: type must be one of regex, tool_used, tool_order, file_exists, llm, baseline",
       "plugins/pstack/evals/bad/graders/y.md: expects skill ghost, which is not a skill",
       "plugins/pstack/evals/bad/prompt.md: name is other, not the folder name",
       "plugins/pstack/evals/bad/prompt.md: no prompt text",
       "plugins/pstack/evals/empty: no prompt.md",
+      "plugins/pstack/evals/forms/graders/a.md: an llm grader needs its criteria in the body",
+      "plugins/pstack/evals/forms/graders/b.md: expects skill grilll, which is not a skill",
+      "plugins/pstack/evals/forms/graders/b.md: with_only is not a grader key; use arm: with-only or arm: both",
+      "plugins/pstack/evals/forms/prompt.md: unknown frontmatter key maxturns",
     ]);
     expect(evalCaseProblems(root, new Set(["grill"])).some((p) => p.includes("/good"))).toBe(false);
     rmSync(root, { recursive: true, force: true });

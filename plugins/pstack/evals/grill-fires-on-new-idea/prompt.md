@@ -2,7 +2,7 @@
 name: grill-fires-on-new-idea
 tags: [layer3, grill]
 runs: 1
-max_turns: 8
+max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
