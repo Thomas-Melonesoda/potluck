@@ -16,7 +16,8 @@
 // It refuses (exit 3, "hold") a worktree that is locked, has any initialized
 // submodule (or files in an uninitialized submodule's folder, or a submodule
 // repository left under its git dir), has a rebase, merge, cherry-pick,
-// revert, or bisect in progress, has skip-worktree files on disk, has unmerged
+// revert, or bisect in progress, has skip-worktree or assume-unchanged files on
+// disk, has unmerged
 // paths, or has no commit yet, and it writes nothing for them. Trash entries older than --keep-days (default 30, or
 // $POTLUCK_TRASH_DAYS) are deleted on each run. Backup branches stay local:
 // never push them.
@@ -132,14 +133,15 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
   const pending = ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG"]
     .filter((name) => existsSync(git(worktree, ["rev-parse", "--path-format=absolute", "--git-path", name]).trim()));
   if (pending.length) return { kind: "hold", worktree, reason: `an operation is in progress: ${pending.join(", ")}` };
-  // A skip-worktree file on disk is one git stops comparing, so its edits
-  // would not show as changes and would be lost. Files sparse checkout left
-  // out are not on disk, so they do not count.
-  const skipped = z(git(worktree, ["ls-files", "-t", "-z"]))
-    .filter((entry) => entry.startsWith("S "))
+  // A skip-worktree or assume-unchanged file on disk is one git stops
+  // comparing (`ls-files -v` tags it S or in lowercase; core.ignoreStat sets
+  // the second on add), so its edits would not show as changes and would be
+  // lost. Files sparse checkout left out are not on disk, so they do not count.
+  const skipped = z(git(worktree, ["ls-files", "-v", "-z"]))
+    .filter((entry) => entry[0] === "S" || /[a-z]/.test(entry[0]))
     .map((entry) => entry.slice(2))
     .filter((path) => existsSync(join(worktree, path)));
-  if (skipped.length) return { kind: "hold", worktree, reason: `skip-worktree files whose edits git does not track: ${skipped.slice(0, 5).join(", ")}${skipped.length > 5 ? ", ..." : ""}` };
+  if (skipped.length) return { kind: "hold", worktree, reason: `skip-worktree or assume-unchanged files whose edits git does not track: ${skipped.slice(0, 5).join(", ")}${skipped.length > 5 ? ", ..." : ""}` };
 
   const result = { kind: "backed-up", worktree, branches: [], tarball: null, prunedTrash: pruneTrash(trash, keepDays, now) };
   const head = git(worktree, ["rev-parse", "HEAD"]).trim();

@@ -320,7 +320,27 @@ describe("worktree-backup", () => {
     git(wt, "update-index", "--skip-worktree", "a.txt");
     writeFileSync(join(wt, "a.txt"), "hidden edit\n");
     expect(git(wt, "status", "--porcelain").trim()).toBe("");
-    expect(run().json).toMatchObject({ kind: "hold", reason: "skip-worktree files whose edits git does not track: a.txt" });
+    expect(run().json).toMatchObject({ kind: "hold", reason: "skip-worktree or assume-unchanged files whose edits git does not track: a.txt" });
+  });
+
+  test("an edited assume-unchanged file is held, since git would not report the edit", () => {
+    const { wt, git, run } = setup();
+    git(wt, "update-index", "--assume-unchanged", "a.txt");
+    writeFileSync(join(wt, "a.txt"), "hidden edit\n");
+    expect(git(wt, "status", "--porcelain").trim()).toBe("");
+    expect(run().json).toMatchObject({ kind: "hold", reason: "skip-worktree or assume-unchanged files whose edits git does not track: a.txt" });
+  });
+
+  test("a sparse checkout's left-out files do not hold", () => {
+    const { repo, wt, git, run } = setup();
+    mkdirSync(join(repo, "d2"));
+    writeFileSync(join(repo, "d2/y.txt"), "y\n");
+    git(repo, "add", "d2/y.txt");
+    git(repo, "commit", "-q", "-m", "d2");
+    git(wt, "merge", "-q", "main");
+    git(wt, "sparse-checkout", "set", "--no-cone", "/a.txt");
+    expect(git(wt, "ls-files", "-v", "d2/y.txt")).toStartWith("S ");
+    expect(run().json.kind).not.toBe("hold");
   });
 
   test("a worktree with no commit yet is held, not crashed on", () => {
