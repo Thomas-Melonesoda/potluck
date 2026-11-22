@@ -15,6 +15,9 @@ const RULES = [
   { row: "A8", file: "poteto-mode/playbooks/shipping.md", phrase: "Never run `gh pr merge` yourself." },
   { row: "A8", file: "poteto-mode/playbooks/shipping.md", phrase: "Never arm `--auto`" },
   { row: "A11", file: "poteto-help/SKILL.md", phrase: "runs [Autopilot-stack](../poteto-mode/playbooks/autopilot-stack.md), which stacks the PRs and merges nothing." },
+  { row: "C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "For every worktree in the confirmed set, clean ones included, run `node` on `skills/poteto-mode/scripts/worktree-backup.mjs`" },
+  { row: "C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "Only a recorded `backed-up` or `nothing-to-back-up` result clears a worktree for step 5, and the agent then deletes it without asking." },
+  { row: "C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "Never push a `backup/` branch" },
   { row: "C4", file: "poteto-mode/playbooks/autopilot-full.md", phrase: "A rebase that stops on a conflict, or a push the lease refuses, goes to the root" },
 ];
 
