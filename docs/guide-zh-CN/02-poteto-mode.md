@@ -43,7 +43,7 @@ flowchart TD
 /poteto-mode users get two notifications after a retry. repro first, then fix and verify.
 ```
 
-这就是一条 Bug fix prompt。"repro first"（先复现）是真实的约束，不是客气话，playbook 会遵守它。留意待办清单里填进 Bug fix 的步骤。
+这就是一条 Bug fix prompt。“repro first”（先复现）是真实的约束，不是客气话，playbook 会遵守它。留意待办清单里填进 Bug fix 的步骤。
 
 <a id="what-goes-in-a-prompt"></a>
 
@@ -52,10 +52,10 @@ flowchart TD
 一条有用的 prompt 最多包含五样东西，每样一句话就能说清：
 
 - **目标。** 说哪里不对，或者你想要什么。
-- **完成检查。** 它必须能判定通过或失败。"把它弄好一点"和"在上面干一个小时"都不是检查。
+- **完成检查。** 它必须能判定通过或失败。“把它弄好一点”和“在上面干一个小时”都不是检查。
 - **你想看到的证据。** 要求看真实的命令输出、操作流程的视频、存下来的值，或者前后对比的数字。
 - **你已经知道的信息。** 一个症状、一个复现步骤、一行日志或一个链接，都能帮 agent 省掉一次搜索。
-- **真实的约束。** "repro first"、"don't change any code yet"（先别改代码）、"zero behavior change"（行为零变化）和 "let me review before proceeding"（继续之前先让我看看）都会改变 agent 的做法。
+- **真实的约束。** “repro first”、“don't change any code yet”（先别改代码）、“zero behavior change”（行为零变化）和 “let me review before proceeding”（继续之前先让我看看）都会改变 agent 的做法。
 
 下面这条 prompt 五样都有：
 
@@ -65,7 +65,7 @@ flowchart TD
 
 有两样东西最好不写：
 
-- **怎么做。** 说要达成什么，给 agent 留出空间，去找比你会选的更好的路。一串 skill 列表也一样，见下面的陷阱。
+- **怎么做。** 说要达成什么，给 agent 留出空间，去找比你会选的更好的路。一串 skill 列表也一样，见下面的坑。
 - **你对原因的猜测，至少一开始别说。** 说出来的猜测会把搜索范围缩到你指的地方。先让 agent 复述问题，再说出你的直觉。
 
 遇到信息杂乱的报告，比如一条很长的讨论串或一个含糊的 bug，就把复述作为第一步：
@@ -106,7 +106,7 @@ keep going until done
 
 <a id="switch-tasks-with-new-task"></a>
 
-## 用 "new task" 切换任务
+## 用 “new task” 切换任务
 
 很长的对话会积累上一个任务的上下文。换话题时，要说出来：
 
@@ -114,7 +114,7 @@ keep going until done
 /poteto-mode new task. figure out why the cache entry survives logout. don't change any code yet.
 ```
 
-"new task"（新任务）告诉 `/poteto-mode` 重新匹配，而不是继续之前的 playbook。"don't change any code yet" 把这一次固定在 Investigation 上。没有这两句话，一个正做到 Feature 中途的 mode 往往会把你的问题当成下一个功能步骤。
+“new task”（新任务）告诉 `/poteto-mode` 重新匹配，而不是继续之前的 playbook。“don't change any code yet” 把这一次固定在 Investigation 上。没有这两句话，一个正做到 Feature 中途的 mode 往往会把你的问题当成下一个功能步骤。
 
 <a id="give-parallel-work-its-own-machine"></a>
 
@@ -150,7 +150,7 @@ worktree 会越积越多。磁盘紧张时，这样问：
 
 你之后才会审查的工作会交给 [`/figure-it-out`](../../plugins/pstack/skills/figure-it-out/SKILL.md)，它会设计这次运行的各个阶段，并维护一份 [`/show-me-your-work`](../../plugins/pstack/skills/show-me-your-work/SKILL.md) 决定记录。[睡觉时让工作继续跑](./07-overnight.md) 完整介绍了过夜约定。
 
-**陷阱：** 不要在 prompt 里列举 skill（"use /architect, then /arena, then /interrogate..."）。playbook 已经安排好了它们的顺序，手写的顺序通常会打乱或漏掉 playbook 本来会保留的步骤。只有想推翻某个具体选择时，才点名一个 skill。
+**坑**： 不要在 prompt 里列举 skill（“use /architect, then /arena, then /interrogate...”）。playbook 已经安排好了它们的顺序，手写的顺序通常会打乱或漏掉 playbook 本来会保留的步骤。只有想推翻某个具体选择时，才点名一个 skill。
 
 完整的分派规则，请直接读 [`poteto-mode`](../../plugins/pstack/skills/poteto-mode/SKILL.md) 本身。
 

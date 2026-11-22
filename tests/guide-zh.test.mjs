@@ -62,9 +62,28 @@ describe("Chinese guide", () => {
     }
   });
 
+  // The English page's links, as the Chinese page should carry them: images
+  // from the shared folder, the README in Chinese (its anchors are Chinese).
+  const targets = (text) => [...prose(text).matchAll(/\]\(([^)\s]+)\)/g)].map((m) => m[1]);
+  const asChinese = (target) =>
+    target.replace(/^\.\/images\//, "../guide/images/").replace(/^\.\.\/\.\.\/README\.md(#.*)?$/, "../../README.zh-CN.md");
+  test.each(pages)("%s carries every English link and no other", (page) => {
+    const chinese = targets(read(zh, page)).slice(1).map((t) => t.replace(/^(\.\.\/\.\.\/README\.zh-CN\.md)#.*$/, "$1"));
+    expect(chinese.sort()).toEqual(targets(read(en, page)).map(asChinese).sort());
+  });
+
+  test.each(pages)("%s puts each anchor right above its heading", (page) => {
+    const lines = read(zh, page).split("\n");
+    lines.forEach((line, i) => {
+      if (!/^<a id="/.test(line)) return;
+      const next = lines[i + 1] === "" ? lines[i + 2] : lines[i + 1];
+      expect(next, `${page}:${i + 1}`).toMatch(/^#{2,3} /);
+    });
+  });
+
   test.each(pages)("%s links back to its English page and uses no dash punctuation", (page) => {
     const text = read(zh, page);
     expect(text.split("\n")[2]).toBe(`[English](../guide/${page}) | **中文**`);
-    expect(prose(text)).not.toMatch(/[—–]/);
+    expect(prose(text)).not.toMatch(/[—–―]|\s--\s/);
   });
 });

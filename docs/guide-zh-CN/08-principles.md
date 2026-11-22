@@ -64,7 +64,7 @@ separate before serializing shared state. give each attempt its own worktree, no
 - [Test Behavior, Not Implementation](../../plugins/pstack/skills/principle-test-behavior-not-implementation/SKILL.md)：断言代码的使用者能观察到的东西，这样当这个行为坏掉时测试会失败，而内部实现改动时测试仍然能通过。
 - [Explain the Number](../../plugins/pstack/skills/principle-explain-the-number/SKILL.md)：在任何人相信或报告一个测量出来的数字之前，先说清是什么限制了它，并排除它其实测到了别的东西。[`/benchmark-checklist`](../../plugins/pstack/skills/benchmark-checklist/SKILL.md) 把它变成七个要用真实运行来回答的问题。
 
-委派原则让并行的工作保持清醒：
+委派原则让并行的工作不至于乱套：
 
 - [Guard the Context Window](../../plugins/pstack/skills/principle-guard-the-context-window/SKILL.md)：把大量阅读交给子 agent，只把结论留在主对话里。
 - [Never Block on the Human](../../plugins/pstack/skills/principle-never-block-on-the-human/SKILL.md)：可撤销的工作直接推进，然后把结果拿给人看。

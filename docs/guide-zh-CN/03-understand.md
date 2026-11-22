@@ -20,7 +20,7 @@ pstack 给你四个切入口。`/how` 解释代码现在做什么。`/why` 挖�
 /poteto-mode investigate why background jobs time out every few hours. give me what we know, what data you used, and your best hypotheses. don't change any code yet.
 ```
 
-"don't change any code yet"（先别改代码）会把它分派到 [Investigation playbook](../../plugins/pstack/skills/poteto-mode/playbooks/investigation.md)。它会追踪代码，遇到关于动机的问题就加上 `/why`，并返回一份带引用的解释。如果是在几个选项之间做选择，它会返回一个推荐，附带权衡表。问"what data you used"（你用了哪些数据），会让 agent 把证据和猜测分开。调查结果指向某个修复时，把修复作为新任务开始。
+“don't change any code yet”（先别改代码）会把它分派到 [Investigation playbook](../../plugins/pstack/skills/poteto-mode/playbooks/investigation.md)。它会追踪代码，遇到关于动机的问题就加上 `/why`，并返回一份带引用的解释。如果是在几个选项之间做选择，它会返回一个推荐，附带权衡表。问“what data you used”（你用了哪些数据），会让 agent 把证据和猜测分开。调查结果指向某个修复时，把修复作为新任务开始。
 
 <a id="trace-behavior-with-how"></a>
 
@@ -40,7 +40,7 @@ pstack 给你四个切入口。`/how` 解释代码现在做什么。`/why` 挖�
 /why was the retry limit set to five? does the reason still hold?
 ```
 
-[`/why`](../../plugins/pstack/skills/why/SKILL.md) 根据记录回答，而不是根据代码。它会读引入这段代码以及之后每次修改的 commit 和 PR 讨论，在这条线索太少时还会看其它来源。答案会引用作者写下的内容，把 agent 自己的推断标为推断，并说明记录里回答不了的部分，因为"没人写下原因"本身就是一个答案。
+[`/why`](../../plugins/pstack/skills/why/SKILL.md) 根据记录回答，而不是根据代码。它会读引入这段代码以及之后每次修改的 commit 和 PR 讨论，在这条线索太少时还会看其它来源。答案会引用作者写下的内容，把 agent 自己的推断标为推断，并说明记录里回答不了的部分，因为“没人写下原因”本身就是一个答案。
 
 两者可以自然地组合。当你怀疑历史能解释这团乱麻时，`do why first then how` 是一条好 prompt。
 
@@ -52,7 +52,7 @@ pstack 给你四个切入口。`/how` 解释代码现在做什么。`/why` 挖�
 /teach me how this PR changes retries. convince me it fixes the cause and not the symptom.
 ```
 
-[`/teach`](../../plugins/pstack/skills/teach/SKILL.md) 用在摘要不够的时候。它会运行 `/how` 和 `/why`（对小改动可能只运行其中一个），把结果编织成一份通俗的解释，一张图一张图地搭起来。"convince me"（说服我）这种说法值得反复用。它把解释变成一个你可以检验的论证，而不是一次参观。
+[`/teach`](../../plugins/pstack/skills/teach/SKILL.md) 用在摘要不够的时候。它会运行 `/how` 和 `/why`（对小改动可能只运行其中一个），把结果编织成一份通俗的解释，一张图一张图地搭起来。“convince me”（说服我）这种说法值得反复用。它把解释变成一个你可以检验的论证，而不是一次参观。
 
 它也适用于 agent 自己做的选择：
 
@@ -90,6 +90,6 @@ pstack 给你四个切入口。`/how` 解释代码现在做什么。`/why` 挖�
 
 [Session pickup playbook](../../plugins/pstack/skills/poteto-mode/playbooks/session-pickup.md) 把之前留下的记录当作权威。它会重建分支状态和各项决定，指出从哪里继续，并对照原始目标核实继承下来的说法，而不是从头重新推一遍。
 
-**陷阱：** 不要因为"agent 反正会读代码"就跳过这一页的 skill。没有先追踪出一个模型就开始改的 agent，往往会在第一个看起来说得通的地方修掉症状。先用 `/how`，比出第二个 bug 便宜。
+**坑**： 不要因为“agent 反正会读代码”就跳过这一页的 skill。没有先追踪出一个模型就开始改的 agent，往往会在第一个看起来说得通的地方修掉症状。先用 `/how`，比出第二个 bug 便宜。
 
 下一页：[写代码之前先做设计](./04-design.md)。

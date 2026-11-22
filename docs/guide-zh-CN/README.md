@@ -39,6 +39,6 @@
 /poteto-mode the export writes duplicate rows when a retry lands mid-run. repro first, then fix and verify.
 ```
 
-你不需要点名 playbook，也不需要列出 skill。"repro first"（先复现）加上一个可检查的结果，就是 `/poteto-mode` 分派所需的全部信号。它会匹配到 Bug fix playbook，把步骤复制进待办清单，并在每一步触发时调用合适的 skill。
+你不需要点名 playbook，也不需要列出 skill。“repro first”（先复现）加上一个可检查的结果，就是 `/poteto-mode` 分派所需的全部信号。它会匹配到 Bug fix playbook，把步骤复制进待办清单，并在每一步触发时调用合适的 skill。
 
 下一页：[安装 pstack](./01-setup.md)。

@@ -19,7 +19,7 @@
 /poteto-mode add json output to this command. text output stays byte-identical, the json parses, both run against the sample project. show me the evidence.
 ```
 
-现在 agent 有了三项可以运行的检查，而不是一种需要迎合的感觉。回复回来时，应该带上确切的命令和输出。如果某项检查没能运行，好的回复会说“无法判定”（inconclusive）。没有证据却很自信的回复是一个警告信号。
+现在 agent 有了三项可以运行的检查，而不是一种需要迎合的感觉。回复回来时，应该带上确切的命令和输出。如果某项检查没能运行，好的回复会说“无法下结论”（inconclusive）。没有证据却很自信的回复是一个警告信号。
 
 让检查和改动对得上：
 
@@ -52,7 +52,7 @@
 6. 从端到端看，在用户等待的路径上，它重要吗？
 7. 工作真的发生在计时区间内吗？
 
-结论会是更快、更慢、没有可测量的差异，或者无法判定，并附上运行次数、范围和限制因素。当它说不出限制因素，或者某一边没有调优运行时，结论就是无法判定。`/poteto-mode` 已经在 Perf issue 和 Hillclimb playbook 里运行这份清单，所以只有当你在它们之外测量了什么，或者别人的数字好得令人怀疑时，才需要自己输入。它是 [Explain the Number 原则](../../plugins/pstack/skills/principle-explain-the-number/SKILL.md)的可操作形式。
+结论会是更快、更慢、没有可测量的差异，或者无法下结论，并附上运行次数、范围和限制因素。当它说不出限制因素，或者某一边没有调优运行时，结论就是无法下结论。`/poteto-mode` 已经在 Perf issue 和 Hillclimb playbook 里运行这份清单，所以只有当你在它们之外测量了什么，或者别人的数字好得令人怀疑时，才需要自己输入。它是 [Explain the Number 原则](../../plugins/pstack/skills/principle-explain-the-number/SKILL.md)的可操作形式。
 
 <a id="create-a-project-verification-skill"></a>
 ## 创建项目的验证 skill

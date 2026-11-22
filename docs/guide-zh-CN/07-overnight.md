@@ -60,7 +60,7 @@ flowchart TD
     G --> A
 ```
 
-每一轮都是：一个改动，一次检查，一行记录。没起作用的改动会被丢掉，而不是留着顺带混过去。进展停滞意味着换方向，不是停下，而且完成条件永远不会悄悄放宽来宣布胜利。
+每一轮都是：一个改动，一次检查，一行记录。没起作用的改动会被丢掉，而不是放着不管。进展停滞意味着换方向，不是停下，而且完成条件永远不会悄悄放宽来宣布胜利。
 
 <a id="the-morning-audit"></a>
 ## 早上的审查
@@ -80,7 +80,7 @@ flowchart TD
 <a id="when-the-night-holds-a-queue-not-a-task"></a>
 ## 当一晚要处理的是一队任务，而不是一个任务
 
-上面的约定是把一个任务推到一个完成条件。有些夜晚要处理的更多：一队互相独立的改动，或者一整个项目群。两个 playbook 和一个 skill 把同样的信任放大到这种规模。
+上面的约定是把一个任务推到一个完成条件。有些夜晚要处理的更多：一队互相独立的改动，或者一整个大型工程。两个 playbook 和一个 skill 把同样的信任放大到这种规模。
 
 [Autopilot-full](../../plugins/pstack/skills/poteto-mode/playbooks/autopilot-full.md) 把一队互相独立的 PR 一路推到合并。每个 PR 有一个负责它的 agent，从构建一直带到合并，而且没有哪个负责者能凭自己的判断合并。一群全新的验证者会检查负责者准备好的那个代码版本。之后的 rebase 或小修只需要一个全新的验证者，只有新的行为或很大的新 diff 才会再次召集整群验证者。只有对最终要合并的那个补丁给出的干净结论，才能授权合并：
 
@@ -94,7 +94,7 @@ flowchart TD
 /poteto-mode autopilot these five changes, but don't merge. i'll land them in the morning.
 ```
 
-一整个项目群，比如横跨许多包的迁移，没有专属的 playbook。`/poteto-mode` 会把规模大或牵涉面广的工作交给 [`/figure-it-out`](../../plugins/pstack/skills/figure-it-out/SKILL.md)，由它为这件事设计一次严谨的运行：
+一整个大型工程，比如横跨许多包的迁移，没有专属的 playbook。`/poteto-mode` 会把规模大或牵涉面广的工作交给 [`/figure-it-out`](../../plugins/pstack/skills/figure-it-out/SKILL.md)，由它为这件事设计一次严谨的运行：
 
 ```text
 /poteto-mode migrate every package to the new store. own it until each one is converted and merged. i'll check in twice a day.
@@ -103,7 +103,7 @@ flowchart TD
 <a id="run-many-projects-in-parallel"></a>
 ## 同时跑多个项目
 
-对于一个长期的项目群，从一个负责协调的对话里运行 [Autopilot-full playbook](../../plugins/pstack/skills/poteto-mode/playbooks/autopilot-full.md)。它把项目群的目标和决定记录保存在 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/orchestrate/<slug>/` 下，这样新开的对话也能接着做。它启动的每个 agent 都会先读 [`worker.md`](../../plugins/pstack/skills/poteto-mode/worker.md)，所以这些 worker 会守住启动时定下的标准，可撤销的事自己决定而不是来问你，并开出可以直接审查的 PR。
+对于一个长期的大型工程，从一个负责协调的对话里运行 [Autopilot-full playbook](../../plugins/pstack/skills/poteto-mode/playbooks/autopilot-full.md)。它把大型工程的目标和决定记录保存在 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/orchestrate/<slug>/` 下，这样新开的对话也能接着做。它启动的每个 agent 都会先读 [`worker.md`](../../plugins/pstack/skills/poteto-mode/worker.md)，所以这些 worker 会守住启动时定下的标准，可撤销的事自己决定而不是来问你，并开出可以直接审查的 PR。
 
 有几个习惯很有用：
 
@@ -112,7 +112,7 @@ flowchart TD
 - 每个 PR 合并前都给它一群验证者，并让 Autopilot-stack 或 Autopilot-full 来推进这一队任务。
 - 请协调者给出一份有数据支撑的计划，并让它先用原型回答悬而未决的问题，再来问你。
 
-一个 prompt 就能承载一整个项目群，从调研一直到执行：
+一个 prompt 就能承载一整个大型工程，从调研一直到执行：
 
 ```text
 /poteto-mode refactor this repo so its architecture is more agent friendly. use /correct and /architect on past commits and review comments to find the mistakes agents make most here. use /recall for context from past chats. answer open questions with prototypes instead of asking me. come back with a plan backed by real data. once i approve it, run it with autopilot-stack or autopilot-full, and ask me which.

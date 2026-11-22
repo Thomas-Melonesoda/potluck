@@ -36,11 +36,11 @@
 
 安装结束时，`/setup-pstack` 会在你的项目里寻找证明应用行为的办法，要么是一个 `verify-*` skill，要么是现成的 harness。两者都没找到时，它会提议一次，用 [`/create-verification-skill`](../../plugins/pstack/skills/create-verification-skill/SKILL.md) 生成一个。
 
-答应的话，它会写出 `.claude/skills/verify-<app>/`，这是一个项目本地的 skill，教 agent 像用户那样操作你的应用。交给你之前，它会先证明这个 skill 能用一次。拒绝的话，安装会继续往下走。你随时可以自己运行 `/create-verification-skill`。[验证结果并开 PR](./06-verify-and-ship.md#create-a-project-verification-skill)对此有详细介绍。
+答应的话，它会写出 `.claude/skills/verify-<app>/`，这是一个项目本地的 skill，教 agent 像用户那样操作你的应用。交给你之前，它会先实际跑一次，证明这个 skill 能用。拒绝的话，安装会继续往下走。你随时可以自己运行 `/create-verification-skill`。[验证结果并开 PR](./06-verify-and-ship.md#create-a-project-verification-skill)对此有详细介绍。
 
 如果你刚接触 pstack，就答应。能检查自己工作的 agent 会一直做下去，直到检查通过。不能检查的 agent 会把每个结果都交还给你手动检查。在这份指南的所有内容里，验证 skill 的回报最大。
 
-接着，安装过程会提议一次，用 [`/create-formal-verification-skill`](../../plugins/pstack/skills/create-formal-verification-skill/SKILL.md) 生成一个形式化验证 skill，除非项目里已经有了。测试只检查有人想到要写的情况。形式化验证 skill 检查代码的一个关键性质（比如"一个任务永远不会同时运行两次"），覆盖给定范围内的每一种情况。如果你的代码涉及并发、重试、状态机或解析器，也就是 bug 代价高、而测试很少碰到出错情况的地方，就答应。否则就拒绝，等情况变了再运行它。[验证结果并开 PR](./06-verify-and-ship.md#prove-a-property-with-a-formal-verification-skill)对此有介绍。
+接着，安装过程会提议一次，用 [`/create-formal-verification-skill`](../../plugins/pstack/skills/create-formal-verification-skill/SKILL.md) 生成一个形式化验证 skill，除非项目里已经有了。测试只检查有人想到要写的情况。形式化验证 skill 检查代码的一个关键性质（比如“一个任务永远不会同时运行两次”），覆盖给定范围内的每一种情况。如果你的代码涉及并发、重试、状态机或解析器，也就是 bug 代价高、而测试很少碰到出错情况的地方，就答应。否则就拒绝，等情况变了再运行它。[验证结果并开 PR](./06-verify-and-ship.md#prove-a-property-with-a-formal-verification-skill)对此有介绍。
 
 安装完成后，开一个新对话。模型规则对新会话生效。
 

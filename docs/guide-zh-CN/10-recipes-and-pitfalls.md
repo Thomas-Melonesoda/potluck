@@ -87,7 +87,7 @@ ask /arena for a second opinion on this thread and our approach
 /poteto-mode repro the duplicate write first. if there's a cheap test path, /tdd it. then fix and rerun.
 ```
 
-“if there's a cheap test path”这句很重要。用脆弱的 mock 硬凑出一个测试，证明的东西比直接运行真实命令还少，而 playbook 是可以这么说的。
+“if there's a cheap test path”这句很重要。用脆弱的 mock 硬凑出一个测试，证明的东西比直接运行真实命令还少，而 playbook 允许直接这么说。
 
 <a id="repro-and-fix-a-report-with-proof"></a>
 ## 复现并修复一份报告，附上证据
