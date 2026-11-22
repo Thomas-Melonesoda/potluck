@@ -125,11 +125,20 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(calls().some((a) => a[1] === "merge")).toBe(false);
   });
 
-  test("a merge GitHub did not confirm is reported as refused", () => {
+  test("a merge GitHub did not confirm is reported as unconfirmed", () => {
     const { run } = fake({ after: { state: "OPEN", headRefOid: sha, mergeCommit: null } });
     const r = run(...merge);
     expect(r.status).toBe(1);
+    expect(r.json.kind).toBe("unconfirmed");
     expect(r.json.reasons[0]).toContain("merge not confirmed: state OPEN");
+  });
+
+  test("a gh failure after the merge request is unconfirmed, not refused", () => {
+    const { run } = fake({ fail: "state,mergeCommit,headRefOid" });
+    const r = run(...merge);
+    expect(r.status).toBe(1);
+    expect(r.json.kind).toBe("unconfirmed");
+    expect(r.json.reasons[0]).toContain("merge requested, then gh failed");
   });
 
   test("a gh failure while reading facts refuses instead of merging", () => {
