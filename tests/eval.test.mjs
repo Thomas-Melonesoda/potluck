@@ -2,7 +2,11 @@
 // small made-up skill lists here, and once on the real tree.
 import { describe, expect, test } from "bun:test";
 
-import { index, layer1, layer2, main, stem, tokens } from "../tools/eval.mjs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { frontmatter, index, layer1, layer2, main, readPlaybooks, stem, tokens } from "../tools/eval.mjs";
 
 const skill = (dir, description, extra = {}) => ({ dir, name: dir, description, userInvocable: true, ...extra });
 const SKILLS = [
@@ -12,11 +16,22 @@ const SKILLS = [
 ];
 
 describe("tokens", () => {
-  test("stems plurals and verb forms, and keeps how and why", () => {
-    expect(stem("reviewing")).toBe("review");
-    expect(stem("tests")).toBe("test");
+  test("puts a word family on one stem, and keeps how and why", () => {
+    expect(new Set(["change", "changes", "changed", "changing"].map(stem))).toEqual(new Set(["chang"]));
+    expect(new Set(["file", "files"].map(stem)).size).toBe(1);
+    expect(new Set(["pass", "passes"].map(stem)).size).toBe(1);
+    expect(stem("apply")).toBe("apply");
+    expect(stem("verified")).toBe(stem("verify"));
     expect(stem("dependencies")).toBe("dependency");
-    expect(tokens("How does the parser work? Why?")).toEqual(["how", "parser", "work", "why"]);
+    expect(tokens("How does the parser work? Why? Don't.")).toEqual(["how", "parser", "work", "why"]);
+  });
+});
+
+describe("frontmatter", () => {
+  test("reads plain, quoted, and block descriptions", () => {
+    expect(frontmatter('---\nname: a\ndescription: "Say \\"hi\\""\n---\n').description).toBe('Say "hi"');
+    expect(frontmatter("---\nname: a\ndescription: 'it''s'\n---\n").description).toBe("it's");
+    expect(frontmatter("---\nname: a\ndescription: >\n  one\n  two\nuser-invocable: false\n---\n")).toEqual({ name: "a", description: "one two", userInvocable: false });
   });
 });
 
@@ -27,7 +42,7 @@ describe("layer 1", () => {
   });
   test("names each structural problem", () => {
     const bad = [skill("Bad_Name", ""), skill("long", "x".repeat(1025)), { ...skill("moved", "y"), name: "old" }];
-    const problems = layer1(bad, [{ prompt: "p", skill: "ghost" }, { prompt: "q" }, { prompt: "r", not: ["long"], known: "why" }], { titles: ["Bug fix", "Feature"], files: ["bug-fix", "orphan"] });
+    const problems = layer1(bad, [{ prompt: "p", skill: "ghost" }, { prompt: "q" }, { prompt: "r", not: ["long"], known: " " }], { titles: ["Bug fix", "Feature"], files: ["bug-fix", "orphan"] });
     expect(problems).toEqual([
       "skills/Bad_Name: name must be lowercase words joined by hyphens, at most 64 characters",
       "skills/Bad_Name: no description",
@@ -38,7 +53,7 @@ describe("layer 1", () => {
       "skills/moved: no trigger case in evals/triggers.json",
       'evals/triggers.json: case "p" names ghost, which is not a skill',
       'evals/triggers.json: case "q" has neither "skill" nor "not"',
-      'evals/triggers.json: case "r" has a "known" mark without a positive skill and a reason',
+      'evals/triggers.json: case "r" has a "known" mark without a reason',
       "poteto-mode/playbooks/orphan.md: not in poteto-mode's playbook list",
       "poteto-mode's playbook list names feature, which has no playbooks/feature.md",
     ]);
@@ -58,12 +73,21 @@ describe("layer 2", () => {
     expect(layer2(SKILLS, { ...base, cases: [{ prompt: "review this pull request", skill: "deploy", known: "gap" }] }).problems).toEqual([]);
     expect(layer2(SKILLS, { ...base, cases: [{ prompt: "review this pull request", skill: "review", known: "gap" }] }).problems[0]).toContain('remove its "known" mark');
   });
+  test("a positive whose skill shares no word with the prompt has not fired, even at rank 1", () => {
+    const r = layer2(SKILLS.slice(0, 1), { ...base, cases: [{ prompt: "zzz", skill: "review" }] });
+    expect(r.report[0].rank).toBe(Infinity);
+    expect(r.problems[0]).toContain("outside the top 1");
+  });
+  test("a known false positive is reported, not failed, and fails once it stops firing", () => {
+    expect(layer2(SKILLS, { ...base, cases: [{ prompt: "deploy to production", not: ["deploy"], known: "gap" }] }).problems).toEqual([]);
+    expect(layer2(SKILLS, { ...base, cases: [{ prompt: "rename a variable", not: ["deploy"], known: "gap" }] }).problems[0]).toContain("no longer fires deploy");
+  });
   test("a negative fails only when the skill ranks first with a real score", () => {
     expect(layer2(SKILLS, { ...base, cases: [{ prompt: "deploy to production", not: ["deploy"] }] }).problems[0]).toContain("ranks deploy first");
     expect(layer2(SKILLS, { ...base, cases: [{ prompt: "rename a variable", not: ["review", "deploy", "explain"] }] }).problems).toEqual([]);
   });
   test("the rank-1 share has a floor", () => {
-    const r = layer2(SKILLS, { ...base, topK: 3, minRank1: 100, cases: [{ prompt: "review this pull request", skill: "review" }, { prompt: "watch it", skill: "explain" }] });
+    const r = layer2(SKILLS, { ...base, topK: 3, minRank1: 100, cases: [{ prompt: "review this pull request", skill: "review" }, { prompt: "watch the deploy rollout and explain it", skill: "explain" }] });
     expect(r.rate).toBe(50);
     expect(r.problems).toEqual(["trigger: 50% of positive cases rank their skill first, under the floor of 100%"]);
   });
@@ -73,10 +97,44 @@ describe("layer 2", () => {
     expect(layer2(twins, { ...base, collision: 0.5, cases: [], allowCollisions: [{ pair: ["ship", "deploy"], why: "w" }] }).problems).toEqual([]);
     expect(index(twins).pairs()[0].score).toBeGreaterThan(0.5);
     expect(layer2(twins, { ...base, collision: 0.5, cases: [], allowCollisions: [{ pair: ["ship", "deploy"] }] }).problems[0]).toContain("needs two existing skills and a reason");
+    expect(layer2(twins, { ...base, collision: 0.5, cases: [], allowCollisions: [{ why: "w" }] }).problems[0]).toContain("needs two existing skills and a reason");
+    expect(layer2(SKILLS, { ...base, collision: 0.5, cases: [], allowCollisions: [{ pair: ["review", "deploy"], why: "w" }] }).problems[0]).toContain("remove the pair from allowCollisions");
   });
 });
 
-test("the real tree passes both layers", () => {
+describe("the playbook list", () => {
+  const roots = [];
+  const tree = (skill) => {
+    const root = mkdtempSync(join(tmpdir(), "potluck-eval-"));
+    roots.push(root);
+    const mode = join(root, "plugins/pstack/skills/poteto-mode");
+    mkdirSync(join(mode, "playbooks"), { recursive: true });
+    writeFileSync(join(mode, "SKILL.md"), skill);
+    for (const f of ["bug-fix", "feature", "eval", "babysit", "shipping", "refactoring"]) writeFileSync(join(mode, "playbooks", `${f}.md`), "");
+    return root;
+  };
+  test("reads the titles from the Playbooks section", () => {
+    const root = tree("## Playbooks\n\nMatch the task.\n\nBug fix, Feature, Eval, Babysit, Shipping, Refactoring.\n");
+    expect(readPlaybooks(root).titles).toEqual(["Bug fix", "Feature", "Eval", "Babysit", "Shipping", "Refactoring"]);
+    expect(layer1([], [], readPlaybooks(root))).toEqual([]);
+  });
+  test("a missing list fails for every playbook file instead of passing", () => {
+    const root = tree("## Playbooks\n\nMatch the task.\n");
+    expect(layer1([], [], readPlaybooks(root)).filter((p) => p.includes("not in poteto-mode's playbook list"))).toHaveLength(6);
+    roots.forEach((r) => rmSync(r, { recursive: true, force: true }));
+  });
+});
+
+test("the real tree passes, and a failing check exits 1", () => {
   expect(main([])).toBe(0);
+  expect(main(["--layer", "1"])).toBe(0);
+  expect(main(["--layer", "2", "--report"])).toBe(0);
   expect(main(["--layer", "3"])).toBe(2);
+  const root = mkdtempSync(join(tmpdir(), "potluck-eval-main-"));
+  mkdirSync(join(root, "plugins/pstack/skills/poteto-mode/playbooks"), { recursive: true });
+  mkdirSync(join(root, "evals"));
+  writeFileSync(join(root, "plugins/pstack/skills/poteto-mode/SKILL.md"), "---\nname: poteto-mode\ndescription: Route work\n---\n## Playbooks\n");
+  writeFileSync(join(root, "evals/triggers.json"), JSON.stringify({ cases: [] }));
+  expect(main(["--layer", "1"], root)).toBe(1);
+  rmSync(root, { recursive: true, force: true });
 });

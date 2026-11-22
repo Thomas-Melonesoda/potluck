@@ -16,9 +16,11 @@
 // prompt is ranked against all of them. A positive case passes when its skill
 // ranks in the top `topK`; a negative case passes when none of its `not`
 // skills ranks first with a score of at least `minScore` (a prompt that matches
-// no skill fires none); the share of positives ranked first must stay at or
+// no skill fires none); a positive whose skill shares no word with the prompt
+// has not fired at all; the share of positives ranked first must stay at or
 // above `minRank1`. A case marked `known` with a reason is a recorded miss: it is
-// reported, not failed, and it fails once it passes, so the list stays true. Two descriptions closer than `collision` fail unless the pair is
+// reported, not failed, and it fails once it passes, so the list stays true. An
+// allowed collision that no longer collides fails the same way. Two descriptions closer than `collision` fail unless the pair is
 // listed in `allowCollisions` with a reason. A lexical score cannot judge
 // meaning (layer 3, a real agent run, does), but it catches a description that
 // lacks the words users say and two descriptions that read alike. A failure
@@ -36,12 +38,23 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_NAME = 64;
 const MAX_DESCRIPTION = 1024;
 
-// The frontmatter fields this check reads, as YAML reads a one-line scalar.
-function frontmatter(text) {
-  const block = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
+// The frontmatter fields this check reads: a one-line scalar (plain, single-,
+// or double-quoted) or a `>` or `|` block, whose indented lines are joined.
+export function frontmatter(text) {
+  const block = /^---\n([\s\S]*?)\n---/.exec(text.replaceAll("\r\n", "\n"))?.[1] ?? "";
   const field = (key) => {
-    const raw = new RegExp(`^${key}:[ \\t]*(.*)$`, "m").exec(block)?.[1]?.trim();
+    const match = new RegExp(`^${key}:[ \\t]*(.*)$`, "m").exec(block);
+    const raw = match?.[1]?.trim();
     if (raw === undefined) return undefined;
+    if (/^[>|][+-]?$/.test(raw)) {
+      const rest = block.slice(match.index + match[0].length + 1).split("\n");
+      const lines = [];
+      for (const line of rest) {
+        if (line.trim() && !/^\s/.test(line)) break;
+        lines.push(line.trim());
+      }
+      return lines.join(raw[0] === ">" ? " " : "\n").trim();
+    }
     if (raw.startsWith('"')) {
       try {
         return JSON.parse(raw);
@@ -64,21 +77,29 @@ export function loadSkills(root = ROOT) {
 }
 
 const STOP = new Set(
-  "a an and are as at be but by can do does for from has have i if in into is it its me my no not of on or our so that the their then there these this to up use used uses using was we when where which while who will with without you your".split(" "),
+  "a an and are as at be but by can do does dont doesnt for from has have i if im in into is it its ive me my no not of on or our so that the their then there these this to up use used uses using was we when where which while who will with without you your youre".split(" "),
 );
 
-// A light suffix stemmer, enough to match "reviewing" with "review" and "tests" with "test".
+// A light suffix stemmer, enough to put "change", "changes", "changed", and
+// "changing" on one stem: strip one inflection, then a final "e".
 export function stem(word) {
-  for (const [suffix, replacement] of [["ies", "y"], ["ing", ""], ["ed", ""], ["es", ""], ["s", ""], ["ly", ""]]) {
-    if (word.endsWith(suffix) && word.length - suffix.length >= 3) return word.slice(0, -suffix.length) + replacement;
-  }
-  return word;
+  let w = word;
+  if (w.endsWith("ies") && w.length > 4) w = `${w.slice(0, -3)}y`;
+  else if (w.endsWith("ied") && w.length > 4) w = `${w.slice(0, -3)}y`;
+  else if (w.endsWith("ing") && w.length > 5) w = w.slice(0, -3);
+  else if (w.endsWith("ed") && w.length > 4) w = w.slice(0, -2);
+  else if (/(?:ss|sh|ch|x|z)es$/.test(w) && w.length > 4) w = w.slice(0, -2);
+  else if (w.endsWith("s") && !/(?:ss|us|is)$/.test(w) && w.length > 3) w = w.slice(0, -1);
+  if (w.endsWith("e") && w.length > 3) w = w.slice(0, -1);
+  return w;
 }
 
 export const tokens = (text) =>
-  text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1 && !STOP.has(w)).map(stem);
+  text.toLowerCase().replace(/['\u2019]/g, "").split(/[^a-z0-9]+/).filter((w) => w.length > 1 && !STOP.has(w)).map(stem);
 
 // TF-IDF vectors for the skills, and a scorer for a prompt against them.
+// A skill's name counts twice beside its description, since a user who names
+// the skill means it.
 export function index(skills) {
   const docs = skills.map((s) => [...tokens(s.description ?? ""), ...tokens(s.dir.replaceAll("-", " ")), ...tokens(s.dir.replaceAll("-", " "))]);
   const df = new Map();
@@ -133,7 +154,7 @@ export function layer1(skills, cases, playbooks) {
     for (const name of [c.skill, ...(c.not ?? [])].filter(Boolean)) {
       if (!names.has(name)) problems.push(`evals/triggers.json: case ${JSON.stringify(c.prompt)} names ${name}, which is not a skill`);
     }
-    if (c.known !== undefined && (!c.skill || typeof c.known !== "string" || !c.known.trim())) problems.push(`evals/triggers.json: case ${JSON.stringify(c.prompt)} has a "known" mark without a positive skill and a reason`);
+    if (c.known !== undefined && (typeof c.known !== "string" || !c.known.trim())) problems.push(`evals/triggers.json: case ${JSON.stringify(c.prompt)} has a "known" mark without a reason`);
     if (!c.skill && !c.not?.length) problems.push(`evals/triggers.json: case ${JSON.stringify(c.prompt)} has neither "skill" nor "not"`);
   }
   if (playbooks) {
@@ -156,30 +177,40 @@ export function layer2(skills, config) {
     const ranked = idx.rank(c.prompt);
     if (c.skill) {
       positives++;
-      const rank = ranked.findIndex((r) => r.skill === c.skill) + 1;
+      // A skill the prompt shares no word with has not fired, whatever its place.
+      const at = ranked.findIndex((r) => r.skill === c.skill);
+      const rank = at < 0 || ranked[at].score === 0 ? Infinity : at + 1;
       if (rank === 1) first++;
       report.push({ prompt: c.prompt, skill: c.skill, rank, top: ranked[0].skill, known: c.known });
       const missed = rank > topK;
       if (missed && !c.known) problems.push(`trigger: "${c.prompt}" ranks ${c.skill} at ${rank}, outside the top ${topK} (first: ${ranked[0].skill})`);
       if (!missed && c.known) problems.push(`trigger: "${c.prompt}" now ranks ${c.skill} at ${rank}; remove its "known" mark`);
     }
-    for (const name of c.not ?? []) {
-      if (ranked[0].skill === name && ranked[0].score >= minScore) problems.push(`trigger: "${c.prompt}" ranks ${name} first (score ${ranked[0].score.toFixed(2)}), which it must not`);
+    if (c.not) {
+      const fired = c.not.filter((name) => ranked[0].skill === name && ranked[0].score >= minScore);
+      if (fired.length && !c.known) problems.push(`trigger: "${c.prompt}" ranks ${fired[0]} first (score ${ranked[0].score.toFixed(2)}), which it must not`);
+      if (!fired.length && c.known) problems.push(`trigger: "${c.prompt}" no longer fires ${c.not.join(" or ")}; remove its "known" mark`);
     }
   }
   const rate = positives ? Math.round((first / positives) * 1000) / 10 : 100;
   if (rate < minRank1) problems.push(`trigger: ${rate}% of positive cases rank their skill first, under the floor of ${minRank1}%`);
   const names = new Set(skills.map((s) => s.dir));
-  for (const { pair, why } of allowCollisions) {
+  for (const { pair, why } of allowCollisions.map((entry) => entry ?? {})) {
     if (!Array.isArray(pair) || pair.length !== 2 || !pair.every((name) => names.has(name)) || typeof why !== "string" || !why.trim()) {
       problems.push(`evals/triggers.json: allowCollisions entry ${JSON.stringify(pair)} needs two existing skills and a reason`);
     }
   }
-  const allowed = new Set(allowCollisions.map(({ pair }) => [...pair].sort().join(" ")));
-  for (const { a, b, score } of idx.pairs()) {
-    if (score >= collision && !allowed.has([a, b].sort().join(" "))) {
+  const key = (pair) => [...pair].sort().join(" ");
+  const allowed = new Set(allowCollisions.filter(({ pair }) => Array.isArray(pair)).map(({ pair }) => key(pair)));
+  const scores = new Map(idx.pairs().map(({ a, b, score }) => [key([a, b]), { a, b, score }]));
+  for (const { a, b, score } of scores.values()) {
+    if (score >= collision && !allowed.has(key([a, b]))) {
       problems.push(`collision: ${a} and ${b} descriptions are ${score.toFixed(2)} alike, at or over ${collision}; make them distinct or list the pair in allowCollisions with a reason`);
     }
+  }
+  for (const pair of allowed) {
+    const found = scores.get(pair);
+    if (found && found.score < collision) problems.push(`collision: ${found.a} and ${found.b} are ${found.score.toFixed(2)} alike now, under ${collision}; remove the pair from allowCollisions`);
   }
   return { problems, report, rate };
 }
@@ -212,7 +243,7 @@ export function main(argv, root = ROOT) {
   if (values.layer !== "1") {
     const { problems: found, report, rate } = layer2(skills, config);
     problems.push(...found);
-    if (values.report) for (const r of report) process.stdout.write(`${r.rank === 1 ? " " : r.known ? "k" : "*"} ${String(r.rank).padStart(2)} ${r.skill.padEnd(36)} ${r.prompt}${r.rank === 1 ? "" : `  (first: ${r.top})`}\n`);
+    if (values.report) for (const r of report) process.stdout.write(`${r.rank === 1 ? " " : r.known ? "k" : "*"} ${String(r.rank === Infinity ? "-" : r.rank).padStart(2)} ${r.skill.padEnd(36)} ${r.prompt}${r.rank === 1 ? "" : `  (first: ${r.top})`}\n`);
     process.stdout.write(`layer 2: ${report.length} positive cases, ${rate}% rank their skill first\n`);
   }
   if (problems.length) {
