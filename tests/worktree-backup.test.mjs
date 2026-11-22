@@ -303,6 +303,26 @@ describe("worktree-backup", () => {
     expect(r.json.reason).toContain("unmerged paths");
   });
 
+  test("a merge or bisect in progress without conflicts is held", () => {
+    const { repo, wt, git, run } = setup();
+    writeFileSync(join(repo, "b.txt"), "main only\n");
+    git(repo, "add", "b.txt");
+    git(repo, "commit", "-q", "-m", "main only");
+    git(wt, "merge", "-q", "--no-commit", "--no-ff", "main");
+    expect(run().json).toMatchObject({ kind: "hold", reason: "an operation is in progress: MERGE_HEAD" });
+    git(wt, "merge", "--abort");
+    git(wt, "bisect", "start");
+    expect(run().json).toMatchObject({ kind: "hold", reason: "an operation is in progress: BISECT_LOG" });
+  });
+
+  test("an edited skip-worktree file is held, since git would not report the edit", () => {
+    const { wt, git, run } = setup();
+    git(wt, "update-index", "--skip-worktree", "a.txt");
+    writeFileSync(join(wt, "a.txt"), "hidden edit\n");
+    expect(git(wt, "status", "--porcelain").trim()).toBe("");
+    expect(run().json).toMatchObject({ kind: "hold", reason: "skip-worktree files whose edits git does not track: a.txt" });
+  });
+
   test("a worktree with no commit yet is held, not crashed on", () => {
     const { root, repo, git } = setup();
     const orphan = join(root, "orphan");

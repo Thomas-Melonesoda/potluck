@@ -15,7 +15,8 @@
 //     `backup/<name>-<date>-head` and `backup/<name>-<date>-reflog-<sha>`
 // It refuses (exit 3, "hold") a worktree that is locked, has any initialized
 // submodule (or files in an uninitialized submodule's folder, or a submodule
-// repository left under its git dir), has unmerged
+// repository left under its git dir), has a rebase, merge, cherry-pick,
+// revert, or bisect in progress, has skip-worktree files on disk, has unmerged
 // paths, or has no commit yet, and it writes nothing for them. Trash entries older than --keep-days (default 30, or
 // $POTLUCK_TRASH_DAYS) are deleted on each run. Backup branches stay local:
 // never push them.
@@ -23,7 +24,7 @@
 // Prints one JSON line. Exit 0 backed-up (or nothing to back up), 3 hold, 2 usage.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -126,6 +127,19 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
   if (git(worktree, ["ls-files", "--unmerged"]).trim()) {
     return { kind: "hold", worktree, reason: "unmerged paths from a merge, rebase, or cherry-pick in progress" };
   }
+  // An operation in progress keeps its state in the worktree's git dir, which
+  // removal deletes, so a rebase, merge, or bisect half done is a person's call.
+  const pending = ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG"]
+    .filter((name) => existsSync(git(worktree, ["rev-parse", "--path-format=absolute", "--git-path", name]).trim()));
+  if (pending.length) return { kind: "hold", worktree, reason: `an operation is in progress: ${pending.join(", ")}` };
+  // A skip-worktree file on disk is one git stops comparing, so its edits
+  // would not show as changes and would be lost. Files sparse checkout left
+  // out are not on disk, so they do not count.
+  const skipped = z(git(worktree, ["ls-files", "-t", "-z"]))
+    .filter((entry) => entry.startsWith("S "))
+    .map((entry) => entry.slice(2))
+    .filter((path) => existsSync(join(worktree, path)));
+  if (skipped.length) return { kind: "hold", worktree, reason: `skip-worktree files whose edits git does not track: ${skipped.slice(0, 5).join(", ")}${skipped.length > 5 ? ", ..." : ""}` };
 
   const result = { kind: "backed-up", worktree, branches: [], tarball: null, prunedTrash: pruneTrash(trash, keepDays, now) };
   const head = git(worktree, ["rev-parse", "HEAD"]).trim();
