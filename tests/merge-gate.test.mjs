@@ -603,10 +603,18 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons.sort()).toEqual([`floor: [ci-test-removed] ${UNIT}: - run: npm test`, `floor: [test-deleted] ${UNIT}: file deleted`]);
   });
 
-  test("a test renamed into another folder runners read passes", () => {
-    const py = "tests/test_math.py", pyText = "def test_add():\n    assert 1 + 1 == 2\n";
-    const setup = { base: { [TEST]: TWO, [py]: pyText }, files: { "src/__tests__/app.test.js": TWO, "tests/unit/test_math.py": pyText }, remove: [TEST, py] };
-    expect(fake({ setup }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  test("a test moved to another folder reads as deleted, as on main, since the folder decides what runs it", () => {
+    const swift = "Tests/AppTests/MathTests.swift", rb = "test/test_user.rb";
+    const swiftText = "import XCTest\nfinal class MathTests: XCTestCase {}\n", rbText = "require 'minitest/autorun'\n";
+    const setup = { base: { [TEST]: TWO, [swift]: swiftText, [rb]: rbText }, files: { "src/__tests__/app.test.js": TWO, "Archive/MathTests.swift": swiftText, "lib/test_user.rb": rbText }, remove: [TEST, swift, rb] };
+    expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([swift, TEST, rb].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
+  test("a test renamed in its folder to a name Go skips, or to another naming form, reads as deleted", () => {
+    const go = "mathx/add_test.go", sub = "mathx/sub_test.go", py = "tests/test_math.py", js = "src/math.test.js";
+    const goText = "package mathx\n", pyText = "def test_add():\n    assert 1 + 1 == 2\n", jsText = TWO.replace("adds", "math");
+    const setup = { base: { [go]: goText, [sub]: "package mathx // sub\n", [py]: pyText, [js]: jsText }, files: { "mathx/_add_test.go": goText, "mathx/sub_windows_test.go": "package mathx // sub\n", "tests/math_test.py": pyText, "src/math.spec.js": jsText }, remove: [go, sub, py, js] };
+    expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([go, sub, js, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
   });
 
   test("a CI file renamed out of the CI paths still reads as its test step removed", () => {
