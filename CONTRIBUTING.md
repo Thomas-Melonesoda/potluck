@@ -48,7 +48,7 @@ Enable the hook once per clone, after installing gitleaks:
 git config core.hooksPath .githooks
 ```
 
-[`prek`](https://github.com/j178/prek) users get the same checks from `.pre-commit-config.yaml`. Do not bypass the hook with `--no-verify`; the CI jobs in [`security.yml`](.github/workflows/security.yml) scan the full history and will fail the pull request anyway.
+The same setting turns on `.githooks/pre-push`, which runs `bun test tests/` before every push and blocks the push when a test fails or bun is not on PATH, so a branch never goes public with failing tests. [`prek`](https://github.com/j178/prek) users get the same checks from `.pre-commit-config.yaml`. Do not bypass the hook with `--no-verify`; the CI jobs in [`security.yml`](.github/workflows/security.yml) scan the full history and will fail the pull request anyway.
 
 ## Before you open a PR
 

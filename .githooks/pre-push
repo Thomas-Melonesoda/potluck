@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# potluck pre-push hook: run the test suite before a push leaves the machine,
+# so a branch never goes public with failing tests. Enabled by the same
+# `git config core.hooksPath .githooks` as the pre-commit hook. CI runs the
+# suite again; this hook only stops the push from going out first.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+# git exports repository variables (GIT_DIR, GIT_INDEX_FILE, ...) to hooks.
+# Inherited by the suite, they point its scratch repositories at this one.
+# shellcheck disable=SC2046 # git prints one variable name per line, word-split on purpose
+unset $(git rev-parse --local-env-vars)
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "pre-push: bun is not on PATH, so the tests cannot run and the push is blocked. Install bun (https://bun.sh) or add it to PATH, then push again." >&2
+  exit 1
+fi
+
+log="$(mktemp "${TMPDIR:-/tmp}/potluck-pre-push.XXXXXX")"
+trap 'rm -f "$log"' EXIT
+echo "pre-push: bun test tests/" >&2
+if ! bun test tests/ >"$log" 2>&1; then
+  echo "pre-push: the test suite failed, so the push is blocked. Failing tests:" >&2
+  grep -E '^\(fail\)' "$log" >&2 || tail -n 20 "$log" >&2
+  grep -E '^ [0-9]+ (pass|fail)$' "$log" >&2 || true
+  echo "pre-push: fix them, or rerun if a test timed out under load, then push again." >&2
+  exit 1
+fi
+grep -E '^ [0-9]+ (pass|fail)$' "$log" >&2 || true

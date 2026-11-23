@@ -1,7 +1,9 @@
-# Run with prek or pre-commit: `prek install` once per clone.
+# Run with prek or pre-commit: `prek install` once per clone; it installs the
+# commit and push hooks listed in default_install_hook_types.
 # The hook is the check CI's "Generated files current" job runs after
 # `bun install`. It reads the working tree, not the index, so an unstaged
 # regenerated file passes here and still fails CI.
+default_install_hook_types: [pre-commit, pre-push]
 repos:
   - repo: local
     hooks:
@@ -23,3 +25,10 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: tests
+        name: test suite before push
+        entry: bun test tests/
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
