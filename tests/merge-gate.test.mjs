@@ -102,11 +102,11 @@ describe("merge-gate CLI against a fake gh", () => {
     git(work, "switch", "-q", "-c", "feature");
     mkdirSync(join(work, change.path, ".."), { recursive: true });
     writeFileSync(join(work, change.path), change.text);
+    for (const path of remove) git(work, "rm", "-q", path);
     for (const [path, text] of Object.entries(files)) {
       mkdirSync(join(work, path, ".."), { recursive: true });
       writeFileSync(join(work, path), text);
     }
-    for (const path of remove) git(work, "rm", "-q", path);
     if (move) git(work, "mv", move[0], move[1]);
     git(work, "add", ".");
     git(work, "commit", "-q", "-m", message);
@@ -611,6 +611,26 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const files = { "src/.a.test.mjs": base[js], "Tests/AppTests/.BTests.swift": base[swift], "test/.a_test.rb": base[rb], "pkg/test_math-old.py": base[py], "pkg/test_calc.old.py": base[py2] };
     const r = fake({ setup: { base, files, remove: Object.keys(base) } }).run(...merge, "--dry-run");
     expect(r.json.reasons.sort()).toEqual([swift, js, rb, py2, py].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
+  });
+
+  test("a rename git scores R100 whose content still changed reads as deleted", () => {
+    const before = `test("t", () => {\n  ${"expect"}(1 + 1).toBe(3);\n  return;\n});\n`;
+    const after = `test("t", () => {\n  return;\n  ${"expect"}(1 + 1).toBe(3);\n});\n`;
+    const r = fake({ setup: { base: { "src/a.test.js": before }, files: { "src/b.test.js": after }, remove: ["src/a.test.js"] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual(["floor: [test-deleted] src/a.test.js: file deleted"]);
+  });
+
+  test("a folder at a renamed test's old path is still read", () => {
+    const r = fake({ setup: { base: { "src/a.test.js": TWO }, files: { "src/b.test.js": TWO, "src/a.test.js/x.ts": `// @ts-${"ignore"}\nexport const x = 1;\n` }, remove: ["src/a.test.js"] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [silenced-checker] src/a.test.js/x.ts: // @ts-${"ignore"}`]);
+  });
+
+  test("a rename that changes what any runner's default naming reads reads as deleted", () => {
+    const js = "src/test-foo.spec.js", py = "pkg/testing_test.py", rb = "test/testing_test.rb";
+    const base = { [js]: TWO, [py]: "def test_add():\n    assert 1 + 1 == 2\n", [rb]: "require 'minitest/autorun'\n" };
+    const files = { "src/foo.spec.js": base[js], "pkg/foo_test.py": base[py], "test/foo_test.rb": base[rb] };
+    const r = fake({ setup: { base, files, remove: Object.keys(base) } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.sort()).toEqual([py, js, rb].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
   });
 
   test("a CI file with a test-like name moved out of the CI paths still reads as its test step removed", () => {
