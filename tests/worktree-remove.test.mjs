@@ -3,14 +3,14 @@
 // path is a linked worktree's top level.
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { backup } from "../plugins/pstack/skills/poteto-mode/scripts/worktree-backup.mjs";
 import { removeBackedUp } from "../plugins/pstack/skills/poteto-mode/scripts/worktree-remove.mjs";
 
 const script = join(import.meta.dir, "../plugins/pstack/skills/poteto-mode/scripts/worktree-remove.mjs");
+const backupScript = join(import.meta.dir, "../plugins/pstack/skills/poteto-mode/scripts/worktree-backup.mjs");
 const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" };
 const roots = [];
 afterAll(() => roots.forEach((root) => rmSync(root, { recursive: true, force: true })));
@@ -34,7 +34,9 @@ function setup() {
     return { ...r, json: r.stdout ? JSON.parse(r.stdout) : null };
   };
   const listed = () => git(repo, "worktree", "list", "--porcelain");
-  return { root, repo, wt, git, run, trash, listed };
+  // The backup runs as its own process, so its commits get the test's identity.
+  const backedUp = () => JSON.parse(execFileSync("node", [backupScript, wt, "--trash", trash, "--date", "2026-11-21"], { encoding: "utf8", env }));
+  return { root, repo, wt, git, run, trash, listed, backedUp };
 }
 
 describe("worktree-remove", () => {
@@ -44,6 +46,9 @@ describe("worktree-remove", () => {
     writeFileSync(join(wt, "notes.txt"), "untracked\n");
     writeFileSync(join(wt, ".env"), "TOKEN=fixture\n");
     mkdirSync(join(trash, "2026-01-01", "old-wt"), { recursive: true });
+    // Another worktree whose folder went missing keeps git's record of it.
+    git(repo, "worktree", "add", "-q", "-b", "other", join(repo, "../other"));
+    renameSync(join(repo, "../other"), join(repo, "../other-moved"));
 
     const r = run();
 
@@ -55,6 +60,12 @@ describe("worktree-remove", () => {
     expect(readFileSync(join(r.json.trashed, "notes.txt"), "utf8")).toBe("untracked\n");
     expect(readFileSync(join(r.json.trashed, ".env"), "utf8")).toBe("TOKEN=fixture\n");
     expect(listed()).not.toContain(wt);
+    expect(listed()).toContain("other");
+    // The trashed folder no longer points at git's record, which a new
+    // worktree of the same name would reuse.
+    expect(existsSync(join(r.json.trashed, ".git"))).toBe(false);
+    git(repo, "worktree", "add", "-q", "-b", "again", wt);
+    expect(git(wt, "rev-parse", "--abbrev-ref", "HEAD")).toBe("again");
     expect(git(repo, "show", "backup/wt-2026-11-21:a.txt")).toBe("two");
     expect(git(repo, "branch", "--list", "feature")).toContain("feature");
     // The trash is cleared by its retention period, moved worktrees included.
@@ -91,9 +102,12 @@ describe("worktree-remove", () => {
       expect(r.status, path).toBe(2);
       expect(r.stderr, path).toContain(says);
     }
-    const inside = spawnSync("node", [script, wt, "--trash", join(wt, "trash")], { encoding: "utf8", env });
-    expect(inside.status).toBe(2);
-    expect(inside.stderr).toContain("inside the worktree");
+    for (const name of ["trash", "..trash"]) {
+      const inside = spawnSync("node", [script, wt, "--trash", join(wt, name)], { encoding: "utf8", env });
+      expect(inside.status, name).toBe(2);
+      expect(inside.stderr, name).toContain("inside the worktree");
+      expect(existsSync(join(wt, name)), name).toBe(false);
+    }
     expect(existsSync(join(wt, "src"))).toBe(true);
     expect(existsSync(join(repo, ".git"))).toBe(true);
   });
@@ -108,24 +122,24 @@ describe("worktree-remove", () => {
   });
 
   test("a backup that does not match the worktree holds it, and nothing moves", async () => {
-    const { wt, git, trash } = setup();
+    const { wt, git, trash, backedUp } = setup();
     writeFileSync(join(wt, "a.txt"), "two\n");
     writeFileSync(join(wt, "notes.txt"), "untracked\n");
     const options = { trash, keepDays: 30, date: "2026-11-21" };
 
-    const moved = backup(wt, options);
+    const moved = backedUp();
     git(wt, "branch", "-f", moved.branches[0].branch, "HEAD");
     const branch = await removeBackedUp(wt, moved, options);
     expect(branch.kind).toBe("hold");
     expect(branch.reason).toContain(`backup branch ${moved.branches[0].branch} points at`);
 
-    const grown = backup(wt, options);
+    const grown = backedUp();
     writeFileSync(join(wt, "notes.txt"), "untracked, and longer\n");
     const size = await removeBackedUp(wt, grown, options);
     expect(size.kind).toBe("hold");
     expect(size.reason).toContain("notes.txt");
 
-    const extra = backup(wt, options);
+    const extra = backedUp();
     writeFileSync(join(wt, "late.txt"), "written after the backup\n");
     const count = await removeBackedUp(wt, extra, options);
     expect(count.kind).toBe("hold");
@@ -144,6 +158,30 @@ describe("worktree-remove", () => {
     expect(r.json.kind).toBe("removed");
     expect(r.json.backup.prunedTrash).toEqual(["2026-01-01"]);
     expect(readdirSync(trash)).toEqual(["2026-11-21"]);
+  });
+
+  test("an expired trash entry that cannot be cleared is reported, and the cleanup goes on", () => {
+    const { run, trash } = setup();
+    mkdirSync(join(trash, "2026-11-21"), { recursive: true });
+    mkdirSync(join(trash, "2026-01-01", "old-wt"), { recursive: true });
+    chmodSync(trash, 0o555);
+    try {
+      const r = run();
+      expect(r.stderr).toBe("");
+      expect(r.json.kind).toBe("removed");
+      expect(r.json.backup.trashNotCleared.map((e) => e.entry)).toEqual(["2026-01-01"]);
+    } finally {
+      chmodSync(trash, 0o755);
+    }
+  });
+
+  test("a sparse file is read at its real size", () => {
+    const { wt, run } = setup();
+    writeFileSync(join(wt, "big.bin"), "");
+    truncateSync(join(wt, "big.bin"), 8 * 1024 * 1024);
+    const r = run();
+    expect(r.stderr).toBe("");
+    expect(r.json.kind).toBe("removed");
   });
 
   test("a hold from the backup moves nothing", () => {

@@ -11,20 +11,34 @@
 //   2. the backup is checked: each backup branch exists and points at the
 //      commit the backup made, and the tarball holds the same files, at the same
 //      sizes, as the worktree has on disk now; any mismatch holds the worktree
-//   3. the worktree moves to <trash>/<date>/<name>-<time>, never `rm -rf`, and
-//      `git worktree prune` drops git's record of it. The backup clears date
-//      folders older than --keep-days, moved worktrees with them.
+//   3. the worktree moves to <trash>/<date>/<name>-<time>, never `rm -rf`, its
+//      .git file is renamed so it no longer points at git's record, and git
+//      drops that one record. The backup clears date folders older than
+//      --keep-days, moved worktrees with them, and reports any it cannot.
 // Prints one JSON line. Exit 0 removed, 3 hold, 2 refused or usage.
 
 import { execFileSync } from "node:child_process";
 import { createReadStream, lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, renameSync } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createGunzip } from "node:zlib";
 
 import { backup, keptFiles, parseCli } from "./worktree-backup.mjs";
 
 const git = (cwd, args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity });
-const inside = (parent, child) => !relative(parent, child).startsWith("..");
+const inside = (parent, child) => {
+  const rel = relative(parent, child);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+};
+// A path's real location, read through the nearest folder that exists.
+function realPath(path) {
+  const rest = [];
+  let head = resolve(path);
+  while (!exists(head) && dirname(head) !== head) {
+    rest.unshift(basename(head));
+    head = dirname(head);
+  }
+  return join(realpathSync(head), ...rest);
+}
 const exists = (path) => {
   try {
     lstatSync(path);
@@ -34,8 +48,8 @@ const exists = (path) => {
   }
 };
 
-// The worktree's real top level and its repository's main worktree, or why the
-// path may not be touched.
+// The worktree's real top level, the path git records for it, and its
+// repository's main worktree, or why the path may not be touched.
 function linkedWorktree(path) {
   let real;
   let listed;
@@ -57,10 +71,11 @@ function linkedWorktree(path) {
   };
   const main = listed[0];
   if (realOf(main) === real) return { refused: `${path} is the main worktree, which holds the repository itself` };
-  if (!listed.slice(1).some((p) => realOf(p) === real)) return { refused: `${path} is not the top level of a linked worktree git lists` };
+  const recorded = listed.slice(1).find((p) => realOf(p) === real);
+  if (!recorded) return { refused: `${path} is not the top level of a linked worktree git lists` };
   const common = realOf(git(real, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim());
   if (common && inside(real, common)) return { refused: `${path} holds the repository's git directory` };
-  return { real, main };
+  return { real, main, recorded };
 }
 
 // Each file under the given paths as it is on disk, folders walked: path ->
@@ -124,12 +139,14 @@ async function tarFiles(file) {
         continue;
       }
       const size = next.size === undefined ? own : Number(next.size);
+      // bsdtar stores a sparse file under a GNU.sparse name, with its real size.
+      const real = next["GNU.sparse.realsize"] ?? next["GNU.sparse.size"];
       const prefix = text(header, 257, 5) === "ustar" ? text(header, 345, 155) : "";
-      const path = (next.path ?? (prefix ? `${prefix}/${text(header, 0, 100)}` : text(header, 0, 100))).replace(/^\.\//, "").replace(/\/+$/, "");
+      const path = (next["GNU.sparse.name"] ?? next.path ?? (prefix ? `${prefix}/${text(header, 0, 100)}` : text(header, 0, 100))).replace(/^\.\//, "").replace(/\/+$/, "");
       const link = next.linkpath ?? text(header, 157, 100);
       next = {};
       skip = padded(size);
-      if (type === "0" || type === "7") files.set(path, `${size} bytes`);
+      if (type === "0" || type === "7") files.set(path, `${real === undefined ? size : Number(real)} bytes`);
       else if (type === "1") files.set(path, files.get(link.replace(/^\.\//, "")) ?? "a hard link");
       else if (type === "2") files.set(path, `link to ${link}`);
     }
@@ -178,7 +195,13 @@ export async function removeBackedUp(worktree, result, { trash, date, now = Date
   } catch (error) {
     return { kind: "hold", worktree, reason: `could not move it to the trash (${error.code ?? error.message}); a trash on the worktree's own volume can take it`, backup: result };
   }
-  git(where.main, ["worktree", "prune"]);
+  // The folder's .git file points at git's record of the worktree, which a new
+  // worktree of the same name would reuse, so the trashed copy stops pointing.
+  if (exists(join(trashed, ".git"))) renameSync(join(trashed, ".git"), join(trashed, ".git.removed"));
+  // Only this worktree's record goes; `git worktree prune` would also drop the
+  // record of any other worktree whose folder is missing. The path is gone, so
+  // this removes nothing on disk.
+  if (!exists(where.recorded)) git(where.main, ["worktree", "remove", "--force", where.recorded]);
   return { kind: "removed", worktree, trashed, backup: result };
 }
 
@@ -187,8 +210,7 @@ export async function main(argv) {
   if (typeof cli === "number") return cli;
   const where = linkedWorktree(cli.path);
   if (where.refused) return process.stderr.write(`refused: ${where.refused}\n`), 2;
-  mkdirSync(cli.trash, { recursive: true, mode: 0o700 });
-  if (inside(where.real, realpathSync(cli.trash))) return process.stderr.write(`refused: the trash ${cli.trash} is inside the worktree\n`), 2;
+  if (inside(where.real, realPath(cli.trash))) return process.stderr.write(`refused: the trash ${cli.trash} is inside the worktree\n`), 2;
   const now = Date.now();
   const backedUp = backup(cli.path, { ...cli, now });
   const result = backedUp.kind === "hold" ? backedUp : await removeBackedUp(cli.path, backedUp, { ...cli, now });

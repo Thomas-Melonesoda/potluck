@@ -113,7 +113,10 @@ function clear(path) {
   }
 }
 
-function pruneTrash(trash, keepDays, now) {
+// Clears expired date folders, each on its own: one that cannot be cleared (a
+// locked or root-owned file in a moved worktree) is listed in `failed`, and the
+// run goes on.
+function pruneTrash(trash, keepDays, now, failed) {
   const removed = [];
   let entries = [];
   try {
@@ -126,8 +129,12 @@ function pruneTrash(trash, keepDays, now) {
     const day = /^\d{4}-\d{2}-\d{2}$/.test(entry) ? Date.parse(`${entry}T00:00:00`) : NaN;
     if (Number.isNaN(day)) continue;
     if (now - day > keepDays * 86_400_000) {
-      clear(join(trash, entry));
-      removed.push(entry);
+      try {
+        clear(join(trash, entry));
+        removed.push(entry);
+      } catch (error) {
+        failed.push({ entry, error: error.code ?? error.message });
+      }
     }
   }
   return removed;
@@ -169,7 +176,9 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
     .filter((path) => onDisk(join(worktree, path)));
   if (skipped.length) return { kind: "hold", worktree, reason: `skip-worktree or assume-unchanged files whose edits git does not track: ${skipped.slice(0, 5).join(", ")}${skipped.length > 5 ? ", ..." : ""}` };
 
-  const result = { kind: "backed-up", worktree, branches: [], tarball: null, prunedTrash: pruneTrash(trash, keepDays, now) };
+  const notCleared = [];
+  const result = { kind: "backed-up", worktree, branches: [], tarball: null, prunedTrash: pruneTrash(trash, keepDays, now, notCleared) };
+  if (notCleared.length) result.trashNotCleared = notCleared;
   const head = git(worktree, ["rev-parse", "HEAD"]).trim();
 
   // Tracked changes, staged or not, as a commit on top of HEAD.
