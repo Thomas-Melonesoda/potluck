@@ -32,7 +32,7 @@ function repo(branch) {
     git(work, "switch", "-q", "-c", branch);
     git(work, "push", "-q", "-u", "origin", branch);
   }
-  const hook =(command, cwd = work, script = "git-guardrail.sh") => {
+  const hook = (command, cwd = work, script = "git-guardrail.sh") => {
     const r = spawnSync("sh", [join(hooks, script)], { input: JSON.stringify({ tool_name: "Bash", tool_input: { command }, cwd }), encoding: "utf8", env });
     return { status: r.status, reason: r.stderr };
   };
@@ -156,6 +156,8 @@ describe("the hook on a real repository", () => {
       "git reset \\\n  --hard",
       "xargs git checkout --",
       `sh -c "bash -c 'git reset --hard'"`,
+      "echo $(git reset --hard)",
+      "echo `git reset --hard`",
     ]) expect(hook(c).status, c).toBe(2);
     expect(hook(`git --work-tree=${work} --git-dir=${work}/.git reset --hard`, root).status).toBe(2);
     expect(hook("git push --force --force-with-lease").status).toBe(2);
@@ -272,6 +274,46 @@ describe("shared branches", () => {
     expect(hook("git push --force-with-lease origin feat:main").status).toBe(2);
     git(work, "branch", "-q", "--set-upstream-to=origin/main");
     expect(hook("git push --force-with-lease").status).toBe(2);
+  });
+
+  // From the independent verifier of #33.
+  test("a lease push of HEAD from a feature branch that tracks origin/main passes, since git writes only that branch", () => {
+    const { git, work, hook } = repo();
+    git(work, "switch", "-q", "-c", "feat", "origin/main");
+    for (const c of ["git push --force-with-lease origin HEAD", "git push -u --force-with-lease origin HEAD", "git push --force-with-lease origin @"]) {
+      expect(hook(c).status, c).toBe(0);
+    }
+    expect(hook("git push --force-with-lease").status).toBe(2);
+  });
+
+  test("a forced pattern refspec that covers main is blocked", () => {
+    const { hook } = repo("feat");
+    for (const c of ["git push --force-with-lease origin 'refs/heads/*:refs/heads/*'", "git push --force origin 'refs/heads/*'", "git push origin '+refs/heads/m*:refs/heads/m*'"]) {
+      expect(hook(c).status, c).toBe(2);
+    }
+    expect(hook("git push --force-with-lease origin 'refs/heads/feat*:refs/heads/feat*'").status).toBe(0);
+    expect(hook("git push origin 'refs/heads/*:refs/heads/*'").status).toBe(0);
+  });
+
+  test("abbreviated options, option values, and short names are read as git reads them", () => {
+    const { git, work, hook } = repo();
+    for (const c of ["git push --force --recurse-submodules no origin", "git push --force --receive-pack git-receive-pack origin"]) expect(hook(c).status, c).toBe(2);
+    git(work, "switch", "-q", "-c", "feat");
+    git(work, "push", "-q", "-u", "origin", "feat");
+    for (const c of [
+      "git push --force-w origin feat:main",
+      "git push --force-with origin main",
+      "git push origin --del feat",
+      "git push --pru origin",
+      "git push --mirr origin",
+      "git push -ono-ci --force origin main",
+      "git push --force-with-lease origin feat:heads/main",
+      "git push --force-with-lease=main:$(git rev-parse origin/main) origin feat:main",
+    ]) expect(hook(c).status, c).toBe(2);
+    expect(hook("git push -odeploy --force-with-lease origin feat").status).toBe(0);
+    git(work, "config", "push.default", "upstream");
+    git(work, "branch", "-q", "--set-upstream-to=origin/main");
+    expect(hook("git push --force-with-lease origin feat").status).toBe(2);
   });
 
   test("deleting a remote branch is blocked in every spelling, and deleting a tag passes", () => {

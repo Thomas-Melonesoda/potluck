@@ -42,6 +42,7 @@ export function commands(line) {
   let words = [];
   let word = null;
   const heredocs = [];
+  const inner = [];
   const end = () => {
     if (word !== null) words.push(word);
     word = null;
@@ -91,6 +92,15 @@ export function commands(line) {
           next = line.indexOf("\n", i + 1);
         }
       }
+    } else if ((c === "$" && line[i + 1] === "(") || c === "`") {
+      // A command substitution stays inside its word, so `--force-with-lease=main:$(...)`
+      // keeps the refspec after it, and its own commands are read as well.
+      const from = c === "`" ? i + 1 : i + 2;
+      const close = c === "`" ? line.indexOf("`", from) : closingParen(line, from);
+      const to = close < 0 ? line.length : close;
+      inner.push(line.slice(from, to));
+      word = (word ?? "") + line.slice(i, to + 1);
+      i = to;
     } else if (";&|()".includes(c)) {
       split();
     } else if (c === "<" || c === ">") {
@@ -102,7 +112,19 @@ export function commands(line) {
     }
   }
   split();
-  return out;
+  return [...out, ...inner.flatMap((script) => commands(script))];
+}
+
+// The index of the `)` that closes a `$(` whose body starts at `from`, or -1.
+function closingParen(line, from) {
+  let depth = 1;
+  for (let j = from; j < line.length; j++) {
+    if (line[j] === "\\") j++;
+    else if (line[j] === "'") j = line.indexOf("'", j + 1) < 0 ? line.length : line.indexOf("'", j + 1);
+    else if (line[j] === "(") depth++;
+    else if (line[j] === ")" && --depth === 0) return j;
+  }
+  return -1;
 }
 
 const PREFIXES = new Set(["command", "sudo", "env", "time", "nohup", "exec", "builtin", "then", "do", "else", "elif", "if", "while", "until", "!", "{", "}", "xargs"]);
@@ -193,11 +215,23 @@ export function risk({ sub, args }) {
   }
 }
 
+// git push's long options. git takes any unambiguous prefix (`--force-w`,
+// `--del`), and the VALUED ones may take their value as the next word.
+const PUSH_OPTIONS = ["all", "branches", "mirror", "tags", "follow-tags", "atomic", "dry-run", "porcelain", "delete", "prune", "force", "force-with-lease", "force-if-includes", "repo", "receive-pack", "exec", "push-option", "recurse-submodules", "signed", "set-upstream", "quiet", "verbose", "progress", "thin", "verify", "ipv4", "ipv6", "no-verify", "no-thin", "no-signed", "no-atomic", "no-follow-tags", "no-progress", "no-force-with-lease", "no-force-if-includes", "no-recurse-submodules"];
+const VALUED = new Set(["repo", "receive-pack", "exec", "push-option", "recurse-submodules"]);
+function longOption(word) {
+  const name = word.slice(2).split("=")[0];
+  if (PUSH_OPTIONS.includes(name)) return name;
+  const hits = PUSH_OPTIONS.filter((option) => option.startsWith(name));
+  return hits.length === 1 ? hits[0] : null;
+}
+
 // What a push asks the remote to do: the refspecs after the remote, each with
-// the branch it writes (`dst`, or "" for the current branch), whether it is
-// forced (a lease counts), and whether it deletes; `every` for --all, --mirror,
-// or `:`; `prune` for options that delete branches they do not name. A dry run
-// asks nothing.
+// its source, the branch it writes (`dst`; "" for an explicit HEAD), whether
+// it named a destination, whether it is forced (a lease counts), and whether
+// it deletes. With no refspec, one `implicit` spec stands for git's default
+// push. `every` is --all, --mirror, or `:`; `prune` is an option that deletes
+// branches it does not name. A dry run asks nothing.
 function pushPlan(args) {
   const flags = { force: false, delete: false, every: false, prune: false, dry: false };
   const words = [];
@@ -207,19 +241,27 @@ function pushPlan(args) {
       words.push(...args.slice(i + 1));
       break;
     }
-    if (a === "-o" || a === "--push-option") i++;
-    else if (a === "--force" || a.startsWith("--force-with-lease")) flags.force = true;
-    else if (a === "--delete") flags.delete = true;
-    else if (a === "--all" || a === "--branches") flags.every = true;
-    else if (a === "--mirror") Object.assign(flags, { every: true, prune: true, force: true });
-    else if (a === "--prune") flags.prune = true;
-    else if (a === "--dry-run") flags.dry = true;
-    else if (/^-[^-]/.test(a)) {
-      if (a.includes("f")) flags.force = true;
-      if (a.includes("d")) flags.delete = true;
-      if (a.includes("n")) flags.dry = true;
-      if (a.endsWith("o")) i++;
-    } else if (!a.startsWith("-")) words.push(a);
+    if (a.startsWith("--")) {
+      const name = longOption(a);
+      if (VALUED.has(name) && !a.includes("=")) i++;
+      else if (name === "force" || name === "force-with-lease") flags.force = true;
+      else if (name === "delete") flags.delete = true;
+      else if (name === "all" || name === "branches") flags.every = true;
+      else if (name === "mirror") Object.assign(flags, { every: true, prune: true, force: true });
+      else if (name === "prune") flags.prune = true;
+      else if (name === "dry-run") flags.dry = true;
+    } else if (/^-./.test(a)) {
+      // A short cluster; `-o` takes the rest of it, or the next word, as its value.
+      for (let k = 1; k < a.length; k++) {
+        if (a[k] === "o") {
+          if (k === a.length - 1) i++;
+          break;
+        }
+        if (a[k] === "f") flags.force = true;
+        else if (a[k] === "d") flags.delete = true;
+        else if (a[k] === "n") flags.dry = true;
+      }
+    } else words.push(a);
   }
   if (flags.dry) return null;
   const specs = [];
@@ -230,16 +272,23 @@ function pushPlan(args) {
     if (spec === ":") Object.assign(flags, { every: true, force: flags.force || plus });
     else {
       const colon = spec.indexOf(":");
+      const src = colon < 0 ? spec : spec.slice(0, colon);
       const dst = spec.slice(colon + 1);
-      specs.push({ dst: ["HEAD", "@"].includes(dst) ? "" : dst, force: plus || flags.force, delete: flags.delete || colon === 0 });
+      specs.push({ src, dst: ["HEAD", "@"].includes(dst) ? "" : dst, named: colon >= 0, force: plus || flags.force, delete: flags.delete || colon === 0 });
     }
   }
-  if (!specs.length && !flags.every) specs.push({ dst: "", force: flags.force, delete: false });
+  if (!specs.length && !flags.every) specs.push({ implicit: true, force: flags.force, delete: false });
   return { remote: words[0], specs, every: flags.every, prune: flags.prune, force: flags.force };
 }
 
-// A refspec's destination as a branch name, or null for a tag or other ref.
-const branchName = (dst) => (dst.startsWith("refs/heads/") ? dst.slice(11) : dst.startsWith("refs/") ? null : dst);
+// A refspec's destination as a branch name or pattern, or null for a tag or
+// other ref. git reads `heads/x` as refs/heads/x and `tags/x` as a tag.
+const branchName = (dst) =>
+  dst.startsWith("refs/heads/") ? dst.slice(11) : dst.startsWith("heads/") ? dst.slice(6) : dst.startsWith("refs/") || dst.startsWith("tags/") ? null : dst;
+
+// Whether a branch name or a `*` pattern covers `name`.
+const covers = (target, name) =>
+  target === name || (target.includes("*") && new RegExp(`^${target.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(name));
 
 // The push rules that hold in a clean repository: no force push to the default
 // branch and no deleted remote branch.
@@ -263,15 +312,25 @@ function sharedPush(dir, args) {
       return `potluck git guardrail: blocked deleting the remote branch ${branch}. Deleting a remote branch is the user's call: ask the user, or let the forge delete it when its pull request merges. To delete a tag, name it in full (\`refs/tags/<name>\`).`;
     }
   }
-  const upstream = current ? read(["config", `branch.${current}.merge`]) : "";
   const remote = plan.remote || (current && read(["config", `branch.${current}.remote`])) || "origin";
   const shared = new Set(["main", "master"]);
   const head = read(["symbolic-ref", "-q", `refs/remotes/${remote}/HEAD`]);
   if (head) shared.add(head.slice(`refs/remotes/${remote}/`.length));
+  // A refspec that names no destination goes to the source's upstream under
+  // push.default=upstream; git's default push (no refspec) may go there too.
+  const upstreamOf = (branch) => {
+    const ref = read(["config", `branch.${branch}.merge`]);
+    return ref && branchName(ref);
+  };
+  const byUpstream = read(["config", "push.default"]) === "upstream";
   const forced = plan.every && plan.force
     ? read(["for-each-ref", "--format=%(refname:short)", "refs/heads"]).split("\n")
-    : plan.specs.filter((s) => s.force).flatMap((s) => (s.dst === "" ? [current, upstream && branchName(upstream)] : [branchName(s.dst)]));
-  const hit = forced.find((branch) => branch && shared.has(branch));
+    : plan.specs.filter((s) => s.force).flatMap((s) => {
+        if (s.implicit) return [current, current && upstreamOf(current)];
+        if (s.dst === "") return [current];
+        return [branchName(s.dst), !s.named && byUpstream && upstreamOf(s.src)];
+      });
+  const hit = [...shared].find((name) => forced.some((target) => target && covers(target, name)));
   if (!hit) return null;
   return `potluck git guardrail: blocked a force push to ${hit}, a default branch (the remote's default, main, or master). Others build on it, so rewriting it breaks their copies, and a lease does not change that: a lease only checks that you have seen the remote's commits. Push the change to a new branch and open a pull request; if the history must be rewritten, ask the user to do it.`;
 }
