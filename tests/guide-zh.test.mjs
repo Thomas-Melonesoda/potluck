@@ -1,4 +1,4 @@
-// potluck: the Chinese guide (design row G1, bilingual) stays a faithful,
+// potluck: the Chinese guide (design row S3-G1, bilingual) stays a faithful,
 // working copy of docs/guide. Each page in docs/guide-zh-CN/ names the hash of
 // the English page it was translated from, so an upstream sync that changes an
 // English page fails here until the translation is updated. The checks are

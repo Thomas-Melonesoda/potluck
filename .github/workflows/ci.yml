@@ -21,6 +21,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The commit's first parent is the base the eval bar is held against:
+          # on a pull request, the base branch the merge commit sits on.
+          fetch-depth: 2
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.4"
@@ -31,8 +34,8 @@ jobs:
         working-directory: plugins
       - name: Check generated files and plugin invariants
         run: bun tools/generate.mjs --check
-      - name: Eval layers 1 and 2 (skill structure, triggers, collisions)
-        run: bun tools/eval.mjs
+      - name: Eval layers 1 and 2 (skill structure, triggers, collisions, a bar that only rises)
+        run: bun tools/eval.mjs --base HEAD^1
       - name: Tool and invariant fixture tests
         run: bun test tests/
 
