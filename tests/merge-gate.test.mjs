@@ -70,7 +70,7 @@ describe("merge-gate CLI against a fake gh", () => {
   // `change` is one PR file; `base` and `files` add files before and in the PR;
   // `remove` deletes base files in the PR, `move` renames one; `pullRef: false`
   // leaves refs/pull/7/head out, as if GitHub had no such PR.
-  function checkout(change = { path: "src/app.js", text: "export const answer = 42;\n" }, { base: baseFiles = {}, files = {}, remove = [], move = null, pullRef = true } = {}) {
+  function checkout(change = { path: "src/app.js", text: "export const answer = 42;\n" }, { base: baseFiles = {}, files = {}, remove = [], move = null, pullRef = true, message = "change" } = {}) {
     const dir = mkdtempSync(join(tmpdir(), "potluck-gate-repo-"));
     dirs.push(dir);
     const remote = join(dir, "o", "r.git");
@@ -98,7 +98,7 @@ describe("merge-gate CLI against a fake gh", () => {
     for (const path of remove) git(work, "rm", "-q", path);
     if (move) git(work, "mv", move[0], move[1]);
     git(work, "add", ".");
-    git(work, "commit", "-q", "-m", "change");
+    git(work, "commit", "-q", "-m", message);
     const head = git(work, "rev-parse", "HEAD");
     if (pullRef) git(work, "push", "-q", "origin", "HEAD:refs/pull/7/head");
     else git(work, "push", "-q", "origin", "HEAD:refs/heads/feature");
@@ -108,8 +108,9 @@ describe("merge-gate CLI against a fake gh", () => {
 
   // The fake answers `pr view` with `view` (then `after` once a merge ran),
   // the statuses and check-runs endpoints with one page each, and records argv.
-  // The gate runs in a fixture checkout, so the floor guard has a real PR to read.
-  function fake({ view: viewOver = {}, after: afterOver, statuses = [pass], runs = [ci], fail = "", change, setup = {} } = {}) {
+  // The gate runs in a fixture checkout, so the floor guard has a real PR to read,
+  // and with its own HOME, holding the user's gates file when `gates` is given.
+  function fake({ view: viewOver = {}, after: afterOver, statuses = [pass], runs = [ci], fail = "", change, setup = {}, gates } = {}) {
     const repoDir = checkout(change, setup);
     const head = repoDir.head;
     const view = { ...open, headRefOid: head, baseRefOid: repoDir.base, ...viewOver };
@@ -117,6 +118,8 @@ describe("merge-gate CLI against a fake gh", () => {
     const dir = mkdtempSync(join(tmpdir(), "potluck-gate-"));
     dirs.push(dir);
     mkdirSync(join(dir, "bin"));
+    mkdirSync(join(dir, "home/.potluck"), { recursive: true });
+    if (gates !== undefined) writeFileSync(join(dir, "home/.potluck/gates.json"), typeof gates === "string" ? gates : JSON.stringify(gates));
     writeFileSync(join(dir, "fixture.json"), JSON.stringify({ view, after, statuses, runs, fail }));
     writeFileSync(
       join(dir, "bin/gh"),
@@ -139,7 +142,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
     );
     const runAt = (cwd, ...args) => {
       const filled = args.map((a) => (a === SHA ? head : a));
-      const r = spawnSync("node", [script, ...filled], { cwd, encoding: "utf8", env: { ...gitEnv, PATH: `${join(dir, "bin")}:${process.env.PATH}` } });
+      const r = spawnSync("node", [script, ...filled], { cwd, encoding: "utf8", env: { ...gitEnv, HOME: join(dir, "home"), PATH: `${join(dir, "bin")}:${process.env.PATH}` } });
       return { ...r, json: r.stdout ? JSON.parse(r.stdout) : null };
     };
     const run = (...args) => runAt(repoDir.work, ...args);
@@ -159,7 +162,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const { run, calls, head: sha } = fake();
     const r = run(...merge);
     expect(r.status).toBe(0);
-    expect(r.json).toEqual({ kind: "merged", repo: "o/r", pr: 7, sha, mergeCommit: "c".repeat(40) });
+    expect(r.json).toEqual({ kind: "merged", repo: "o/r", pr: 7, sha, checks: "green", mergeCommit: "c".repeat(40) });
     const mergeCall = calls().find((a) => a[0] === "pr" && a[1] === "merge");
     expect(mergeCall).toEqual(["pr", "merge", "7", "--repo", "o/r", "--squash", "--match-head-commit", sha]);
     expect(calls().flat()).not.toContain("--auto");
@@ -332,18 +335,87 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons.every((l) => l.startsWith("floor: ["))).toBe(true);
   });
 
-  test("CI that never started on a repository with workflows refuses", () => {
-    const { run } = fake({ runs: [], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" } } });
+  // A verdict GitHub has held for five minutes, so the head has been there at least that long.
+  const aged = { ...pass, created_at: new Date(Date.now() - 5 * 60_000).toISOString() };
+  const mainOnly = { ".github/workflows/ci.yml": "on:\n  push:\n    branches: [main]\n" };
+
+  test("a head too new for CI to have started still waits for it", () => {
+    const { run } = fake({ runs: [], statuses: [{ ...pass, created_at: new Date().toISOString() }], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" } } });
     const r = run(...merge, "--dry-run");
     expect(r.json.kind).toBe("refused");
-    expect(r.json.reasons[0]).toContain("no CI result on");
+    expect(r.json.reasons[0]).toEndWith("CI may not have started yet; rerun in a minute");
   });
 
-  test("a PR that deletes the base's CI cannot merge without a CI result", () => {
-    const { run } = fake({ runs: [], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" }, remove: [".github/workflows/ci.yml"] } });
+  test("a PR with no checks, in a repository whose CI runs only on main, merges on its verdict and says so", () => {
+    const { run, head } = fake({ runs: [], statuses: [aged], setup: { base: mainOnly } });
+    expect(run(...merge, "--dry-run").json).toEqual({ kind: "would-merge", repo: "o/r", pr: 7, sha: head, checks: "none" });
+  });
+
+  test("failed checks refuse as failed, never as no checks", () => {
+    const { run } = fake({ runs: [{ name: "unit", status: "completed", conclusion: "failure" }], statuses: [aged], gates: { noCI: "wait" } });
     const r = run(...merge, "--dry-run");
     expect(r.json.kind).toBe("refused");
-    expect(r.json.reasons[0]).toContain("no CI result on");
+    expect(r.json.reasons).toEqual(["check unit concluded failure"]);
+  });
+
+  test("a PR that deletes the base's CI cannot pass as having no checks", () => {
+    const { run } = fake({ runs: [], statuses: [aged], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" }, remove: [".github/workflows/ci.yml"] } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("the PR changes .github/workflows/");
+  });
+
+  test("a head whose commit message skips CI cannot pass as having no checks", () => {
+    const { run } = fake({ runs: [], statuses: [aged], setup: { base: mainOnly, message: "change [skip ci]" } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("asks GitHub to skip CI");
+  });
+
+  test("the user's noCI gate holds a PR with no CI for a person, without merging", () => {
+    const { run, calls, head } = fake({ runs: [], gates: { noCI: "wait" } });
+    const r = run(...merge);
+    expect(r.status).toBe(1);
+    expect(r.json.kind).toBe("held");
+    expect(r.json.checks).toBe("none");
+    expect(r.json.reasons[0]).toStartWith(`no CI result on ${head}, and the operator's gates hold such a PR for a person (noCI: wait, from `);
+    expect(calls().some((a) => a[1] === "merge")).toBe(false);
+  });
+
+  test("the noCI gate holds a PR with no checks in a repository whose CI runs only on main", () => {
+    const { run } = fake({ runs: [], statuses: [aged], setup: { base: mainOnly }, gates: { noCI: "wait" } });
+    expect(run(...merge, "--dry-run").json.kind).toBe("held");
+  });
+
+  test("the noCI gate leaves a PR with green CI alone", () => {
+    expect(fake({ gates: { noCI: "wait" } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  const repoGates = { ".potluck/gates.json": JSON.stringify({ noCI: "wait" }) };
+
+  test("a repository's gates file at the PR's base holds it, so a PR cannot delete the gate it is judged by", () => {
+    const r = fake({ runs: [], setup: { base: repoGates, remove: [".potluck/gates.json"] } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("held");
+    expect(r.json.reasons[0]).toContain("from .potluck/gates.json at the PR's base");
+  });
+
+  test("a repository's gates file the PR adds holds it too", () => {
+    const r = fake({ runs: [], setup: { files: repoGates } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("held");
+    expect(r.json.reasons[0]).toContain("from .potluck/gates.json at the PR's head");
+  });
+
+  test("a user's gates file that cannot be read refuses rather than dropping its gates", () => {
+    const r = fake({ runs: [], gates: '{"noCI": "wiat"}' }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toStartWith("operator's gates could not be read: ");
+    expect(r.json.reasons[0]).toContain('noCI must be "merge" or "wait", not "wiat"');
+  });
+
+  test("a repository's gates file that cannot be read refuses too", () => {
+    const r = fake({ runs: [], setup: { files: { ".potluck/gates.json": "{" } } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toStartWith("operator's gates could not be read: .potluck/gates.json at the PR's head: not valid JSON");
   });
 
   test("deleting a committed binary file passes the binary check", () => {
