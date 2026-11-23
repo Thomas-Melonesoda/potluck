@@ -565,10 +565,17 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
   });
 
-  test("a renamed test file that loses an assertion is stopped", () => {
+  test("a test renamed with edits was not only renamed, so it reads as deleted, as on main", () => {
     const fewer = TWO.replace(`  ${"expect"}(2 + 2).toBe(4);\n`, "");
     const { run } = fake({ setup: { base: { [TEST]: TWO }, files: { [TEST]: fewer }, move: [TEST, "src/sum.test.js"] } });
-    expect(run(...merge, "--dry-run").json.reasons).toEqual([`floor: [assertion-removed] src/sum.test.js: ${"expect"}(2 + 2).toBe(4);`]);
+    expect(run(...merge, "--dry-run").json.reasons).toEqual([`floor: [test-deleted] ${TEST}: file deleted`]);
+  });
+
+  test("a rename that changes the content, or drops one of two naming forms, reads as deleted", () => {
+    const py = "pkg/test_math_test.py", rb = "test/test_user_test.rb", js = "src/a.test.js";
+    const pyText = "def test_add():\n    assert 1 + 1 == 2\n", rbText = "require 'minitest/autorun'\n";
+    const setup = { base: { [py]: pyText, [rb]: rbText, [js]: TWO }, files: { "pkg/math_test.py": pyText, "test/user_test.rb": rbText, "src/b.test.js": `${TWO}// renamed\n` }, remove: [py, rb, js] };
+    expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([py, rb, js].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
   });
 
   test("a CONSTRAINTS.md renamed away reads as every rule removed", () => {
