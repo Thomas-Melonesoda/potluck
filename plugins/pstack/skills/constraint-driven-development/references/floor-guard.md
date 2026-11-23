@@ -60,9 +60,9 @@ const diff = tracked + '\n' + untracked;
 // Walk the diff. `---` and `+++` are file headers only between a file's `diff` line and its first
 // `@@` hunk; inside a hunk every line is content, so an added `++i` (shown as `+++i`) or a removed
 // `-- comment` is a change, not a header. Both headers name the file, so a deletion
-// (`+++ /dev/null`) keeps its name.
+// (`+++ /dev/null`) keeps its name. git ends a name that holds a space with a tab.
 const added = [], removed = [], deleted = [];
-const pathOf = (s) => s.replace(/^[ab]\//, '');
+const pathOf = (s) => s.replace(/^[ab]\//, '').replace(/\t$/, '');
 let file = '', oldFile = '', inHeader = false;
 for (const line of diff.split('\n')) {
   if (line.startsWith('diff ')) inHeader = true;
@@ -122,12 +122,12 @@ for (const { file, text } of removed) {
 // line running the same kind of test added back in any CI file, so a step that moved still pairs
 // and one commented out does not. A step's name is not a step.
 const isCI = (f) => /^\.github\/(workflows|actions)\/.*\.ya?ml$|^\.(circleci|buildkite|woodpecker)\/.*\.ya?ml$|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|\.woodpecker|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
-const TEST_RUN = /\b(?:(?:npm|pnpm|yarn|bun)(?: run)?|swift|go|cargo|mvn|gradlew?|make|dotnet|mix|rake) test[\w:-]*|\bxcodebuild\b.*\btest(?:-without-building)?(?![\w-])|\b(?:python3? -m (?:pytest|unittest)|pytest|vitest|jest|rspec|phpunit|ctest|fastlane scan)(?![\w.-])/g;
+const TEST_RUN = /\b(?:(?:npm|pnpm|yarn|bun)(?: -\S+)*(?: run)?|swift|go|cargo|mvn|gradlew?|make|dotnet|mix|rake) test[\w:-]*|\bxcodebuild\b.*\btest(?:-without-building)?(?![\w-])|\b(?:python3? -m (?:pytest|unittest)|pytest|vitest|jest|rspec|phpunit|ctest|fastlane scan)(?![\w.-])/g;
 const testRun = (t) => {
   if (/^\s*(#|\/\/)|^\s*(-\s+)?name:/.test(t)) return null;
   for (const m of t.matchAll(TEST_RUN)) {
     if (/\binstall\b/.test(t.slice(0, m.index).split(/&&|\|\||[;|]/).pop())) continue;
-    return m[0].replace(/^(npm|pnpm|yarn|bun)( run)? test.*/, 'package test').replace(/^xcodebuild\b.*/, 'xcodebuild test').replace(/ test[\w:-]*$/, ' test').replace(/\s+/g, ' ');
+    return m[0].replace(/^(?:(?:npm|pnpm|yarn|bun)\b.*|vitest|jest)$/, 'js test').replace(/^xcodebuild\b.*/, 'xcodebuild test').replace(/ test[\w:-]*$/, ' test').replace(/\s+/g, ' ');
   }
   return null;
 };
@@ -158,12 +158,14 @@ const ruleKey = (t) => {
 const isException = (t) => /^\| *(W|E)\d+ *\|/.test(t.trim());
 // Chinese words count too: 至少 and 不低于 read as at least, 至多 and 不超过 as at most. Chinese has no
 // spaces, so a word after the number counts only when it follows the number and its unit directly
-// (or opens the next cell) and ends there: 以上 and 以下 also mean "the above" and "the following".
-// A bare 低于 or 高于 can state a failure as easily as a bar, so it gives no direction.
-const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not drop|至少|最少|最低|不低于|不少于|不得低于)\s*$/;
-const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed|至多|最多|最高|不超过|不高于|不得超过|不得高于)\s*$/;
-const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop)|^\s*(?:%|[a-z]+)?\s*(?:\|\s*)?(以上|或更多|或更高|不得下降)(?=$|[\s|，。；、,.;)）])/;
-const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed)|^\s*(?:%|[a-z]+)?\s*(?:\|\s*)?(以下|以内|或更少|或更低|不得增长|不得增加)(?=$|[\s|，。；、,.;)）])/;
+// (or opens the next cell) and ends there, at a cell's edge, punctuation, or the line's end: 以上
+// and 以下 also mean "the above" and "the following". A bare 低于 or 高于, and 最高 or 最低 ("the
+// highest" as often as "at most"), can state a record or a failure as easily as a bar, so they give
+// no direction.
+const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not drop|至少|不低于|不少于|不得低于|不得下降到)\s*$/;
+const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed|至多|不超过|不高于|不得超过|不得高于|不得增长到)\s*$/;
+const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop)|^\s*(?:%|[a-z]+)?\s*(?:\|\s*)?(以上|或更多|或更高|不得下降)(?=\s*(?:$|[|，。；、,.;)）]))/;
+const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed)|^\s*(?:%|[a-z]+)?\s*(?:\|\s*)?(以下|以内|或更少|或更低|不得增长|不得增加)(?=\s*(?:$|[|，。；、,.;)）]))/;
 const thresholds = (t) => {
   const out = [], re = /\d+(?:\.\d+)?/g;
   let m;
