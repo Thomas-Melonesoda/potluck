@@ -250,6 +250,7 @@ A localized bug with a demonstrated cause can use the [focused-fix exception](pl
 ## Details
 
 - [Lauren Tan's pstack guide](docs/guide/README.md) ([中文](docs/guide-zh-CN/README.md)): what each skill and playbook is for, with recipes
+- [Project documents](docs/project-docs.md) ([中文](docs/project-docs.zh-CN.md)): which documents a project keeps when agents do the work, who writes each, and what is generated
 - [Skills and slash commands](docs/reference.md#slash-commands)
 - [Runtime setup](docs/reference.md#runtime-support)
 - [Models and dependencies](docs/reference.md#configuration-and-dependencies)

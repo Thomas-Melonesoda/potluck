@@ -57,7 +57,7 @@ Use poteto-mode to fix the search filter resetting when I change pages.
 
 遇到 bug 时，它会先复现失败，用 `how` 和 `why` 查原因，把修复交给子 agent，再重跑失败的用例。你拿到的是修复本身，以及修复前失败、修复后通过的证据。
 
-Lauren Tan 写的使用指南见 [中文版](docs/guide-zh-CN/README.md)（[英文原版](docs/guide/README.md)）。更多细节（skill 和命令列表、各工具的设置、模型配置）见 [docs/reference.md](docs/reference.md)（英文）。
+Lauren Tan 写的使用指南见 [中文版](docs/guide-zh-CN/README.md)（[英文原版](docs/guide/README.md)）。项目需要哪些文档、各由谁写、哪些自动生成，见[项目文档指南](docs/project-docs.zh-CN.md)。更多细节（skill 和命令列表、各工具的设置、模型配置）见 [docs/reference.md](docs/reference.md)（英文）。
 
 ## 数据
 

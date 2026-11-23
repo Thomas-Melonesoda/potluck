@@ -20,12 +20,30 @@ Read what the project already says: its README and instructions file, and any `G
 
 Four kinds of question, in plain product language:
 
-- **What** to build, and what is out of scope.
+- **What** to build, and what is out of scope. First of all, where this version ends: something to show, something they use themselves, something others try, or something public. Every other answer depends on it.
 - **For whom**, and what they are trying to get done.
-- **Done**: what the user would see that tells them it works.
-- **Wrong**: what would make them call it broken, unsafe, or too slow.
+- **Done**: what the user would see that tells them it works, and what should happen when something fails.
+- **Wrong**: what would make them call it broken, unsafe, too slow, or too expensive.
 
 Technical choices (data shapes, modules, libraries, where code lives) are not questions for the user. List them under `## Open technical questions` in the feature file they belong to, for **architect**, which runs once grill is done.
+
+## Follow-up branches
+
+When the project has one of these, the tree grows a branch for it: ask its follow-up in product terms, and write the answer where the last column says.
+
+| When the project has | Ask about | The answer goes into |
+| --- | --- | --- |
+| Screens or several steps | Empty, loading, and failure states along the main flow | Done when items |
+| Saved data | What is kept, how it changes, how it is deleted and recovered | Done when items; an ADR for the storage choice |
+| Parts built separately (front and back end, modules) | What each side may assume about the other | Done when items; a CONSTRAINTS row for contract tests |
+| Logins, roles, private data, or uploads | Who may see what, where secrets live, what is logged | Done when items; CONSTRAINTS rows for secret and dependency scanning |
+| AI answers, recognition, or ranking | Sample inputs, what counts as right, the quality bar, cost, speed | A set of sample cases; CONSTRAINTS rows for their pass rate and budget |
+| AI drawing on documents | Which sources, which version wins in a conflict, how answers cite them | Done when items |
+| Automatic messages, scheduled jobs, or calls with side effects | Repeats, retries, when to stop, who may approve | Done when items; an action that cannot be undone still pauses for a person |
+| A service that must stay up | Deploys, health checks, rollback, backups | Done when items; CONSTRAINTS rows that run before release |
+| Payments or subscriptions | Order states, duplicate callbacks, refunds, a test mode | Done when items |
+| Several platforms, browsers, or devices | Which ones, which versions | A CONSTRAINTS row for the test matrix |
+| A core capability nobody knows is possible | The smallest experiment that would answer it | A throwaway experiment on its own branch; the verdict in an ADR or `docs/rulings.md` |
 
 ## How to ask
 
