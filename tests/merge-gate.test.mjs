@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CONTEXT, FLOOR_GUARD, OVERVIEW, guardSource, refusals } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
+import { CONTEXT, FLOOR_GUARD, OVERVIEW, guardSource, prTrigger, refusals } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
 
 const script = join(import.meta.dir, "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs");
 const sha = "a".repeat(40);
@@ -50,6 +50,22 @@ describe("refusals", () => {
       "check unit concluded failure",
     ]);
   });
+});
+
+test.each([
+  ["on: pull_request\n", true],
+  ["on: [push, pull_request]\n", true],
+  ["'on':\n  pull_request_target:\n    types: [opened]\n", true],
+  ["name: ci\non:\n  push:\n    branches: [main]  # not pull_request\njobs:\n  pull_request: {}\n", false],
+  ["on: push\n", false],
+  ["jobs: {}\n", true],
+])("prTrigger reads the workflow's on: block %#", (text, expected) => {
+  expect(prTrigger(text) !== null).toBe(expected);
+});
+
+test("prTrigger marks a pull_request trigger limited to paths or branches as conditional", () => {
+  expect(prTrigger("on:\n  pull_request:\n    paths: ['docs/**']\n")).toEqual({ conditional: true });
+  expect(prTrigger("on:\n  pull_request:\n    types: [opened, synchronize]\n")).toEqual({ conditional: false });
 });
 
 test("the floor guard's code is the one js block in the synced floor-guard.md", () => {
@@ -143,8 +159,13 @@ describe("merge-gate CLI against a fake gh", () => {
   // the statuses and check-runs endpoints with one page each, and records argv.
   // The gate runs in a fixture checkout, so the floor guard has a real PR to read,
   // and with its own HOME, holding the user's gates file when `gates` is given.
-  function fake({ view: viewOver = {}, after: afterOver, statuses = [pass], runs = [ci], suites = [], fail = "", change, setup = {}, gates } = {}) {
+  // `wfRuns` are the head's Actions runs, `rules` the base branch's rulesets,
+  // and `activity` the branch's push activity, as GitHub's API returns them.
+  function fake({ view: viewOver = {}, after: afterOver, statuses = [pass], runs = [ci], suites = [], wfRuns: wfOver, rules = [], activity = [], fail = "", change, setup = {}, gates } = {}) {
     const repoDir = checkout(change, setup);
+    // Where CI reported, each workflow file in the fixture ran green on the head.
+    const files = Object.keys({ ...setup.base, ...setup.files, ...(change ? { [change.path]: "" } : {}) });
+    const wfRuns = wfOver ?? (runs.length ? files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f)).map((path) => ({ path, event: "pull_request", status: "completed", conclusion: "success", created_at: new Date().toISOString() })) : []);
     const head = repoDir.head;
     const view = { ...open, headRefOid: head, baseRefOid: repoDir.base, ...viewOver };
     const after = { state: "MERGED", headRefOid: head, mergeCommit: { oid: "c".repeat(40) }, ...afterOver };
@@ -153,7 +174,7 @@ describe("merge-gate CLI against a fake gh", () => {
     mkdirSync(join(dir, "bin"));
     mkdirSync(join(dir, "home/.potluck"), { recursive: true });
     if (gates !== undefined) writeFileSync(join(dir, "home/.potluck/gates.json"), typeof gates === "string" ? gates : JSON.stringify(gates));
-    writeFileSync(join(dir, "fixture.json"), JSON.stringify({ view, after, statuses, runs, suites, fail }));
+    writeFileSync(join(dir, "fixture.json"), JSON.stringify({ view, after, statuses, runs, suites, wfRuns, rules, activity, fail }));
     writeFileSync(
       join(dir, "bin/gh"),
       `#!/usr/bin/env node
@@ -170,6 +191,10 @@ else if (args[0] === "pr" && args[1] === "merge") fs.writeFileSync(dir + "/merge
 else if (line.includes("/statuses") && !line.includes("POST")) process.stdout.write(JSON.stringify([f.statuses]));
 else if (line.includes("/check-runs")) process.stdout.write(JSON.stringify([{ check_runs: f.runs }]));
 else if (line.includes("/check-suites")) process.stdout.write(JSON.stringify([{ check_suites: f.suites }]));
+else if (line.includes("/actions/runs")) process.stdout.write(JSON.stringify([{ workflow_runs: f.wfRuns }]));
+else if (line.includes("/rules/branches/")) process.stdout.write(JSON.stringify(f.rules));
+else if (line.includes("/protection/")) { process.stderr.write("gh: Branch not protected (HTTP 404)\\n"); process.exit(1); }
+else if (line.includes("/activity")) process.stdout.write(JSON.stringify(f.activity));
 else if (line.includes("POST")) process.stdout.write("{}");
 `,
       { mode: 0o755 },
@@ -821,11 +846,11 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons).toEqual(["check unit concluded failure"]);
   });
 
-  test("a PR that changes the workflows and gets no CI result is held for a person, never merged as having no checks", () => {
+  test("a PR that deletes a workflow its base runs on pull requests still waits for that workflow", () => {
     const { run, calls } = fake({ runs: [], statuses: [aged], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" }, remove: [".github/workflows/ci.yml"] } });
     const r = run(...merge);
-    expect([r.status, r.json.kind]).toEqual([1, "held"]);
-    expect(r.json.reasons[0]).toContain("the PR changes .github/workflows/");
+    expect([r.status, r.json.kind]).toEqual([1, "refused"]);
+    expect(r.json.reasons[0]).toContain(".github/workflows/ci.yml has not reported");
     expect(calls().some((a) => a[1] === "merge")).toBe(false);
   });
 
@@ -901,6 +926,49 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const r = fake({ runs: [], setup: { files: { ".potluck/gates.json": "{" } } }).run(...merge, "--dry-run");
     expect(r.json.kind).toBe("refused");
     expect(r.json.reasons[0]).toStartWith("operator's gates could not be read: .potluck/gates.json at the PR's head: not valid JSON");
+  });
+
+  const prCI = { ".github/workflows/ci.yml": "on:\n  pull_request:\n  push:\n    branches: [main]\n" };
+  const wfRun = (status, conclusion, path = ".github/workflows/ci.yml") => ({ path, event: "pull_request", status, conclusion, created_at: new Date().toISOString() });
+  const cla = { name: "cla", status: "completed", conclusion: "success" };
+
+  test("a workflow run that waits for a maintainer's approval refuses, though another app reported a green check", () => {
+    const r = fake({ runs: [cla], wfRuns: [wfRun("completed", "action_required")], setup: { base: prCI } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain(".github/workflows/ci.yml concluded action_required");
+  });
+
+  test.each(["waiting", "queued", "action_required", "in_progress"])("a workflow run that is %s has not finished, so it refuses", (status) => {
+    const r = fake({ runs: [cla], wfRuns: [wfRun(status, null)], setup: { base: prCI } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain(`.github/workflows/ci.yml is ${status}`);
+  });
+
+  test("a PR workflow that never reports within ten minutes of the push is reported as CI that did not start, never merged", () => {
+    const pushed = new Date(Date.now() - 20 * 60_000).toISOString();
+    const { run, calls, head, dir } = fake({ runs: [], view: { headRefName: "feature" }, activity: [], setup: { base: prCI } });
+    const push = { ref: "refs/heads/feature", after: head, timestamp: pushed };
+    const f = JSON.parse(readFileSync(join(dir, "fixture.json"), "utf8"));
+    f.activity = [push];
+    writeFileSync(join(dir, "fixture.json"), JSON.stringify(f));
+    const r = run(...merge);
+    expect([r.status, r.json.kind]).toEqual([1, "refused"]);
+    expect(r.json.reasons[0]).toContain("CI did not start: .github/workflows/ci.yml never reported within 10 minutes of the push");
+    expect(run(...merge, "--ci-wait", "30").json.reasons[0]).toEndWith("rerun in a minute");
+    expect(calls().some((a) => a[1] === "merge")).toBe(false);
+  });
+
+  test("a check a ruleset requires that has not reported refuses", () => {
+    const rules = [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "build" }] } }];
+    const r = fake({ rules }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("the required check build has not reported");
+  });
+
+  test("a PR workflow that ran green merges, and one limited to other paths is not waited for", () => {
+    expect(fake({ wfRuns: [wfRun("completed", "success")], setup: { base: prCI } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+    const paths = { ".github/workflows/docs.yml": "on:\n  pull_request:\n    paths: ['docs/**']\n" };
+    expect(fake({ runs: [], statuses: [aged], setup: { base: paths } }).run(...merge, "--dry-run").json).toMatchObject({ kind: "would-merge", checks: "none" });
   });
 
   test("deleting a committed binary file passes the binary check", () => {

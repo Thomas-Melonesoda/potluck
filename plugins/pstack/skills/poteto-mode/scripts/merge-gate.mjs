@@ -27,19 +27,19 @@
 //   - the project's docs/overview.md is current with its sources and every
 //     ticked Done when item names its proof (grill/scripts/overview.mjs
 //     --check), when the project has those sources
-//   - no CI result at all ("no checks": the repository has no CI, or its CI
-//     does not run on pull requests) is not a failure: potluck's default
-//     merges on the verdict alone (stage 5 issues 4 and 16). It is refused
-//     while a check suite says CI is coming: an unfinished GitHub Actions
-//     suite, or one waiting for a maintainer's approval, as on a fork PR. In a
-//     repository with workflows it is also refused until GitHub has held the
-//     head for a minute (its oldest status is that old), and when the head
-//     commit asks GitHub to skip CI.
-//   - a PR with no checks is "held", merge-ready and left for a person to
-//     merge, when it changes .github/workflows/ (so silence may be its own
-//     doing), and when the operator's gates (gates.mjs) set noCI "wait" in the
-//     user's ~/.potluck/gates.json or in .potluck/gates.json at the PR's base
-//     or head.
+//   - every check the PR should get has reported and finished green (stage 5
+//     issues 4, 5, and 16): each workflow in the base or the head that runs on
+//     pull_request has a finished, green Actions run on the head (a run that is
+//     waiting, queued, or waits for a maintainer's approval has not finished),
+//     and each check the base branch's rulesets or protection require has
+//     reported. One that has not reported refuses while CI may still start, and
+//     after --ci-wait minutes (default 10) from the head's push it refuses as
+//     CI that did not start. A workflow limited to some paths or branches is
+//     waited for only once it runs.
+//   - a PR with no such check and no CI result has "no checks": potluck's
+//     default merges it on the verdict alone, and the operator's gates
+//     (gates.mjs) can hold it for a person with noCI "wait" in the user's
+//     ~/.potluck/gates.json or in .potluck/gates.json at the PR's base or head.
 // It merges with `gh pr merge --squash --match-head-commit <sha>`, never
 // `--auto`, so GitHub itself refuses if the head moves after the checks, and
 // it reads the PR back to confirm the merge.
@@ -93,7 +93,7 @@ function pages(path, field) {
 export function readFacts(repo, pr, sha, read = { ghJson, pages }) {
   const view = read.ghJson([
     "pr", "view", String(pr), "--repo", repo,
-    "--json", "state,isDraft,headRefOid,mergeable,baseRefName,baseRefOid",
+    "--json", "state,isDraft,headRefOid,headRefName,mergeable,baseRefName,baseRefOid",
   ]);
   const statuses = read.pages(`repos/${repo}/commits/${sha}/statuses`);
   const runs = read.pages(`repos/${repo}/commits/${sha}/check-runs?per_page=100`, "check_runs");
@@ -259,6 +259,19 @@ export function floor({ repo, pr, sha, view, cosigned = null, cwd = process.cwd(
       }
     };
     const workflows = hasWorkflows(base) || hasWorkflows("HEAD");
+    // The workflows that run on pull requests, from the base or the head, so a
+    // PR cannot drop one it would have to pass by deleting or editing it.
+    const prWorkflows = new Map();
+    for (const rev of [base, "HEAD"]) {
+      let files = [];
+      try {
+        files = isolated(["ls-tree", "--name-only", rev, ".github/workflows/"]).split("\n").filter((f) => /\.ya?ml$/.test(f));
+      } catch {}
+      for (const file of files) {
+        const trigger = prTrigger(isolated(["cat-file", "blob", `${rev}:${file}`]));
+        if (trigger) prWorkflows.set(file, { conditional: (prWorkflows.get(file)?.conditional ?? true) && trigger.conditional });
+      }
+    }
     // A PR that changes the workflows, or whose head skips CI, may be why it
     // has no checks. The repository's gates count from the base and the head,
     // so a PR cannot loosen the gates it is judged by.
@@ -271,7 +284,8 @@ export function floor({ repo, pr, sha, view, cosigned = null, cwd = process.cwd(
     });
     const head = {
       workflows,
-      workflowsChanged: changed.some((f) => f.startsWith(".github/workflows/")),
+      prWorkflows: [...prWorkflows].map(([path, { conditional }]) => ({ path, conditional })),
+      committedAt: isolated(["log", "-1", "--format=%cI", "HEAD"]).trim(),
       skipsCI: SKIP_CI.test(isolated(["log", "-1", "--format=%B", "HEAD"])),
       repoGates,
     };
@@ -295,15 +309,94 @@ export function floor({ repo, pr, sha, view, cosigned = null, cwd = process.cwd(
   }
 }
 
-// CI that has not reported a minute after GitHub first held the head is not coming.
-export const CI_START_MS = 60_000;
+// The value of a workflow's top-level on: key (or "on" quoted, or YAML 1.1's
+// true), comments dropped.
+function onBlock(text) {
+  const lines = text.split("\n").map((l) => l.replace(/(^|\s)#.*$/, ""));
+  const at = lines.findIndex((l) => /^["']?(on|true)["']?\s*:/.test(l));
+  if (at < 0) return null;
+  const block = [lines[at].replace(/^["']?(on|true)["']?\s*:/, "")];
+  for (const line of lines.slice(at + 1)) {
+    if (/^\S/.test(line)) break;
+    block.push(line);
+  }
+  return block.join("\n");
+}
 
-// Why a head with no CI result, in a repository with workflows, may not count
-// as having no checks yet; null when it does.
-export function noChecksBlocker({ statuses, skipsCI }, now) {
-  const first = Math.min(...statuses.map((s) => Date.parse(s.created_at)).filter(Number.isFinite));
-  if (!(now - first >= CI_START_MS)) return "the repository has workflows, and CI may not have started yet; rerun in a minute";
-  return skipsCI ? "its head commit's message asks GitHub to skip CI; push a head without it" : null;
+// Whether a workflow runs on pull requests: null when it does not, else
+// { conditional } when its pull_request trigger names paths or branches, so
+// it may rightly not run for a PR. A file whose on: cannot be found counts.
+export function prTrigger(text) {
+  const block = onBlock(text);
+  if (block === null) return { conditional: false };
+  if (!/\bpull_request(_target)?\b/.test(block)) return null;
+  // The lines under a block-style pull_request: key, deeper than the key itself.
+  const lines = block.split("\n");
+  const at = lines.findIndex((l) => /^\s*pull_request(_target)?\s*:\s*$/.test(l));
+  const nested = [];
+  if (at >= 0) {
+    const indent = lines[at].search(/\S/);
+    for (const line of lines.slice(at + 1)) {
+      if (line.trim() && line.search(/\S/) <= indent) break;
+      nested.push(line);
+    }
+  }
+  return { conditional: /\b(paths|paths-ignore|branches|branches-ignore)\s*:/.test(nested.join("\n")) };
+}
+
+// The required checks the base branch's rulesets and classic protection
+// name. A repository without either (404, or 403 on a plan without them) has none.
+export function requiredChecks(repo, branch, read = { ghJson }) {
+  const names = new Set();
+  const tryRead = (args) => {
+    try {
+      return read.ghJson(args);
+    } catch (error) {
+      if (/HTTP 40[34]/.test(String(error?.stderr || error?.message || error))) return null;
+      throw error;
+    }
+  };
+  for (const rule of tryRead(["api", `repos/${repo}/rules/branches/${encodeURIComponent(branch)}`]) ?? []) {
+    if (rule.type === "required_status_checks") for (const c of rule.parameters?.required_status_checks ?? []) names.add(c.context);
+  }
+  const classic = tryRead(["api", `repos/${repo}/branches/${encodeURIComponent(branch)}/protection/required_status_checks`]);
+  for (const c of classic?.checks ?? []) names.add(c.context);
+  for (const c of classic?.contexts ?? []) names.add(c);
+  return [...names];
+}
+
+// When the head was pushed: the branch's push activity, else the head commit's
+// date (no later than its push), so a fork's head waits no longer than its own.
+function pushedAt(repo, view, committedAt) {
+  if (view.headRefName) {
+    try {
+      const pushes = ghJson(["api", `repos/${repo}/activity?ref=${encodeURIComponent(`refs/heads/${view.headRefName}`)}&activity_type=push&per_page=100`]);
+      const push = pushes.find((p) => p.after === view.headRefOid);
+      if (push) return Date.parse(push.timestamp);
+    } catch {}
+  }
+  return Date.parse(committedAt);
+}
+
+// Why the head's CI is not done: a PR workflow or a required check that has
+// not finished green, or has not reported; null when every expected check has.
+export function expectedBlocker({ prWorkflows, wfRuns, required, runs, statuses, pushed, now, waitMs }) {
+  const missing = [];
+  for (const { path, conditional } of prWorkflows) {
+    const latest = wfRuns.filter((r) => r.path === path || r.path?.startsWith(`${path}@`)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+    if (!latest) {
+      if (!conditional) missing.push(path);
+      continue;
+    }
+    if (latest.status !== "completed") return `${path} is ${latest.status}, so it has not finished`;
+    if (!GREEN.has(latest.conclusion)) return `${path} concluded ${latest.conclusion}`;
+  }
+  const reported = new Set([...runs.map((r) => r.name), ...statuses.map((s) => s.context)]);
+  for (const name of required) if (!reported.has(name)) missing.push(`the required check ${name}`);
+  if (!missing.length) return null;
+  const list = missing.join(", ");
+  if (now - pushed < waitMs) return `${list} ha${missing.length === 1 ? "s" : "ve"} not reported, and CI may not have started yet; rerun in a minute`;
+  return `CI did not start: ${list} never reported within ${Math.round(waitMs / 60_000)} minutes of the push at ${new Date(pushed).toISOString()}; push again, or check why the workflow did not run`;
 }
 
 // A head with no check run or status can still have CI on its way. GitHub
@@ -339,7 +432,7 @@ function out(result) {
 }
 
 function usage(message) {
-  process.stderr.write(`${message}\nusage: merge-gate.mjs verdict --repo <owner/repo> --sha <head> --state pass|fail [--description <text>]\n       merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--author-email <email>] [--dry-run]\n       merge-gate.mjs cosign --repo <owner/repo> --pr <number> --sha <head> --log <decision log> --evidence <pointer> [--why <text>]\n`);
+  process.stderr.write(`${message}\nusage: merge-gate.mjs verdict --repo <owner/repo> --sha <head> --state pass|fail [--description <text>]\n       merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--author-email <email>] [--ci-wait <minutes>] [--dry-run]\n       merge-gate.mjs cosign --repo <owner/repo> --pr <number> --sha <head> --log <decision log> --evidence <pointer> [--why <text>]\n`);
   return 2;
 }
 
@@ -367,6 +460,7 @@ function run(argv) {
         description: { type: "string" },
         "author-email": { type: "string" },
         "dry-run": { type: "boolean" },
+        "ci-wait": { type: "string" },
         log: { type: "string" },
         evidence: { type: "string" },
         why: { type: "string" },
@@ -425,19 +519,22 @@ function run(argv) {
     } catch (error) {
       return out({ kind: "refused", repo, pr, sha, reasons: [`operator's gates could not be read: ${error.message}`] });
     }
+    const waitMinutes = Number(values["ci-wait"] ?? 10);
+    if (!(waitMinutes > 0)) return usage("--ci-wait must be a number of minutes");
+    const wfRuns = guard.prWorkflows.length ? pages(`repos/${repo}/actions/runs?head_sha=${sha}&per_page=100`, "workflow_runs") : [];
+    const required = requiredChecks(repo, facts.view.baseRefName);
+    const blocker = expectedBlocker({ ...guard, wfRuns, required, runs: facts.runs, statuses: facts.statuses.filter((s) => s.context !== CONTEXT && s.context !== COSIGN), pushed: pushedAt(repo, facts.view, guard.committedAt), now: Date.now(), waitMs: waitMinutes * 60_000 });
+    if (blocker) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha}: ${blocker}`] });
     // Failed or pending checks were refused above, so a head here either has
     // green checks or none at all.
     const none = facts.runs.length + facts.statuses.filter((s) => s.context !== CONTEXT && s.context !== COSIGN).length === 0;
     if (none) {
       const suites = pages(`repos/${repo}/commits/${sha}/check-suites?per_page=100`, "check_suites");
-      const blocker = suiteBlocker(suites) ?? (guard.workflows ? noChecksBlocker({ statuses: facts.statuses, skipsCI: guard.skipsCI }, Date.now()) : null);
-      if (blocker) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha}: ${blocker}`] });
-      const hold = guard.workflowsChanged
-        ? "the PR changes .github/workflows/, so the gate cannot tell whether CI was meant to run on it"
-        : gates.noCI === "wait"
-          ? `the operator's gates hold such a PR for a person (noCI: wait, from ${gates.from.noCI})`
-          : null;
-      if (hold) return out({ kind: "held", repo, pr, sha, checks: "none", reasons: [`no CI result on ${sha}, and ${hold}; it is merge-ready, so report it and leave the merge to a person`] });
+      const blocked = suiteBlocker(suites) ?? (guard.workflows && guard.skipsCI ? "its head commit's message asks GitHub to skip CI; push a head without it" : null);
+      if (blocked) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha}: ${blocked}`] });
+      if (gates.noCI === "wait") {
+        return out({ kind: "held", repo, pr, sha, checks: "none", reasons: [`no CI result on ${sha}, and the operator's gates hold such a PR for a person (noCI: wait, from ${gates.from.noCI}); it is merge-ready, so report it and leave the merge to a person`] });
+      }
     }
     const checks = none ? { checks: "none" } : {};
     if (values["dry-run"]) return out({ kind: "would-merge", repo, pr, sha, ...checks });
