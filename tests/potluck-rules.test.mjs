@@ -43,7 +43,7 @@ const RULES = [
   { row: "S3-C4", file: "poteto-mode/playbooks/autopilot-full.md", phrase: "A rebase that stops on a conflict, or a push the lease refuses, goes to the root" },
   { row: "S3-D2", file: "poteto-mode/playbooks/pause-safely.md", phrase: "the task's folder, inside Git or not, plus a task name when another task may checkpoint in the same folder." },
   { row: "S3-D3", file: "poteto-mode/playbooks/session-pickup.md", phrase: "If it reports missing, list the store and read the checkpoint whose folder and task match the request." },
-  { row: "S3-D3", file: "poteto-mode/playbooks/session-pickup.md", phrase: "Compare the recorded head first. When it moved, commits landed after the pause, so recheck the note's claims against them, as step 4 does, before you rely on it." },
+  { row: "S3-D3", file: "poteto-mode/playbooks/session-pickup.md", phrase: "Compare the recorded head first. When it moved, the branch changed after the pause (new commits, a reset, or a deleted branch), so recheck the note's claims against that change, as step 4 does, before you rely on it." },
 ];
 
 describe("potluck's ruled rules", () => {

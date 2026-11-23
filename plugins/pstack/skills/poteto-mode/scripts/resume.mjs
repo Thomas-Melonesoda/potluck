@@ -13,14 +13,15 @@ function optional(read) {
 }
 // A folder outside Git is its own project. Any other Git failure, such as a bare repository, stays an error.
 function identity(directory) {
-  const path = realpathSync(directory);
+  // The native call returns the on-disk letter case, which Git's toplevel also uses.
+  const path = realpathSync.native(directory);
   let toplevel;
   try { toplevel = git(path, 'rev-parse', '--show-toplevel'); }
   catch (error) {
     if (error.code === 'ENOENT' || /not a git repository/.test(error.stderr)) return { gitDir: null, worktree: path, folder: '' };
     throw error;
   }
-  const worktree = realpathSync(toplevel);
+  const worktree = realpathSync.native(toplevel);
   return {
     gitDir: realpathSync(git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir')),
     worktree,
@@ -86,17 +87,21 @@ function pointer(store, project, task) {
   const key = JSON.stringify([project.gitDir ?? project.worktree, project.folder, task]);
   return join(store, 'pointers', `${createHash('sha256').update(key).digest('hex')}.json`);
 }
-function load(store, project, task) {
-  let path = pointer(store, project, task);
-  // A checkpoint from the single-pointer format reads as the top folder's until that folder publishes again.
-  if (!exists(path) && project.folder === '' && task === null) path = join(store, 'latest.json');
-  if (!exists(path)) return null;
-  fileInfo(path, [store]);
-  const record = object(JSON.parse(readFileSync(path, 'utf8')), 'checkpoint');
-  const legacy = record.schemaVersion === 1;
-  if (!legacy && record.schemaVersion !== 2) throw new Error('unsupported checkpoint schema');
-  const folder = legacy ? '' : record.folder;
-  const saved = legacy ? null : nullable(record.task, 'task');
+// legacy is the single-pointer file an older plugin, perhaps in another runtime, still writes for the top
+// folder; it exists only in a Git default store. The newer of it and the folder's pointer wins.
+function load(store, project, task, legacy) {
+  const paths = [pointer(store, project, task)];
+  if (legacy && project.folder === '' && task === null) paths.push(legacy);
+  const records = paths.filter(exists).map(path => {
+    fileInfo(path, [store]);
+    return object(JSON.parse(readFileSync(path, 'utf8')), 'checkpoint');
+  });
+  if (!records.length) return null;
+  const record = records.reduce((newest, next) => (next.createdAt > newest.createdAt ? next : newest));
+  const v1 = record.schemaVersion === 1;
+  if (!v1 && record.schemaVersion !== 2) throw new Error('unsupported checkpoint schema');
+  const folder = v1 ? '' : record.folder;
+  const saved = v1 ? null : nullable(record.task, 'task');
   if ((record.gitDir ?? record.worktree) !== (project.gitDir ?? project.worktree) || folder !== project.folder || saved !== task)
     throw new Error('checkpoint project mismatch');
   const worktree = string(record.worktree, 'worktree');
@@ -110,7 +115,7 @@ function load(store, project, task) {
   if (!Array.isArray(record.artifacts)) throw new Error('invalid artifact list');
   const artifacts = record.artifacts.map(value => verifyFile(value, roots));
   const branch = nullable(record.branch, 'branch');
-  const head = legacy ? null : nullable(record.head, 'head');
+  const head = v1 ? null : nullable(record.head, 'head');
   const createdAt = string(record.createdAt, 'timestamp');
   if (!Number.isFinite(Date.parse(createdAt))) throw new Error('invalid checkpoint timestamp');
   verifyLinks(note, artifacts);
@@ -123,13 +128,13 @@ function load(store, project, task) {
     moved: head === null ? null : headNow !== head,
   };
 }
-function list(store) {
+function list(store, legacy) {
   const pointers = join(store, 'pointers');
   // Names starting with a dot are publications still being written.
   const files = (exists(pointers) ? readdirSync(pointers) : [])
     .filter(name => name.endsWith('.json') && !name.startsWith('.'))
     .map(name => join(pointers, name));
-  if (exists(join(store, 'latest.json'))) files.push(join(store, 'latest.json'));
+  if (legacy && exists(legacy)) files.push(legacy);
   return files.map(file => {
     let record;
     try { record = object(JSON.parse(readFileSync(file, 'utf8')), 'checkpoint'); }
@@ -163,10 +168,11 @@ try {
   const root = exists(store) ? realpathSync(store) : null;
   // A default store stays inside its project; a --store location is the user's choice.
   if (root && !values.store && !inside(project.gitDir ?? project.worktree, root)) throw new Error('resume store escapes its project');
+  const legacy = root && !values.store && project.gitDir ? join(root, 'latest.json') : null;
   if (operation === 'list') {
-    console.log(JSON.stringify({ kind: 'list', checkpoints: root ? list(root) : [] }));
+    console.log(JSON.stringify({ kind: 'list', checkpoints: root ? list(root, legacy) : [] }));
   } else if (operation === 'read') {
-    const checkpoint = root && load(root, project, task);
+    const checkpoint = root && load(root, project, task, legacy);
     if (!checkpoint) {
       console.log(JSON.stringify({ kind: 'missing' }));
       process.exit(2);
@@ -193,7 +199,9 @@ try {
       writeFileSync(temporary, JSON.stringify(checkpoint) + '\n', { flag: 'wx', mode: 0o600 });
       renameSync(temporary, pointer(root, project, task));
     } finally { rmSync(temporary, { force: true }); }
-    console.log(JSON.stringify(load(root, project, task)));
+    // Retire the older format's pointer, so an older plugin reports missing instead of a stale note.
+    if (legacy && project.folder === '' && task === null) rmSync(legacy, { force: true });
+    console.log(JSON.stringify(load(root, project, task, legacy)));
   }
 } catch (error) {
   console.log(JSON.stringify({ kind: 'unavailable', detail: error.message }));
