@@ -42,6 +42,6 @@ Status values: **done**, **in progress**, **not started**.
 
 Not borrowed, as ruled: the step 4 review's X group, and rows M5, M6, M8, D6, D7, D10.
 
-## Stage 5: owner's personal layer (not started, private)
+## Stage 5: owner's personal layer (done, 2026-11-22, private)
 
-Personal configuration stays outside this repository.
+Personal configuration stays outside this repository. The owner's rules were rebuilt on top of potluck rather than spliced with the old ones, and a pilot on one of the owner's own projects landed its first pull requests through the merge gate, each with an independent verdict, green CI, and the quality floor. The issues the pilot found in potluck go to the next design round.
