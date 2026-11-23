@@ -345,6 +345,13 @@ else if (line.includes("POST")) process.stdout.write("{}");
     ]);
   });
 
+  test("words before and after a number that disagree give it no direction, so a change to it is reported", () => {
+    const bar = (a, b, c, d, e, f, g, h) => `# Constraints\n\n- Coverage: never below ${a}%, must not drop\n- Small files: files under ${b} KB must not drop\n- Modules: modules below ${c} lines must not drop\n\n| Metric | Bar | Direction |\n|---|---|---|\n| Line coverage | not under ${d}% | must not drop |\n| Branch coverage | fails if < ${e}% | must not drop |\n| Statement coverage | never below ${f}% | must not fall |\n| 覆盖率 | 不超过 ${g}% | 不得下降 |\n| 包大小 | 不低于 ${h} kB | 不得增长 |\n`;
+    const r = fake({ change: { path: "CONSTRAINTS.md", text: bar(60, 1, 500, 60, 60, 60, 60, 300) }, setup: { base: { "CONSTRAINTS.md": bar(80, 2, 1000, 80, 80, 80, 80, 184) } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toHaveLength(8);
+    expect(r.json.reasons.every((l) => l.startsWith("floor: [threshold-changed] CONSTRAINTS.md:"))).toBe(true);
+  });
+
   test("a path with a space keeps its name, so plain .md stays unchecked and a Swift test there is still a test", () => {
     const swift = "My App Tests/AppTests.swift";
     const r = fake({ change: { path: "docs/Meeting notes.md", text: `Leave a ${"TO"}DO here.\n` }, setup: { base: { [swift]: XCTEST }, remove: [swift] } }).run(...merge, "--dry-run");
