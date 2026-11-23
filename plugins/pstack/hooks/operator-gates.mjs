@@ -5,15 +5,17 @@
 // "ask", a gh command that writes to a repository that neither the gh account
 // nor one of its organizations owns gets Claude Code's permission prompt, with
 // the reason, so the user decides. The user's own repositories pass. Writes:
-//   - gh pr comment, review, create, edit, close, reopen, ready, merge, lock,
-//     unlock; gh issue comment, create, edit, close, reopen, lock, unlock, pin,
-//     unpin, transfer, delete, develop
+//   - gh pr comment, review, create, edit, close, reopen, ready, merge, revert,
+//     update-branch, lock, unlock; gh issue comment, create, edit, close,
+//     reopen, lock, unlock, pin, unpin, transfer, delete, develop
 //   - gh api with a method other than GET or HEAD, or with fields or --input
 //     and no method, on a repos/<owner>/<repo> path, and a GraphQL mutation
 //     or a GraphQL query read from a file
-// The repository is the one --repo (-R), GH_REPO, or a github.com pull or
-// issue URL among the arguments names, else the one gh resolves in the
-// command's directory (`gh repo view`). A GraphQL mutation names no
+// The repository is the one a github.com pull or issue URL among the
+// arguments names (gh prefers it), else --repo (-R) or GH_REPO, else the one
+// gh resolves in the command's directory (`gh repo view`). A repository,
+// selector, or endpoint the shell fills in at run time ($VAR, $(...), a
+// backtick) cannot be read, so it asks. A GraphQL mutation names no
 // repository, so it always asks; so does a write whose owner or account
 // cannot be read, and any write while a gates file cannot be parsed.
 // Commands inside sh -c, eval, subshells, and if or loop bodies are read as
@@ -29,24 +31,31 @@ import { loadGates, repoRoot } from "../skills/poteto-mode/scripts/gates.mjs";
 import { commands, expand } from "./git-guardrail.mjs";
 
 const WRITES = {
-  pr: new Set(["comment", "review", "create", "edit", "close", "reopen", "ready", "merge", "lock", "unlock"]),
+  pr: new Set(["comment", "review", "create", "edit", "close", "reopen", "ready", "merge", "revert", "update-branch", "lock", "unlock"]),
   issue: new Set(["comment", "create", "edit", "close", "reopen", "lock", "unlock", "pin", "unpin", "transfer", "delete", "develop"]),
 };
 const API_VALUES = new Set(["-X", "--method", "-f", "--raw-field", "-F", "--field", "-H", "--header", "--input", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview"]);
 const FIELDS = /^(?:-[fF]|--(?:raw-)?field|--input)(?:=|$)|^-[fF]./;
 const URL = /^https?:\/\/github\.com\/([^/\s]+)\/[^/\s]+\/(?:pull|issues)\/\d+/i;
+// A word the shell fills in at run time, which this check cannot read.
+const OPAQUE = /[$`]/;
+const unread = (what, word) => ({ unreadable: `names its ${what} as ${word}` });
 
 // The owner a repository argument names: OWNER/REPO, HOST/OWNER/REPO, or a URL.
 function ownerOf(repo) {
+  if (OPAQUE.test(repo)) return unread("repository", repo);
   const parts = repo.replace(/^https?:\/\//, "").replace(/\.git$/, "").split("/").filter(Boolean);
   if (parts.length === 3 && !/^github\.com$/i.test(parts[0])) return { foreignHost: parts[0] };
-  return parts.length >= 2 ? { owner: parts.at(-2) } : { unreadable: repo };
+  return parts.length >= 2 ? { owner: parts.at(-2) } : unread("repository", repo);
 }
 
+// A flag's value: `-R v`, `--repo v`, `--repo=v`, `-Rv`, or `-R=v`.
 const valueOf = (args, short, long) => {
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === short || args[i] === long) return args[i + 1];
-    if (args[i].startsWith(`${long}=`)) return args[i].slice(long.length + 1);
+    const a = args[i];
+    if (a === short || a === long) return args[i + 1];
+    if (a.startsWith(`${long}=`)) return a.slice(long.length + 1);
+    if (a.startsWith(short) && !a.startsWith("--")) return a.slice(short.length).replace(/^=/, "");
   }
   return undefined;
 };
@@ -65,8 +74,9 @@ export function ghWrite(args, env) {
         break;
       }
     }
-    const method = (valueOf(rest, "-X", "--method") ?? rest.find((a) => /^-X./.test(a))?.slice(2) ?? (rest.some((a) => FIELDS.test(a)) ? "POST" : "GET")).toUpperCase();
+    const method = (valueOf(rest, "-X", "--method") ?? (rest.some((a) => FIELDS.test(a)) ? "POST" : "GET")).toUpperCase();
     if (method === "GET" || method === "HEAD" || !endpoint) return null;
+    if (OPAQUE.test(endpoint)) return { what: `\`gh api ${method}\``, ...unread("endpoint", endpoint) };
     const path = endpoint.replace(/^https?:\/\/api\.github\.com/i, "").replace(/^\//, "");
     if (path === "graphql") {
       if (rest.some((a) => /\bmutation\b/.test(a))) return { what: "a GraphQL mutation", always: true };
@@ -81,11 +91,15 @@ export function ghWrite(args, env) {
     if (args[i] === "-R" || args[i] === "--repo") i++;
     else if (!args[i].startsWith("-")) words.push(args[i]);
   }
-  const [group, sub] = words;
+  const [group, sub, selector] = words;
   if (!WRITES[group]?.has(sub) || args.some((a) => a === "--help" || a === "-h")) return null;
+  const what = `\`gh ${group} ${sub}\``;
+  // gh takes the repository from a pull or issue URL over --repo and GH_REPO.
   const url = args.map((a) => URL.exec(a)).find(Boolean);
-  const where = named ? ownerOf(named) : url ? { owner: url[1] } : {};
-  return { what: `\`gh ${group} ${sub}\``, ...where };
+  if (url) return { what, owner: url[1] };
+  // Every write but create names its pull request or issue first.
+  if (sub !== "create" && selector !== undefined && OPAQUE.test(selector)) return { what, ...unread("pull request or issue", selector) };
+  return { what, ...(named ? ownerOf(named) : {}) };
 }
 
 const gh = (cwd, args) => JSON.parse(execFileSync("gh", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 }));
@@ -96,15 +110,18 @@ export function writes(command, cwd, env = process.env) {
   let dir = cwd;
   let ghRepo = env.GH_REPO;
   for (const base of commands(command)) {
-    if (base[0] === "cd" && base.length <= 2) {
+    if ((base[0] === "cd" || base[0] === "pushd") && base.length <= 2) {
       dir = base[1] && isAbsolute(base[1]) ? base[1] : join(dir, base[1] ?? env.HOME ?? dir);
       continue;
     }
     if (base[0] === "export") ghRepo = base.find((w) => w.startsWith("GH_REPO="))?.slice(8) ?? ghRepo;
     const assigned = base.find((w) => w.startsWith("GH_REPO="))?.slice(8);
     for (const words of expand(base)) {
-      if (!/(^|\/)gh$/.test(words[0] ?? "")) continue;
-      const write = ghWrite(words.slice(1), { GH_REPO: assigned ?? ghRepo });
+      // gh may follow a wrapper the guardrail does not know, such as nice, or
+      // come from a variable ($GH pr comment).
+      const at = words.findIndex((w, i) => /(^|\/)gh$/.test(w) || (OPAQUE.test(w) && ["pr", "issue", "api"].includes(words[i + 1])));
+      if (at < 0) continue;
+      const write = ghWrite(words.slice(at + 1), { GH_REPO: assigned ?? ghRepo });
       if (write) found.push({ ...write, dir });
     }
   }
@@ -133,6 +150,7 @@ export function check(command, cwd, env = process.env) {
   }
   for (const write of found) {
     if (write.always) return `${gate}: ${write.what} does not show which repository it writes to, so it needs the user's yes.`;
+    if (write.unreadable) return `${gate}: ${write.what} ${write.unreadable}, which this check cannot read, so it needs the user's yes.`;
     if (write.foreignHost) return `${gate}: ${write.what} writes to a repository on ${write.foreignHost}, which this check cannot read, so it needs the user's yes.`;
     let owner = write.owner;
     if (!owner) {

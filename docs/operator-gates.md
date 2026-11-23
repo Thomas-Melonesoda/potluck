@@ -34,7 +34,17 @@ A repository's file that cannot be parsed refuses every merge, including the PR 
 ## Who reads it
 
 - **The merge gate.** `merge-gate.mjs merge` reads both files after every other check passes. With `noCI` set to `"wait"`, a PR with no CI result comes back `{"kind": "held", ...}` with exit 1 and is not merged. A gates file that cannot be parsed refuses the merge.
-- **A hook before each shell command, on Claude Code.** With `foreignRepos` set to `"ask"`, `hooks/operator-gates.mjs`, which the Bash hook `hooks/git-guardrail.sh` runs after the git guardrail, reads each Bash call, inside `sh -c`, `eval`, and subshells too. A `gh` write aimed at a repository that the `gh` account does not own, and that none of its organizations owns, gets Claude Code's permission prompt with the reason, and runs only if the user approves. The writes are `gh pr` comment, review, create, edit, close, reopen, ready, merge, lock, and unlock; `gh issue` comment, create, edit, close, reopen, lock, unlock, pin, unpin, transfer, delete, and develop; and `gh api` calls that write to a `repos/<owner>/<repo>` path. The repository is the one `--repo`, `GH_REPO`, or a pull request or issue URL names, else the one `gh` resolves in the command's directory. A GraphQL mutation names no repository, so it always asks, and so does a write when the account cannot be read or a gates file cannot be parsed. Your own repositories pass without a prompt. Other harnesses have no such hook yet, so there poteto-mode asks before running these commands.
+- **A hook before each shell command, on Claude Code.** With `foreignRepos` set to `"ask"`, `hooks/operator-gates.mjs`, which the Bash hook `hooks/git-guardrail.sh` runs after the git guardrail, reads each Bash call, inside `sh -c`, `eval`, and subshells too. A `gh` write aimed at a repository that the `gh` account does not own, and that none of its organizations owns, gets Claude Code's permission prompt with the reason, and runs only if the user approves. The writes are:
+
+  - `gh pr`: comment, review, create, edit, close, reopen, ready, merge, revert, update-branch, lock, and unlock;
+  - `gh issue`: comment, create, edit, close, reopen, lock, unlock, pin, unpin, transfer, delete, and develop;
+  - `gh api` calls that write to a `repos/<owner>/<repo>` path.
+
+  The repository is the one a pull request or issue URL names, since `gh` prefers it, else `--repo` (`-R`, `-R<repo>`, `--repo=<repo>`) or `GH_REPO`, else the one `gh` resolves in the command's directory. It always asks when it cannot tell which repository a write goes to:
+
+  - a repository, selector, or endpoint the shell fills in at run time, such as `"$R"` or `$(cat pr.txt)`;
+  - a GraphQL mutation, which names no repository;
+  - a write when the account cannot be read, or when a gates file cannot be parsed. Your own repositories pass without a prompt. Other harnesses have no such hook yet, so there poteto-mode asks before running these commands.
 - **poteto-mode, when a run starts.** It runs `node <plugin>/skills/poteto-mode/scripts/gates.mjs` in the repository and follows each line it prints, `askFirst` items included. Run it yourself to see the gates in force:
 
   ```text
@@ -46,9 +56,9 @@ A repository's file that cannot be parsed refuses every merge, including the PR 
 
 ## No checks is not a failed check
 
-The merge gate refuses a PR whose checks failed or are still running. A PR with no CI result at all has "no checks": the repository has no CI, or its CI does not run on pull requests, as when it runs only on pushes to `main`. potluck's default merges such a PR on its verdict, and `noCI: "wait"` holds it instead. The gate's result says which it saw, `checks: "green"` or `checks: "none"`.
+The merge gate refuses a PR whose checks failed or are still running. A PR with no CI result at all has "no checks": the repository has no CI, or its CI does not run on pull requests, as when it runs only on pushes to `main`. potluck's default merges such a PR on its verdict, and `noCI: "wait"` holds it instead. A result with no checks says so with `checks: "none"`.
 
-In a repository with workflows, silence counts as no checks only when nothing the PR did could explain it. The gate refuses instead when the PR changes `.github/workflows/`, when its head commit's message asks GitHub to skip CI (`[skip ci]` and the like), or when GitHub has held the head for less than a minute, judged by the head's oldest commit status, since CI may not have started yet.
+Silence counts as no checks only when nothing says CI is still coming. The gate refuses while a GitHub Actions check suite on the head is unfinished, or waits for a maintainer's approval, as on a fork PR. In a repository with workflows it also refuses when the head commit's message asks GitHub to skip CI (`[skip ci]` and the like), and when GitHub has held the head for less than a minute, judged by its oldest commit status, since CI may not have started yet. A PR with no checks that changes `.github/workflows/` is held for a person under any setting, since its silence may be its own doing.
 
 ## Loosening a gate
 

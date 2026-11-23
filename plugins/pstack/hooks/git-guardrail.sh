@@ -4,10 +4,14 @@
 # uncommitted or unpushed work. A call it lets through goes on to
 # operator-gates.mjs, which prints an "ask" decision when the operator's gates
 # set foreignRepos to "ask" and the call writes with gh to a repository the
-# user does not own. Without node on PATH both are off and every call runs, as
-# it did before.
+# user does not own. That check starts node only for a call that names gh or
+# holds a quote, backslash, $, or backtick, the ways a command can spell gh
+# without writing it out. Without node on PATH both are off and every call
+# runs, as it did before.
 command -v node >/dev/null 2>&1 || exit 0
 input=$(cat)
 here=$(dirname "$0")
 printf '%s' "$input" | node "$here/git-guardrail.mjs" || exit $?
-printf '%s' "$input" | node "$here/operator-gates.mjs"
+case $input in
+  *gh* | *\'* | *\\* | *'$'* | *'`'*) printf '%s' "$input" | node "$here/operator-gates.mjs" ;;
+esac

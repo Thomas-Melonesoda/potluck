@@ -23,6 +23,7 @@ function setup({ gates = { foreignRepos: "ask" }, login = "me", orgs = ["our-org
   mkdirSync(join(home, ".potluck"), { recursive: true });
   mkdirSync(join(dir, "bin"));
   mkdirSync(join(work, "sub"), { recursive: true });
+  mkdirSync(join(work, "foreign"), { recursive: true });
   execFileSync("git", ["init", "-q", work]);
   if (gates !== null) writeFileSync(join(home, ".potluck/gates.json"), typeof gates === "string" ? gates : JSON.stringify(gates));
   writeFileSync(
@@ -35,7 +36,7 @@ if (${fail}) { process.stderr.write("HTTP 401: Bad credentials\\n"); process.exi
 const line = args.join(" ");
 if (line === "api user") process.stdout.write(JSON.stringify({ login: ${JSON.stringify(login)} }));
 else if (line === "api --paginate --slurp user/orgs") process.stdout.write(JSON.stringify([${JSON.stringify(orgs.map((o) => ({ login: o })))}]));
-else if (line === "repo view --json owner") process.stdout.write(JSON.stringify({ owner: { login: ${JSON.stringify(here)} } }));
+else if (line === "repo view --json owner") process.stdout.write(JSON.stringify({ owner: { login: process.cwd().endsWith("/foreign") ? "stranger" : ${JSON.stringify(here)} } }));
 else process.exit(1);
 `,
     { mode: 0o755 },
@@ -77,6 +78,20 @@ describe("with foreignRepos: ask", () => {
     ["cd sub && sh -c 'gh pr comment 1 -R stranger/app -b x'", "owned by stranger"],
     ["GH_REPO=stranger/app gh issue comment 1 -b x", "owned by stranger"],
     ["gh pr comment 5 --repo ghe.example.com/team/app -b x", "on ghe.example.com, which this check cannot read"],
+    ['R=stranger/app; gh issue comment 1 -R "$R" -b x', "names its repository as $R, which this check cannot read"],
+    ["GH_REPO=$T gh issue comment 1 -b x", "names its repository as $T, which this check cannot read"],
+    ['PR=https://github.com/stranger/app/pull/1; gh pr comment "$PR" -b x', "names its pull request or issue as $PR, which this check cannot read"],
+    ["gh pr comment $(cat pr.txt) -b x", "which this check cannot read"],
+    ['gh api "$URL" -f body=x', "names its endpoint as $URL, which this check cannot read"],
+    ["gh pr comment https://github.com/stranger/app/pull/1 -R me/app -b x", "owned by stranger"],
+    ["GH_REPO=me/app gh pr review https://github.com/stranger/app/pull/1 --approve", "owned by stranger"],
+    ["gh pr comment 1 -Rstranger/app -b x", "owned by stranger"],
+    ["gh pr comment 1 -R=stranger/app -b x", "owned by stranger"],
+    ["gh pr revert 3 --repo stranger/app", "`gh pr revert` writes to a repository owned by stranger"],
+    ["gh pr update-branch 3 -R stranger/app", "`gh pr update-branch` writes to a repository owned by stranger"],
+    ["nice gh issue comment 1 -R stranger/app -b x", "owned by stranger"],
+    ["pushd foreign && gh pr comment 1 -b x", "owned by stranger"],
+    ["GH=gh; $GH issue comment 9 --repo stranger/app -b hi", "owned by stranger"],
   ])("%s asks", (command, reason) => {
     const { run, user } = setup();
     const r = run(command);
@@ -93,7 +108,7 @@ describe("with foreignRepos: ask", () => {
 
   test("reads pass without asking gh anything", () => {
     const { run, calls } = setup();
-    for (const command of ["gh pr view 5 --repo stranger/app", "gh issue list -R stranger/app", "gh api repos/stranger/app/pulls/5", "gh api -X GET repos/stranger/app/issues -f state=open", "gh api graphql -f query='query { viewer { login } }'", "gh pr comment --help", "git commit -m 'gh pr comment 5 --repo stranger/app'"]) {
+    for (const command of ['gh pr view "$PR"', "gh issue list -R \"$R\"", "gh pr view 5 --repo stranger/app", "gh issue list -R stranger/app", "gh api repos/stranger/app/pulls/5", "gh api -X GET repos/stranger/app/issues -f state=open", "gh api graphql -f query='query { viewer { login } }'", "gh pr comment --help", "git commit -m 'gh pr comment 5 --repo stranger/app'"]) {
       expect([command, run(command).decision]).toEqual([command, null]);
     }
     expect(calls()).toEqual([]);
@@ -142,6 +157,11 @@ describe("Claude Code's Bash hook, git-guardrail.sh", () => {
   test("runs this check on a call the git guardrail lets through", () => {
     const r = viaWrapper(setup(), "gh issue comment 9 --repo stranger/app -b hi");
     expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision).toBe("ask");
+  });
+
+  test("reads a gh spelled with quotes, which never names gh outright", () => {
+    const r = viaWrapper(setup(), "g''h issue comment 9 --repo stranger/app -b hi");
     expect(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision).toBe("ask");
   });
 
