@@ -391,6 +391,63 @@ describe("shared branches", () => {
     expect(hook("git push origin").status).toBe(2);
   });
 
+  // From the fourth independent verifier of #33.
+  test("&> inside a command, a numbered heredoc, and a hyphenated heredoc tag are read as the shell reads them", () => {
+    const { work, hook } = repo();
+    expect(hook("git push &>/dev/null --force-with-lease origin").status).toBe(2);
+    expect(hook("git push --force-with-lease origin 2<<EOF\nyes\nEOF").status).toBe(2);
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    expect(hook("git reset &>/dev/null --hard").status).toBe(2);
+    expect(hook("cat > notes.md <<'END-NOTE'\ngit reset --hard\nEND-NOTE").status).toBe(0);
+  });
+
+  test("a push remote and a full source name decide where a push goes", () => {
+    const { root, git, work, hook } = repo("feat");
+    git(work, "config", "push.default", "upstream");
+    git(work, "branch", "-q", "--set-upstream-to=origin/main");
+    expect(hook("git push --force-with-lease origin refs/heads/feat").status).toBe(2);
+    git(work, "config", "push.default", "simple");
+    git(work, "remote", "add", "fork", join(root, "remote.git"));
+    git(work, "config", "remote.fork.push", "+refs/heads/feat:refs/heads/main");
+    git(work, "config", "remote.pushDefault", "fork");
+    expect(hook("git push").status).toBe(2);
+    git(work, "config", "--unset", "remote.pushDefault");
+    git(work, "config", "branch.feat.pushRemote", "fork");
+    expect(hook("git push").status).toBe(2);
+  });
+
+  // From the independent verifier of #45.
+  test("a heredoc tag is read after quote removal, and an arithmetic shift is not a heredoc", () => {
+    const { work, hook } = repo();
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    for (const c of ["cat <<\\EOF\nnote\nEOF\ngit reset --hard", "cat <<E\\OF\nnote\nEOF\ngit reset --hard", "cat <<'E'OF\nnote\nEOF\ngit reset --hard", "(( x = 1 << 3 ))\ngit reset --hard"]) {
+      expect(hook(c).status, c).toBe(2);
+    }
+    expect(hook("cat <<\\EOF\ngit reset --hard\nEOF").status).toBe(0);
+  });
+
+  // From the second independent verifier of #45.
+  test("a << that is not plainly a heredoc tag hides no command after it", () => {
+    const { work, hook } = repo();
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    for (const c of ['x=1; (( x <<= 2 ))\ngit reset --hard', 'y=2; (( x = 1 << $y ))\ngit reset --hard', "cat <<$'EOF'\nx\nEOF\ngit reset --hard", 'cat <<"E\\$OF"\nx\nE$OF\ngit reset --hard']) {
+      expect(hook(c).status, c).toBe(2);
+    }
+  });
+
+  test("branch.<name>.pushRemote wins over remote.pushDefault", () => {
+    const { root, git, work, hook } = repo("feat");
+    git(work, "remote", "add", "fork", join(root, "remote.git"));
+    git(work, "remote", "add", "other", join(root, "remote.git"));
+    git(work, "config", "remote.fork.push", "+refs/heads/feat:refs/heads/main");
+    git(work, "config", "remote.pushDefault", "fork");
+    git(work, "config", "branch.feat.pushRemote", "other");
+    expect(hook("git push").status).toBe(0);
+    git(work, "config", "branch.feat.pushRemote", "fork");
+    git(work, "config", "remote.pushDefault", "other");
+    expect(hook("git push").status).toBe(2);
+  });
+
   test("deleting a remote branch is blocked in every spelling, and deleting a tag passes", () => {
     const { hook } = repo("feat");
     for (const c of [
