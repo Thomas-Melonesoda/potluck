@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { frontmatter, index, layer1, layer2, loosened, main, readPlaybooks, stem, tokens } from "../tools/eval.mjs";
+import { baseTriggers, frontmatter, index, layer1, layer2, loosened, main, readPlaybooks, stem, tokens } from "../tools/eval.mjs";
 
 const skill = (dir, description, extra = {}) => ({ dir, name: dir, description, userInvocable: true, ...extra });
 const SKILLS = [
@@ -92,6 +92,10 @@ describe("layer 2", () => {
     expect(layer2(SKILLS, { ...base, cases: [{ prompt: "deploy to production", not: ["deploy"] }] }).problems[0]).toContain("ranks deploy first");
     expect(layer2(SKILLS, { ...base, cases: [{ prompt: "rename a variable", not: ["review", "deploy", "explain"] }] }).problems).toEqual([]);
   });
+  test("a setting that is not a number fails instead of turning its check off", () => {
+    const r = layer2(SKILLS, { ...base, minRank1: "off", collision: null, cases: [] });
+    expect(r.problems).toEqual(["evals/triggers.json: minRank1 must be a number", "evals/triggers.json: collision must be a number"]);
+  });
   test("the rank-1 share has a floor", () => {
     const r = layer2(SKILLS, { ...base, topK: 3, minRank1: 100, cases: [{ prompt: "review this pull request", skill: "review" }, { prompt: "watch the deploy rollout and explain it", skill: "explain" }] });
     expect(r.rate).toBe(50);
@@ -140,6 +144,13 @@ describe("the bar only rises", () => {
       'bar: case "r" gains a "known" mark; fix the description so the case passes instead',
     ]);
   });
+  test("a copied prompt under another skill, or a changed list of skills, is a new mark", () => {
+    const copied = { ...base, cases: [...base.cases, { prompt: "p", skill: "b", known: "gap" }] };
+    expect(loosened(base, copied)).toEqual(['bar: case "p" gains a "known" mark; fix the description so the case passes instead']);
+    const negative = { cases: [{ prompt: "n", not: ["a"], known: "gap" }] };
+    expect(loosened(negative, { cases: [{ prompt: "n", not: ["a", "b"], known: "gap" }] })).toHaveLength(1);
+    expect(loosened(negative, { cases: [{ prompt: "n", not: ["a"], known: "reworded" }] })).toEqual([]);
+  });
   test("a setting left out reads as its default", () => {
     const { minRank1, ...rest } = base;
     expect(loosened(base, rest)).toEqual(["bar: minRank1 falls from 55 to 0"]);
@@ -164,6 +175,7 @@ describe("--base reads the bar from git", () => {
   test("a lower floor than the base fails, the same floor passes, and an unknown ref is a usage error", () => {
     const root = repo();
     expect(main(["--layer", "2", "--base", "HEAD"], root)).toBe(0);
+    expect(baseTriggers(root, "HEAD").at).toMatch(/^[0-9a-f]{40}$/);
     writeFileSync(join(root, "evals/triggers.json"), JSON.stringify({ minRank1: 50, cases: [] }));
     expect(main(["--layer", "2", "--base", "HEAD"], root)).toBe(1);
     expect(main(["--layer", "2", "--base", "no-such-ref"], root)).toBe(2);

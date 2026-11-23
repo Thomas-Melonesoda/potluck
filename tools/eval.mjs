@@ -187,6 +187,9 @@ export function layer2(skills, config) {
   const { cases, topK = 3, minRank1 = 0, minScore = 0, collision = 1, allowCollisions = [] } = config;
   const idx = index(skills);
   const problems = [];
+  // A setting that is not a number would compare false everywhere and turn its check off.
+  for (const [key] of BAR) if (key in config && !Number.isFinite(config[key])) problems.push(`evals/triggers.json: ${key} must be a number`);
+  if (problems.length) return { problems, report: [], rate: 0 };
   const report = [];
   let positives = 0;
   let first = 0;
@@ -254,26 +257,31 @@ export function loosened(base, head) {
   for (const entry of head.allowCollisions ?? []) {
     if (!allowed.has(pairKey(entry))) problems.push(`bar: allowCollisions adds ${pairKey(entry)}; make the two descriptions distinct instead`);
   }
-  const known = new Set((base.cases ?? []).filter((c) => c.known !== undefined).map((c) => c.prompt));
+  // A case is its skill, its list of skills that must not fire, and its prompt.
+  const caseKey = (c) => JSON.stringify([c.skill ?? null, [...(c.not ?? [])].sort(), c.prompt]);
+  const known = new Set((base.cases ?? []).filter((c) => c.known !== undefined).map(caseKey));
   for (const c of head.cases ?? []) {
-    if (c.known !== undefined && !known.has(c.prompt)) problems.push(`bar: case ${JSON.stringify(c.prompt)} gains a "known" mark; fix the description so the case passes instead`);
+    if (c.known !== undefined && !known.has(caseKey(c))) problems.push(`bar: case ${JSON.stringify(c.prompt)} gains a "known" mark; fix the description so the case passes instead`);
   }
   return problems;
 }
 
 // evals/triggers.json at the revision the bar is held against: `ref` when
 // given, else the merge base with origin/main. Returns { config, at } (no
-// config when the file is not there), { skip } when no default base exists,
-// or { error } for a ref that is not a commit or a file that does not parse.
+// config when the file is not there) with `at` the commit's SHA, { unheld }
+// when no default base exists, or { error } for a ref that is not a commit or
+// a file that does not parse.
 export function baseTriggers(root, ref) {
   const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
-  let at = ref;
-  if (at === undefined) {
+  let at;
+  if (ref === undefined) {
     const found = git("merge-base", "origin/main", "HEAD");
-    if (found.status !== 0) return { skip: "no origin/main to hold the bar against; pass --base <ref>" };
+    if (found.status !== 0) return { unheld: "no origin/main to hold the bar against; pass --base <ref>" };
     at = found.stdout.trim();
-  } else if (git("rev-parse", "--verify", "--quiet", `${at}^{commit}`).status !== 0) {
-    return { error: `--base ${at} is not a commit` };
+  } else {
+    const found = git("rev-parse", "--verify", "--quiet", `${ref}^{commit}`);
+    if (found.status !== 0) return { error: `--base ${ref} is not a commit` };
+    at = found.stdout.trim();
   }
   if (!git("ls-tree", "--name-only", at, "--", "evals/triggers.json").stdout.trim()) return { at };
   try {
@@ -378,8 +386,9 @@ export function main(argv, root = ROOT) {
   if (values.layer !== "1") {
     const held = baseTriggers(root, values.base);
     if (held.error) return process.stderr.write(`${held.error}\n`), 2;
-    if (held.skip) process.stderr.write(`note: ${held.skip}\n`);
-    if (held.config) problems.push(...loosened(held.config, config).map((p) => `${p} against ${held.at.slice(0, 12)}; lowering the bar needs the owner's approval first`));
+    if (held.unheld) process.stderr.write(`note: ${held.unheld}\n`);
+    const lowered = held.config ? loosened(held.config, config) : [];
+    if (lowered.length) problems.push(...lowered.map((p) => `${p} (against ${held.at.slice(0, 12)})`), "bar: lowering it needs the owner's approval first");
     const { problems: found, report, rate } = layer2(skills, config);
     problems.push(...found);
     if (values.report) for (const r of report) process.stdout.write(`${r.rank === 1 ? " " : r.known ? "k" : "*"} ${String(r.rank === Infinity ? "-" : r.rank).padStart(2)} ${r.skill.padEnd(36)} ${r.prompt}${r.rank === 1 ? "" : `  (first: ${r.top})`}\n`);
