@@ -1,6 +1,6 @@
 ---
 name: grill
-description: "Turn an unclear idea into decisions and checkable outputs before anything is built. Use for a new project, or a large feature whose intent is unclear, while the user is present: 'I have an idea', 'I want to build', 'start a new project', 'help me figure out what to build', 'grill me', 'not sure what I want yet'. Asks only what a person can answer (what to build, for whom, what done looks like, what counts as wrong), each question with a recommended answer and a default, then writes the feature files, glossary, constraints, and the user's rulings. Not for bug fixes, small changes, or requests that are already clear."
+description: "Turn an unclear idea into decisions and checkable outputs before building starts. Use for a new project, or a large feature whose intent is unclear, while the user is present: 'I have an idea', 'I want to build', 'start a new project', 'help me figure out what to build', 'grill me', 'not sure what I want yet'. Settles the scope, the audience, the finish line, and what would count as broken, with a recommended answer and a default for each question, then writes the feature files, glossary, constraints, and the user's rulings. Not for bug fixes, small changes, or requests that are already clear."
 ---
 
 # Grill
