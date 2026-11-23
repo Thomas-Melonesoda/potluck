@@ -318,6 +318,24 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons).toEqual(["floor: [threshold-loosened] CONSTRAINTS.md: | 项目覆盖率 | 62.4% | 不得下降 |  ->  | 项目覆盖率 | 60% | 不得下降 |"]);
   });
 
+  test("a Chinese word that runs on past its number, or an ambiguous 最高, gives no direction either", () => {
+    const bar = (a, b, c, d, e) => `# 约束\n\n- 行覆盖率：${a}% 以下 3 个目录除外\n- 历史覆盖率：历史最高 ${b}%，不得下降\n- 项目覆盖率：不得下降到 ${c}% 以下\n\n| 指标 | 门槛 | 说明 |\n|---|---|---|\n| 函数覆盖率 | ${d}% | 以下 3 个目录除外：src/a、src/b |\n| 包大小 | ${e} KB | 以上 2 条适用于所有包 |\n`;
+    const r = fake({ change: { path: "CONSTRAINTS.md", text: bar(60, 60, 60, 60, 500) }, setup: { base: { "CONSTRAINTS.md": bar(80, 80, 80, 80, 200) } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.map((l) => l.split(/：|% \|| KB \|/)[0])).toEqual([
+      "floor: [threshold-changed] CONSTRAINTS.md: - 行覆盖率",
+      "floor: [threshold-changed] CONSTRAINTS.md: - 历史覆盖率",
+      "floor: [threshold-loosened] CONSTRAINTS.md: - 项目覆盖率",
+      "floor: [threshold-changed] CONSTRAINTS.md: | 函数覆盖率 | 80",
+      "floor: [threshold-changed] CONSTRAINTS.md: | 包大小 | 200",
+    ]);
+  });
+
+  test("a path with a space keeps its name, so plain .md stays unchecked and a Swift test there is still a test", () => {
+    const swift = "My App Tests/AppTests.swift";
+    const r = fake({ change: { path: "docs/Meeting notes.md", text: `Leave a ${"TO"}DO here.\n` }, setup: { base: { [swift]: XCTEST }, remove: [swift] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [test-deleted] ${swift}: file deleted`]);
+  });
+
   test("Chinese words that only sit near a number give it no direction, so a change to it is still reported", () => {
     const bar = (a, b, c, d, e) => `# 约束\n\n- 包大小：${a}KB，以上规则适用于所有包\n- 行覆盖率：${b}%（以下目录除外：src/legacy）\n- 测试覆盖率：${c}%，三个月以内提高到 90%\n- 分支覆盖率：低于 ${d}% 即失败\n\n| 指标 | 门槛 | 说明 |\n|---|---|---|\n| 函数覆盖率 | ${e}% | 以下目录除外：src/legacy |\n`;
     const r = fake({ change: { path: "CONSTRAINTS.md", text: bar(500, 60, 60, 60, 60) }, setup: { base: { "CONSTRAINTS.md": bar(200, 80, 80, 80, 80) } } }).run(...merge, "--dry-run");
@@ -405,6 +423,11 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const step = (name, run) => WORKFLOW(`      - name: ${name}\n        run: ${run}\n`);
     const setup = { base: { [CI]: step("Run npm test", "npm test"), ".github/workflows/README.md": "Run bun test locally first.\n" }, files: { ".github/workflows/README.md": "Run the suite locally first.\n" } };
     expect(fake({ change: { path: CI, text: step("Unit tests", "pnpm run test:ci") }, setup }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a JS test step swapped for another JS test runner passes", () => {
+    const steps = (a, b) => WORKFLOW(`      - run: ${a}\n      - run: ${b}\n`);
+    expect(fake({ change: { path: CI, text: steps("npx vitest run", "pnpm -r test") }, setup: { base: { [CI]: steps("npm test", "pnpm test") } } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
   });
 
   test("a test step removed from a composite action, after an install on its line, is stopped", () => {
