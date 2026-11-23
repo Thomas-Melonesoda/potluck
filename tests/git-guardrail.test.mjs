@@ -416,6 +416,29 @@ describe("shared branches", () => {
     expect(hook("git push").status).toBe(2);
   });
 
+  // From the independent verifier of #45.
+  test("a heredoc tag is read after quote removal, and an arithmetic shift is not a heredoc", () => {
+    const { work, hook } = repo();
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    for (const c of ["cat <<\\EOF\nnote\nEOF\ngit reset --hard", "cat <<E\\OF\nnote\nEOF\ngit reset --hard", "cat <<'E'OF\nnote\nEOF\ngit reset --hard", "(( x = 1 << 3 ))\ngit reset --hard"]) {
+      expect(hook(c).status, c).toBe(2);
+    }
+    expect(hook("cat <<\\EOF\ngit reset --hard\nEOF").status).toBe(0);
+  });
+
+  test("branch.<name>.pushRemote wins over remote.pushDefault", () => {
+    const { root, git, work, hook } = repo("feat");
+    git(work, "remote", "add", "fork", join(root, "remote.git"));
+    git(work, "remote", "add", "other", join(root, "remote.git"));
+    git(work, "config", "remote.fork.push", "+refs/heads/feat:refs/heads/main");
+    git(work, "config", "remote.pushDefault", "fork");
+    git(work, "config", "branch.feat.pushRemote", "other");
+    expect(hook("git push").status).toBe(0);
+    git(work, "config", "branch.feat.pushRemote", "fork");
+    git(work, "config", "remote.pushDefault", "other");
+    expect(hook("git push").status).toBe(2);
+  });
+
   test("deleting a remote branch is blocked in every spelling, and deleting a tag passes", () => {
     const { hook } = repo("feat");
     for (const c of [

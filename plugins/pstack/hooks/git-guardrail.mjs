@@ -109,10 +109,12 @@ function lex(line, start, stop, ids, scope) {
     } else if (c === "<" && line[i + 1] === "<" && line[i + 2] !== "<") {
       if (word !== null && /^\d+$/.test(word)) word = null;
       end();
-      // The tag is any word, quoted or not (`EOF`, `'END-NOTE'`).
-      const tag = /^<<-?[ \t]*(?:'([^']*)'|"([^"]*)"|([^\s;&|<>()'"]+))/.exec(line.slice(i));
-      if (tag) {
-        heredocs.push(tag[1] ?? tag[2] ?? tag[3]);
+      // The tag is a word after quote removal, so <<EOF, <<'END-NOTE', <<\EOF,
+      // and <<E"O"F each close at their bare text. An all-digit word is the
+      // shift in an arithmetic (( 1 << 3 )), not a tag.
+      const tag = /^<<-?[ \t]*((?:\\.|'[^']*'|"[^"]*"|[^\s;&|<>()'"\\])+)/.exec(line.slice(i));
+      if (tag && !/^\d+$/.test(tag[1])) {
+        heredocs.push(tag[1].replace(/\\(.)|'([^']*)'|"([^"]*)"/g, (_, escaped, single, double) => escaped ?? single ?? double));
         i += tag[0].length - 1;
       } else i++;
     } else if (c === "\n") {
