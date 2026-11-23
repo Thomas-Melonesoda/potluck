@@ -41,6 +41,7 @@ describe("parseGates", () => {
     ['{"foreignRepos": true}', 'f: foreignRepos must be "allow" or "ask", not true'],
     ['{"askFirst": "spending money"}', "f: askFirst must be a list of non-empty strings"],
     ['{"askFirst": [" "]}', "f: askFirst must be a list of non-empty strings"],
+    ['{"noCI": "wait", "noCI": "merge"}', 'f: key "noCI" appears more than once'],
   ])("a typo fails instead of dropping a gate: %s", (text, message) => {
     expect(() => parseGates(text, "f")).toThrow(message);
   });

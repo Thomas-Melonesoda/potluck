@@ -110,7 +110,7 @@ describe("merge-gate CLI against a fake gh", () => {
   // the statuses and check-runs endpoints with one page each, and records argv.
   // The gate runs in a fixture checkout, so the floor guard has a real PR to read,
   // and with its own HOME, holding the user's gates file when `gates` is given.
-  function fake({ view: viewOver = {}, after: afterOver, statuses = [pass], runs = [ci], fail = "", change, setup = {}, gates } = {}) {
+  function fake({ view: viewOver = {}, after: afterOver, statuses = [pass], runs = [ci], suites = [], fail = "", change, setup = {}, gates } = {}) {
     const repoDir = checkout(change, setup);
     const head = repoDir.head;
     const view = { ...open, headRefOid: head, baseRefOid: repoDir.base, ...viewOver };
@@ -120,7 +120,7 @@ describe("merge-gate CLI against a fake gh", () => {
     mkdirSync(join(dir, "bin"));
     mkdirSync(join(dir, "home/.potluck"), { recursive: true });
     if (gates !== undefined) writeFileSync(join(dir, "home/.potluck/gates.json"), typeof gates === "string" ? gates : JSON.stringify(gates));
-    writeFileSync(join(dir, "fixture.json"), JSON.stringify({ view, after, statuses, runs, fail }));
+    writeFileSync(join(dir, "fixture.json"), JSON.stringify({ view, after, statuses, runs, suites, fail }));
     writeFileSync(
       join(dir, "bin/gh"),
       `#!/usr/bin/env node
@@ -136,6 +136,7 @@ if (args[0] === "pr" && args[1] === "view") process.stdout.write(JSON.stringify(
 else if (args[0] === "pr" && args[1] === "merge") fs.writeFileSync(dir + "/merged", "");
 else if (line.includes("/statuses") && !line.includes("POST")) process.stdout.write(JSON.stringify([f.statuses]));
 else if (line.includes("/check-runs")) process.stdout.write(JSON.stringify([{ check_runs: f.runs }]));
+else if (line.includes("/check-suites")) process.stdout.write(JSON.stringify([{ check_suites: f.suites }]));
 else if (line.includes("POST")) process.stdout.write("{}");
 `,
       { mode: 0o755 },
@@ -162,7 +163,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const { run, calls, head: sha } = fake();
     const r = run(...merge);
     expect(r.status).toBe(0);
-    expect(r.json).toEqual({ kind: "merged", repo: "o/r", pr: 7, sha, checks: "green", mergeCommit: "c".repeat(40) });
+    expect(r.json).toEqual({ kind: "merged", repo: "o/r", pr: 7, sha, mergeCommit: "c".repeat(40) });
     const mergeCall = calls().find((a) => a[0] === "pr" && a[1] === "merge");
     expect(mergeCall).toEqual(["pr", "merge", "7", "--repo", "o/r", "--squash", "--match-head-commit", sha]);
     expect(calls().flat()).not.toContain("--auto");
@@ -335,6 +336,20 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons.every((l) => l.startsWith("floor: ["))).toBe(true);
   });
 
+  test("CI that never started on a repository with workflows refuses", () => {
+    const { run } = fake({ runs: [], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" } } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("no CI result on");
+  });
+
+  test("a PR that deletes the base's CI cannot merge without a CI result", () => {
+    const { run } = fake({ runs: [], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" }, remove: [".github/workflows/ci.yml"] } });
+    const r = run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("no CI result on");
+  });
+
   // A verdict GitHub has held for five minutes, so the head has been there at least that long.
   const aged = { ...pass, created_at: new Date(Date.now() - 5 * 60_000).toISOString() };
   const mainOnly = { ".github/workflows/ci.yml": "on:\n  push:\n    branches: [main]\n" };
@@ -358,11 +373,33 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons).toEqual(["check unit concluded failure"]);
   });
 
-  test("a PR that deletes the base's CI cannot pass as having no checks", () => {
-    const { run } = fake({ runs: [], statuses: [aged], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" }, remove: [".github/workflows/ci.yml"] } });
-    const r = run(...merge, "--dry-run");
-    expect(r.json.kind).toBe("refused");
+  test("a PR that changes the workflows and gets no CI result is held for a person, never merged as having no checks", () => {
+    const { run, calls } = fake({ runs: [], statuses: [aged], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" }, remove: [".github/workflows/ci.yml"] } });
+    const r = run(...merge);
+    expect([r.status, r.json.kind]).toEqual([1, "held"]);
     expect(r.json.reasons[0]).toContain("the PR changes .github/workflows/");
+    expect(calls().some((a) => a[1] === "merge")).toBe(false);
+  });
+
+  const suite = (slug, status, conclusion, runs = 0) => ({ app: { slug, name: slug === "github-actions" ? "GitHub Actions" : slug }, status, conclusion, latest_check_runs_count: runs });
+
+  test("a fork PR whose workflows wait for a maintainer's approval is refused, though it shows no checks", () => {
+    const { run, calls } = fake({ runs: [], statuses: [aged], suites: [suite("github-actions", "completed", "action_required")], setup: { base: mainOnly } });
+    const r = run(...merge);
+    expect([r.status, r.json.kind]).toEqual([1, "refused"]);
+    expect(r.json.reasons[0]).toContain("GitHub Actions waits for a maintainer's approval");
+    expect(calls().some((a) => a[1] === "merge")).toBe(false);
+  });
+
+  test("a GitHub Actions suite that has not finished is refused, though it has no runs yet", () => {
+    const r = fake({ runs: [], statuses: [aged], suites: [suite("github-actions", "queued", null)], setup: { base: mainOnly } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("the GitHub Actions check suite has not finished");
+  });
+
+  test("another app's queued suite with no runs does not count, as in watch-pr", () => {
+    const r = fake({ runs: [], statuses: [aged], suites: [suite("claude", "queued", null)], setup: { base: mainOnly } }).run(...merge, "--dry-run");
+    expect([r.json.kind, r.json.checks]).toEqual(["would-merge", "none"]);
   });
 
   test("a head whose commit message skips CI cannot pass as having no checks", () => {

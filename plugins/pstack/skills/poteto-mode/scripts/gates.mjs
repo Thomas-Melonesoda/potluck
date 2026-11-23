@@ -51,6 +51,11 @@ export function parseGates(text, source) {
     throw new Error(`${source}: not valid JSON: ${error.message}`);
   }
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${source}: must be a JSON object`);
+  // JSON.parse keeps a repeated key's last value, which could drop a gate.
+  // The file is one flat object, so every quoted string before a colon is a key.
+  const keys = [...text.matchAll(/"((?:[^"\\]|\\.)*)"\s*:/g)].map((m) => m[1]);
+  const twice = keys.find((key, i) => keys.indexOf(key) !== i);
+  if (twice !== undefined) throw new Error(`${source}: key ${JSON.stringify(twice)} appears more than once`);
   for (const [key, value] of Object.entries(raw)) {
     if (key === "askFirst") {
       if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) throw new Error(`${source}: askFirst must be a list of non-empty strings`);

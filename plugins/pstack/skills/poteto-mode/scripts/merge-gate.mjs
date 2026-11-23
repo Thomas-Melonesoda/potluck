@@ -27,21 +27,24 @@
 //     --check), when the project has those sources
 //   - no CI result at all ("no checks": the repository has no CI, or its CI
 //     does not run on pull requests) is not a failure: potluck's default
-//     merges on the verdict alone (stage 5 issues 4 and 16). In a repository
-//     with workflows, no checks counts only when the PR leaves
-//     .github/workflows/ alone, its head commit does not ask GitHub to skip
-//     CI, and GitHub has held the head for a minute (its oldest status is that
-//     old), so CI that has not started yet is not mistaken for none.
-//   - the operator's gates (gates.mjs): with noCI "wait" in the user's
-//     ~/.potluck/gates.json or in .potluck/gates.json at the PR's base or head,
-//     a PR with no checks is "held": merge-ready, left for a person to merge.
+//     merges on the verdict alone (stage 5 issues 4 and 16). It is refused
+//     while a check suite says CI is coming: an unfinished GitHub Actions
+//     suite, or one waiting for a maintainer's approval, as on a fork PR. In a
+//     repository with workflows it is also refused until GitHub has held the
+//     head for a minute (its oldest status is that old), and when the head
+//     commit asks GitHub to skip CI.
+//   - a PR with no checks is "held", merge-ready and left for a person to
+//     merge, when it changes .github/workflows/ (so silence may be its own
+//     doing), and when the operator's gates (gates.mjs) set noCI "wait" in the
+//     user's ~/.potluck/gates.json or in .potluck/gates.json at the PR's base
+//     or head.
 // It merges with `gh pr merge --squash --match-head-commit <sha>`, never
 // `--auto`, so GitHub itself refuses if the head moves after the checks, and
 // it reads the PR back to confirm the merge.
 //
 // Output is one JSON line: { kind: "merged" | "would-merge" | "held" |
-// "refused" | "unconfirmed" | "recorded", ... }; merged, would-merge, and held
-// carry checks: "green" or "none". "unconfirmed" means the merge was requested
+// "refused" | "unconfirmed" | "recorded", ... }; a PR with no checks carries
+// checks: "none". "unconfirmed" means the merge was requested
 // but not read back as merged, so it may have landed. Exit 0 on merged,
 // would-merge, or recorded; 1 on held, refused, or unconfirmed; 2 on a usage
 // error.
@@ -285,12 +288,31 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
 export const CI_START_MS = 60_000;
 
 // Why a head with no CI result, in a repository with workflows, may not count
-// as having no checks; null when it does.
-export function noChecksBlocker({ statuses, workflowsChanged, skipsCI }, now) {
-  if (workflowsChanged) return "the PR changes .github/workflows/, so it may be why CI did not run; wait for CI or restore the workflows";
-  if (skipsCI) return "its head commit's message asks GitHub to skip CI; push a head without it";
+// as having no checks yet; null when it does.
+export function noChecksBlocker({ statuses, skipsCI }, now) {
   const first = Math.min(...statuses.map((s) => Date.parse(s.created_at)).filter(Number.isFinite));
-  return now - first >= CI_START_MS ? null : "CI may not have started yet; rerun in a minute";
+  if (!(now - first >= CI_START_MS)) return "the repository has workflows, and CI may not have started yet; rerun in a minute";
+  return skipsCI ? "its head commit's message asks GitHub to skip CI; push a head without it" : null;
+}
+
+// A head with no check run or status can still have CI on its way. GitHub
+// Actions creates its suite before any run, and a fork PR's suite waits for a
+// maintainer's approval with no runs at all. Another app may queue a suite on
+// every push and never run it, so its queued suite with no runs does not count,
+// as in watch-pr/check-suites.ts.
+export function suiteBlocker(suites) {
+  for (const s of suites) {
+    const actions = s.app?.slug === "github-actions";
+    const name = actions ? "GitHub Actions" : (s.app?.name ?? s.app?.slug ?? "an app's");
+    if (s.status !== "completed") {
+      if (!actions && s.status === "queued" && !s.latest_check_runs_count) continue;
+      return `the ${name} check suite has not finished; wait for it`;
+    }
+    if (GREEN.has(s.conclusion)) continue;
+    if (s.conclusion === "action_required" && actions) return "GitHub Actions waits for a maintainer's approval to run; approve the workflows on the pull request";
+    return `the ${name} check suite concluded ${s.conclusion}`;
+  }
+  return null;
 }
 
 // The gates in force for this PR: the user's file, then the repository's at the base and the head.
@@ -367,15 +389,20 @@ function run(argv) {
     }
     // Failed or pending checks were refused above, so a head here either has
     // green checks or none at all.
-    const checks = facts.runs.length + facts.statuses.filter((s) => s.context !== CONTEXT).length ? "green" : "none";
-    if (checks === "none" && guard.workflows) {
-      const blocker = noChecksBlocker({ statuses: facts.statuses, ...guard }, Date.now());
-      if (blocker) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha}, though the repository has workflows: ${blocker}`] });
+    const none = facts.runs.length + facts.statuses.filter((s) => s.context !== CONTEXT).length === 0;
+    if (none) {
+      const suites = pages(`repos/${repo}/commits/${sha}/check-suites?per_page=100`, "check_suites");
+      const blocker = suiteBlocker(suites) ?? (guard.workflows ? noChecksBlocker({ statuses: facts.statuses, skipsCI: guard.skipsCI }, Date.now()) : null);
+      if (blocker) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha}: ${blocker}`] });
+      const hold = guard.workflowsChanged
+        ? "the PR changes .github/workflows/, so the gate cannot tell whether CI was meant to run on it"
+        : gates.noCI === "wait"
+          ? `the operator's gates hold such a PR for a person (noCI: wait, from ${gates.from.noCI})`
+          : null;
+      if (hold) return out({ kind: "held", repo, pr, sha, checks: "none", reasons: [`no CI result on ${sha}, and ${hold}; it is merge-ready, so report it and leave the merge to a person`] });
     }
-    if (checks === "none" && gates.noCI === "wait") {
-      return out({ kind: "held", repo, pr, sha, checks, reasons: [`no CI result on ${sha}, and the operator's gates hold such a PR for a person (noCI: wait, from ${gates.from.noCI}); it is merge-ready, so report it and leave the merge to them`] });
-    }
-    if (values["dry-run"]) return out({ kind: "would-merge", repo, pr, sha, checks });
+    const checks = none ? { checks: "none" } : {};
+    if (values["dry-run"]) return out({ kind: "would-merge", repo, pr, sha, ...checks });
     const author = values["author-email"] ? ["--author-email", values["author-email"]] : [];
     // From here the merge request may have reached GitHub, so a failure is
     // "unconfirmed", never "refused": the PR may already be merged.
@@ -390,7 +417,7 @@ function run(argv) {
     if (after.state !== "MERGED" || !after.mergeCommit?.oid || after.headRefOid !== sha) {
       return out({ kind: "unconfirmed", repo, pr, sha, reasons: [`merge not confirmed: state ${after.state}, head ${after.headRefOid}`] });
     }
-    return out({ kind: "merged", repo, pr, sha, checks, mergeCommit: after.mergeCommit.oid });
+    return out({ kind: "merged", repo, pr, sha, ...checks, mergeCommit: after.mergeCommit.oid });
   }
 
   return usage(`unknown command ${JSON.stringify(command ?? "")}`);
