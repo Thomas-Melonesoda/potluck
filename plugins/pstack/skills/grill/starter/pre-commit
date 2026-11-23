@@ -1,0 +1,32 @@
+#!/bin/sh
+# potluck starter: before each commit, the quality floor and a secret scan.
+# The starter enables it with `git config core.hooksPath .githooks`.
+# Skipping it (git commit --no-verify) lowers the bar: ask the project's owner first.
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+
+# The floor (constraint-driven-development): no new suppression, stub, empty
+# catch, skipped or deleted test, or weaker CONSTRAINTS.md rule since the last
+# commit. Untracked files count too, so keep build output and dependencies in
+# .gitignore. A first commit has nothing to compare against. The guard lives
+# in this clone's git folder, not in the tree, because its own patterns name
+# the forms it refuses; grill's starter.mjs puts it there.
+if git rev-parse --verify --quiet HEAD >/dev/null; then
+  guard="$(git rev-parse --git-common-dir)/potluck/floor-guard.mjs"
+  if [ ! -f "$guard" ]; then
+    echo "pre-commit: this clone has no floor guard; run grill's scripts/starter.mjs once, then commit again." >&2
+    exit 1
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    echo "pre-commit: the floor guard needs Node; install it from https://nodejs.org and commit again." >&2
+    exit 1
+  fi
+  node "$guard" --base HEAD
+fi
+
+# Secrets: gitleaks reads the staged changes and never prints what it found.
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed; install it from https://github.com/gitleaks/gitleaks/releases and commit again." >&2
+  exit 1
+fi
+gitleaks git --pre-commit --staged --redact --no-banner --log-level warn
