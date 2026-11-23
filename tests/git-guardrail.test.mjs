@@ -90,7 +90,10 @@ describe("the hook on a real repository", () => {
     const r = hook("git reset --hard");
     expect(r.status).toBe(2);
     expect(r.reason).toContain("blocked a reset --hard while the repository has uncommitted changes");
-    expect(r.reason).toContain("git add -A && git commit");
+    // Stage 5 issue 9: only the files this task touched, never git add -A.
+    expect(r.reason).toContain("commit the files this task touched, each by name");
+    expect(r.reason).toContain("git add <file>... && git commit");
+    expect(r.reason).not.toContain("git add -A");
     expect(hook("git restore a.txt").status).toBe(2);
     expect(hook("git checkout -- a.txt").status).toBe(2);
     expect(hook(`git -C ${work} reset --hard`, root).status).toBe(2);
@@ -139,6 +142,8 @@ describe("the hook on a real repository", () => {
     expect(r.reason).toContain("A merge is in progress, so do not commit to save the work");
     expect(r.reason).toContain("git merge --abort");
     expect(r.reason).not.toContain("git add -A && git commit");
+    // Mid-merge, the general advice to commit must not appear either.
+    expect(r.reason).not.toContain("commit the files this task touched");
   });
 
   test("wrapped and spelled-out forms are read too", () => {

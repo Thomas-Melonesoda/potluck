@@ -517,7 +517,7 @@ function checkOne(words, dir) {
   let safe;
   if (found === "force push without a lease") safe = "Push with `--force-with-lease` instead, which refuses when the remote has commits you have not seen.";
   else if (op) safe = `A ${op} is in progress, so do not commit to save the work: that would record conflict markers. Finish it (resolve each file, \`git add\` it, then \`git ${op} --continue\`) or abort it (\`git ${op} --abort\`). To take one side of a conflicted file, use \`git checkout --ours <file>\` or \`--theirs\`, which passes.`;
-  else safe = 'Save the work first, then rerun: `git add -A && git commit -m "wip: before <what you are doing>"` for uncommitted changes, and `git branch backup/<name>` so the commits stay reachable. A clean repository whose commits another ref holds passes.';
+  else safe = 'Save the work first, then rerun: for uncommitted changes, commit the files this task touched, each by name (`git add <file>... && git commit -m "wip: before <what you are doing>"`), and keep commits reachable with `git branch backup/<name>`. Changes this task did not make belong to someone else: leave them, and work in a fresh worktree if they are in the way. A clean repository whose commits another ref holds passes.';
   return `potluck git guardrail: blocked a ${found} while the repository has ${at}. ${safe}`;
 }
 
