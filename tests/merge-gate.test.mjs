@@ -318,6 +318,18 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons).toEqual(["floor: [threshold-loosened] CONSTRAINTS.md: | 项目覆盖率 | 62.4% | 不得下降 |  ->  | 项目覆盖率 | 60% | 不得下降 |"]);
   });
 
+  test("Chinese words that only sit near a number give it no direction, so a change to it is still reported", () => {
+    const bar = (a, b, c, d, e) => `# 约束\n\n- 包大小：${a}KB，以上规则适用于所有包\n- 行覆盖率：${b}%（以下目录除外：src/legacy）\n- 测试覆盖率：${c}%，三个月以内提高到 90%\n- 分支覆盖率：低于 ${d}% 即失败\n\n| 指标 | 门槛 | 说明 |\n|---|---|---|\n| 函数覆盖率 | ${e}% | 以下目录除外：src/legacy |\n`;
+    const r = fake({ change: { path: "CONSTRAINTS.md", text: bar(500, 60, 60, 60, 60) }, setup: { base: { "CONSTRAINTS.md": bar(200, 80, 80, 80, 80) } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.map((l) => l.split("：")[0])).toEqual([
+      "floor: [threshold-changed] CONSTRAINTS.md: - 包大小",
+      "floor: [threshold-changed] CONSTRAINTS.md: - 行覆盖率",
+      "floor: [threshold-changed] CONSTRAINTS.md: - 测试覆盖率",
+      "floor: [threshold-changed] CONSTRAINTS.md: - 分支覆盖率",
+      "floor: [threshold-changed] CONSTRAINTS.md: | 函数覆盖率 | 80% | 以下目录除外",
+    ]);
+  });
+
   // Stage 5 issue 3: a rule's name says which line it is, so two rules may not share one.
   test("two rules with one name are refused, whichever colon each uses", () => {
     const text = "# 约束\n\n## 底线\n\n- 覆盖率：改动的行至少 80%\n- 覆盖率: 项目覆盖率不得下降\n";
@@ -334,6 +346,11 @@ else if (line.includes("POST")) process.stdout.write("{}");
 
   test("tables that share a header and a separator do not repeat a rule", () => {
     const text = "# Constraints\n\n## Fast\n\n| Rule | Why |\n|---|---|\n| Types | zero errors |\n\n## Slow\n\n| Rule | Why |\n|---|---|\n| Audit | nothing high |\n";
+    expect(fake({ change: { path: "CONSTRAINTS.md", text } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("nested bullets and a fenced example do not repeat a rule", () => {
+    const text = "# Constraints\n\n- Coverage: at least 80%\n  - Tool: vitest\n- Lint: zero errors\n  - Tool: biome\n\n```markdown\n- Coverage: an example\n```\n";
     expect(fake({ change: { path: "CONSTRAINTS.md", text } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
   });
 
@@ -355,6 +372,10 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const skipped = XCTEST.replace("  func testAnswer() {\n", `  func testAnswer() throws {\n    throw XCT${"Skip"}("later")\n`);
     const r = fake({ setup: { base: { [SWIFT]: XCTEST }, files: { [SWIFT]: skipped } } }).run(...merge, "--dry-run");
     expect(r.json.reasons).toEqual([`floor: [test-made-easier] ${SWIFT}: throw XCT${"Skip"}("later")`]);
+  });
+
+  test("XCTSkip named in prose is not a skip", () => {
+    expect(fake({ change: { path: "src/notes.json", text: `{ "why": "XCT${"Skip"} counts as a skip" }\n` } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
   });
 
   test("an XCTAssert removed from a Swift test that stayed is stopped", () => {
@@ -380,17 +401,37 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(fake({ change: { path: CI, text: WORKFLOW("") }, setup: moved }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
   });
 
+  test("CI edits that keep the tests running pass", () => {
+    const step = (name, run) => WORKFLOW(`      - name: ${name}\n        run: ${run}\n`);
+    const setup = { base: { [CI]: step("Run npm test", "npm test"), ".github/workflows/README.md": "Run bun test locally first.\n" }, files: { ".github/workflows/README.md": "Run the suite locally first.\n" } };
+    expect(fake({ change: { path: CI, text: step("Unit tests", "pnpm run test:ci") }, setup }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a test step removed from a composite action, after an install on its line, is stopped", () => {
+    const ACTION = ".github/actions/check/action.yml";
+    const action = (run) => `runs:\n  using: composite\n  steps:\n    - run: ${run}\n      shell: bash\n`;
+    const r = fake({ change: { path: ACTION, text: action("pip install pytest") }, setup: { base: { [ACTION]: action("pip install pytest && pytest") } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [ci-test-removed] ${ACTION}: - run: pip install pytest && pytest`]);
+  });
+
   // Stage 5 issue 1: every file that runs is read for the forbidden forms; only plain .md is not.
   const NOTEBOOK = (code) => `${JSON.stringify({ cells: [{ cell_type: "code", execution_count: null, metadata: {}, outputs: [], source: [code] }], metadata: {}, nbformat: 4, nbformat_minor: 5 }, null, 1)}\n`;
-  test.each([
-    ["notes.markdown", `Never write # no${"qa"} here.\n`],
-    ["docs/page.mdx", `{/* @ts-${"ignore"} */}\nexport const meta = {};\n`],
-    ["analysis.ipynb", NOTEBOOK(`import os  # no${"qa"}\n`)],
-    [".github/workflows/lint.yml", `on: pull_request\njobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - run: semgrep scan  # no${"semgrep"}\n`],
-  ])("a forbidden form in %s is stopped", (path, text) => {
-    const r = fake({ change: { path, text } }).run(...merge, "--dry-run");
-    expect(r.json.kind).toBe("refused");
-    expect(r.json.reasons.some((l) => l.startsWith(`floor: [silenced-checker] ${path}:`))).toBe(true);
+  test("a forbidden form is stopped in every file that runs, and passes only in plain .md", () => {
+    const noqa = `# no${"qa"}`;
+    const files = {
+      "notes.md": `Never write ${noqa} here.\n`,
+      "notes.markdown": `Never write ${noqa} here.\n`,
+      "notes.txt": `Never write ${noqa} here.\n`,
+      "docs/guide.rst": `Never write ${noqa} here.\n`,
+      "docs/page.mdx": `{/* @ts-${"ignore"} */}\nexport const meta = {};\n`,
+      "analysis.ipynb": NOTEBOOK(`import os  ${noqa}\n`),
+      ".github/workflows/lint.yml": `on: pull_request\njobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - run: semgrep scan  # no${"semgrep"}\n`,
+      Makefile: `lint:\n\truff check .  ${noqa}\n`,
+      "src/tool.py": `import os  ${noqa}\n`,
+    };
+    const r = fake({ setup: { files } }).run(...merge, "--dry-run");
+    const flagged = r.json.reasons.map((l) => l.match(/^floor: \[silenced-checker\] (.+?): /)?.[1]).filter(Boolean);
+    expect(flagged.sort()).toEqual(Object.keys(files).filter((f) => f !== "notes.md").sort());
   });
 
   test("CONSTRAINTS.md is plain Markdown, yet a lowered number in it is stopped", () => {
