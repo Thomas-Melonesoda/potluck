@@ -59,6 +59,28 @@ test("the floor guard's code is the one js block in the synced floor-guard.md", 
   expect(() => guardSource(join(import.meta.dir, "merge-gate.test.mjs"))).toThrow("expected one");
 });
 
+// Stage 5 issue 17, standalone: a renamed test does not hide an untracked file left at its old path.
+test("the guard on its own still reads an untracked file at a renamed test's old path", () => {
+  const dir = mkdtempSync(join(tmpdir(), "potluck-guard-")), out = mkdtempSync(join(tmpdir(), "potluck-guard-script-"));
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" };
+  const g = (...args) => execFileSync("git", ["-C", dir, ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
+  try {
+    g("init", "-q", "-b", "main");
+    mkdirSync(join(dir, "t"));
+    writeFileSync(join(dir, "t/a.test.js"), `test("a", () => { ${"expect"}(1).toBe(1); });\n`);
+    g("add", "."), g("commit", "-q", "-m", "base");
+    g("mv", "t/a.test.js", "t/b.test.js");
+    writeFileSync(join(dir, "t/a.test.js"), `test.${"skip"}("a", () => {});\n`);
+    writeFileSync(join(out, "guard.mjs"), guardSource());
+    const r = spawnSync(process.execPath, [join(out, "guard.mjs"), "--base", "main"], { cwd: dir, env, encoding: "utf8" });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("[test-made-easier] t/a.test.js:");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
 // Stage 5 issue 1: widening what the floor leaves unchecked loosens it, so the
 // list is pinned here and each type on it must be named in the guard's register entry.
 test("only plain .md goes unchecked, and the register entry names each unchecked type", () => {
@@ -631,6 +653,14 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const files = { "src/foo.spec.js": base[js], "pkg/foo_test.py": base[py], "test/foo_test.rb": base[rb] };
     const r = fake({ setup: { base, files, remove: Object.keys(base) } }).run(...merge, "--dry-run");
     expect(r.json.reasons.sort()).toEqual([py, js, rb].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
+  });
+
+  test("a rename minitest or test-unit stops reading, or one that orphans a snapshot, reads as deleted", () => {
+    const rb = "test/test_parser.rb", rb2 = "test/test_lexer.rb", js = "src/foo.test.js";
+    const base = { [rb]: "require 'minitest/autorun'\n", [rb2]: "require 'minitest/autorun' # lexer\n", [js]: TWO, "src/__snapshots__/foo.test.js.snap": "exports[`adds 1`] = `2`;\n" };
+    const files = { "test/testparser.rb": base[rb], "test/test-lexer.rb": base[rb2], "src/bar.test.js": TWO };
+    const r = fake({ setup: { base, files, remove: [rb, rb2, js] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.sort()).toEqual([js, rb2, rb].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
   });
 
   test("a CI file with a test-like name moved out of the CI paths still reads as its test step removed", () => {
