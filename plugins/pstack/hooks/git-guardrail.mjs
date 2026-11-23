@@ -157,7 +157,7 @@ const SHELLS = /(^|\/)(?:ba|z|da|k)?sh$/;
 
 // The commands a simple command runs: itself, or the script it hands to
 // `sh -c` or `eval`.
-function expand(words, depth = 0) {
+export function expand(words, depth = 0) {
   let i = 0;
   while (i < words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]) || PREFIXES.has(words[i]))) i++;
   if (words[i] === "timeout") i += 2;
