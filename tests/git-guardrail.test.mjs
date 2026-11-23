@@ -316,6 +316,53 @@ describe("shared branches", () => {
     expect(hook("git push --force-with-lease origin feat").status).toBe(2);
   });
 
+  // From the second independent verifier of #33.
+  test("a forced pattern over full ref names that covers main is blocked", () => {
+    const { hook } = repo("feat");
+    for (const c of ["git push --force origin 'refs/*:refs/*'", "git push --force-with-lease origin 'refs/*:refs/*'", "git push origin '+refs/*:refs/*'", "git push origin '+refs/h*:refs/h*'", "git push origin '+r*:r*'", "git push origin '+*:*'"]) {
+      expect(hook(c).status, c).toBe(2);
+    }
+  });
+
+  test("a force push whose branch is known only at run time is blocked, and a plain one passes", () => {
+    const { hook } = repo("feat");
+    for (const c of [
+      "git push --force-with-lease origin $(git branch --show-current)",
+      'git push --force-with-lease origin "HEAD:$(git rev-parse --abbrev-ref HEAD)"',
+      "for b in $(git branch --format='%(refname:short)'); do git push --force-with-lease origin \"$b\"; done",
+      'echo "$(git push --force origin main)"',
+      "cd ~/nowhere && git push --force-with-lease origin main",
+      "git push -n --no-dry-run --force-with-lease origin main",
+    ]) expect(hook(c).status, c).toBe(2);
+    const r = hook("git push --force-with-lease origin $(git branch --show-current)");
+    expect(r.reason).toContain("name the branch plainly");
+    expect(hook("git push origin $(git branch --show-current)").status).toBe(0);
+  });
+
+  test("push configuration that sends a push to main is followed, and pushes that write only tags or the current branch pass", () => {
+    const { git, work, hook } = repo("feat");
+    expect(hook("git push --tags --force").status).toBe(0);
+    git(work, "config", "push.default", "matching");
+    expect(hook("git push --force-with-lease").status).toBe(2);
+    git(work, "config", "push.default", "current");
+    git(work, "branch", "-q", "--set-upstream-to=origin/main");
+    expect(hook("git push --force-with-lease").status).toBe(0);
+    git(work, "config", "remote.origin.push", "+refs/heads/main:refs/heads/main");
+    expect(hook("git push").status).toBe(2);
+  });
+
+  test("a substitution keeps its quotes and heredocs, and its commands are read in order and in their own directory", () => {
+    const { work, hook } = repo();
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    for (const c of [
+      'n=$(grep -c "a)" a.txt); git reset --hard',
+      "msg=$(cat <<'EOF'\nfix(parser): handle a) and b); don't drop work\nEOF\n)\ngit reset --hard",
+      "x=$(git reset --hard); cd /",
+      "x=$(cd /); git reset --hard",
+    ]) expect(hook(c).status, c).toBe(2);
+    expect(hook("body=$(cat <<'EOF'\nTo undo:\n1) git reset --hard origin/main\nEOF\n)\necho \"$body\"").status).toBe(0);
+  });
+
   test("deleting a remote branch is blocked in every spelling, and deleting a tag passes", () => {
     const { hook } = repo("feat");
     for (const c of [
