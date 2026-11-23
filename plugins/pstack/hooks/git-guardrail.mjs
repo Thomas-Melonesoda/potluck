@@ -40,7 +40,7 @@ const git = (cwd, args) => execFileSync("git", ["-C", cwd, ...args], { encoding:
 // its word, and its commands come before the command that holds it, since they
 // run first. A guardrail, not a parser.
 export function commands(line) {
-  return lex(line, 0, null, { next: 0 }, 0).out.map((c) => c.words);
+  return lex(line, 0, null, { next: 0, parent: new Map() }, 0).out.map((c) => c.words);
 }
 
 // The commands from `start` up to `stop` (the `)` or backtick that closes a
@@ -52,13 +52,17 @@ function lex(line, start, stop, ids, scope) {
   let words = [];
   let word = null;
   let depth = 0;
+  let target = false;
   const heredocs = [];
   const end = () => {
-    if (word !== null) words.push(word);
+    // A redirect's target is not a word of the command.
+    if (word !== null && !target) words.push(word);
+    if (word !== null) target = false;
     word = null;
   };
   const split = () => {
     end();
+    target = false;
     if (words.length) out.push({ words, scope });
     words = [];
   };
@@ -66,7 +70,9 @@ function lex(line, start, stop, ids, scope) {
   // its raw text and the index that closes it.
   const substitute = (at) => {
     const tick = line[at] === "`";
-    const sub = lex(line, at + (tick ? 1 : 2), tick ? "`" : ")", ids, ++ids.next);
+    const child = ++ids.next;
+    ids.parent.set(child, scope);
+    const sub = lex(line, at + (tick ? 1 : 2), tick ? "`" : ")", ids, child);
     out.push(...sub.out);
     return { raw: line.slice(at, sub.end + 1), close: sub.end };
   };
@@ -129,8 +135,13 @@ function lex(line, start, stop, ids, scope) {
       split();
     } else if (";&|".includes(c)) {
       split();
-    } else if (c === "<" || c === ">") {
+    } else if (c === "<" || c === ">" || (c === "&" && line[i + 1] === ">")) {
+      // A redirect (`2>&1`, `>>`, `&>`, `<<<`): its fd number and its target
+      // are not words; `<(` and `>(` keep the commands they run.
+      if (word !== null && /^\d+$/.test(word)) word = null;
       end();
+      while (i + 1 < line.length && "<>&|".includes(line[i + 1])) i++;
+      target = line[i + 1] !== "(";
     } else if (/\s/.test(c)) {
       end();
     } else {
@@ -289,7 +300,9 @@ function refspec(word, force, del) {
   if (spec === ":") return { every: true, force: force || plus };
   const colon = spec.indexOf(":");
   const dst = spec.slice(colon + 1);
-  return { src: colon < 0 ? spec : spec.slice(0, colon), dst: ["HEAD", "@"].includes(dst) ? "" : dst, named: colon >= 0, force: force || plus, delete: del || colon === 0 };
+  const src = colon < 0 ? spec : spec.slice(0, colon);
+  // An empty source or the null hash deletes the destination.
+  return { src, dst: ["HEAD", "@"].includes(dst) ? "" : dst, named: colon >= 0, force: force || plus, delete: del || colon === 0 || /^(0{40}|0{64})$/.test(src) };
 }
 
 // A destination as a branch name, or null for a tag or other ref. git reads
@@ -314,9 +327,6 @@ const computed = (dst) => /[$`]/.test(dst);
 function sharedPush(dir, args) {
   const plan = pushPlan(args);
   if (!plan) return null;
-  if (plan.prune) {
-    return "potluck git guardrail: blocked a push with --prune or --mirror, which deletes every remote branch that has no local copy. Deleting remote branches is the user's call: ask the user, or push the branches you mean by name without those options.";
-  }
   const read = (args) => {
     try {
       return git(dir, args).trim();
@@ -324,9 +334,14 @@ function sharedPush(dir, args) {
       return "";
     }
   };
-  const known = read(["rev-parse", "--git-dir"]) !== "";
   const current = read(["symbolic-ref", "-q", "--short", "HEAD"]);
   const remote = plan.remote || (current && read(["config", `branch.${current}.remote`])) || "origin";
+  // A mirror remote makes every push a --mirror push.
+  if (read(["config", "--bool", `remote.${remote}.mirror`]) === "true") Object.assign(plan, { every: true, prune: true, force: true });
+  if (plan.prune) {
+    return "potluck git guardrail: blocked a push with --prune or --mirror, which deletes every remote branch that has no local copy. Deleting remote branches is the user's call: ask the user, or push the branches you mean by name without those options.";
+  }
+  const known = read(["rev-parse", "--git-dir"]) !== "";
   // remote.<name>.push decides where a push with no destination goes.
   const configured = read(["config", "--get-all", `remote.${remote}.push`]).split("\n").filter(Boolean);
   const specs = plan.refspecs.map((word) => refspec(word, plan.force, plan.delete));
@@ -350,7 +365,7 @@ function sharedPush(dir, args) {
     return ref && branchName(ref);
   };
   const mode = read(["config", "push.default"]) || "simple";
-  const local = () => read(["for-each-ref", "--format=%(refname:short)", "refs/heads"]).split("\n");
+  const local = () => (known ? read(["for-each-ref", "--format=%(refname:short)", "refs/heads"]).split("\n") : [null]);
   // Each branch a forced spec writes; null where the guardrail cannot tell.
   const writes = (spec) => {
     if (spec.every) return local();
@@ -401,10 +416,13 @@ function inProgress(dir) {
 }
 
 export function check(command, cwd) {
-  // The directory each scope is in: a `cd` inside a substitution stays there.
+  // The directory each scope is in: a `cd` inside a substitution stays there,
+  // and reaches the substitutions nested in it.
+  const ids = { next: 0, parent: new Map() };
   const dirs = new Map([[0, cwd]]);
-  for (const { words: base, scope } of lex(command, 0, null, { next: 0 }, 0).out) {
-    const dir = dirs.get(scope) ?? dirs.get(0);
+  const dirOf = (scope) => dirs.get(scope) ?? dirOf(ids.parent.get(scope) ?? 0);
+  for (const { words: base, scope } of lex(command, 0, null, ids, 0).out) {
+    const dir = dirOf(scope);
     if (base[0] === "cd" && base.length <= 2) {
       dirs.set(scope, resolveDir(dir, base[1] ?? process.env.HOME ?? dir));
       continue;

@@ -363,6 +363,34 @@ describe("shared branches", () => {
     expect(hook("body=$(cat <<'EOF'\nTo undo:\n1) git reset --hard origin/main\nEOF\n)\necho \"$body\"").status).toBe(0);
   });
 
+  // From the third independent verifier of #33.
+  test("a redirect's fd number and target are not arguments of the command", () => {
+    const { work, hook } = repo();
+    for (const c of ["git push --force-with-lease origin 2>&1", "git push --force-with-lease 2>/dev/null", "git push --force-with-lease > push.log 2>&1", "git push --force-with-lease origin 2>&1 | tail -5", "git push --force origin &>/dev/null"]) {
+      expect(hook(c).status, c).toBe(2);
+    }
+    expect(commands("git push origin 2>&1 >out.log <in.txt")).toEqual([["git", "push", "origin"]]);
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    expect(hook("git checkout main 2>/dev/null").status).toBe(0);
+    expect(hook("cat <<< word\ngit reset --hard").status).toBe(2);
+  });
+
+  test("a cd inside a substitution reaches the substitutions nested in it", () => {
+    const { root, work, hook } = repo();
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    expect(hook(`x=$(cd ${work} && echo $(git reset --hard))`, root).status).toBe(2);
+    expect(hook(`cd /; x=$(cd ${work}; y=$(git reset --hard))`, root).status).toBe(2);
+  });
+
+  test("every branch forced from an unreadable directory, a null-hash delete, and a mirror remote are blocked", () => {
+    const { git, work, hook } = repo("feat");
+    expect(hook('cd "$(git rev-parse --show-toplevel)" && git push --force --all origin').status).toBe(2);
+    expect(hook('cd "$(git rev-parse --show-toplevel)" && git push --force origin :').status).toBe(2);
+    expect(hook("git push origin 0000000000000000000000000000000000000000:refs/heads/feat").status).toBe(2);
+    git(work, "config", "remote.origin.mirror", "true");
+    expect(hook("git push origin").status).toBe(2);
+  });
+
   test("deleting a remote branch is blocked in every spelling, and deleting a tag passes", () => {
     const { hook } = repo("feat");
     for (const c of [
