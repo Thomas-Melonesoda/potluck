@@ -182,27 +182,27 @@
     },
     "plugins/pstack/skills/poteto-mode/playbooks/pause-safely.md": {
       "kind": "policy",
-      "why": "Writes the resume note to the canonical checkpoint directory and preserves artifacts the user asked to keep across the resume.",
+      "why": "Writes the resume note to a checkpoint directory for the task's folder and task, in Git or not, and preserves artifacts the user asked to keep across the resume.",
       "since": "0.9.34",
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
       "row": "S3-D2",
-      "ruling": "Use Michael's checkpoint location and kept artifacts (S3-D2).",
-      "ruling_zh": "采用 Michael 的检查点位置和保留的产物（S3-D2）。",
-      "decided": "2026-11-21"
+      "ruling": "Use Michael's checkpoint location and kept artifacts (S3-D2). Stage 5 issue 11: one checkpoint pointer per folder and task, so projects in one repository or vault stop overwriting each other, and folders outside Git get checkpoints too.",
+      "ruling_zh": "采用 Michael 的检查点位置和保留的产物（S3-D2）。阶段 5 第 11 条：每个文件夹加任务各有一个检查点指针，一个仓库或 vault 里的几个项目不会再覆盖彼此的指针；Git 之外的文件夹也能存检查点。",
+      "decided": "2026-11-23"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/session-pickup.md": {
       "kind": "policy",
-      "why": "Reads the project checkpoint first and applies the human-rulings epistemics when reconstructing state, and verifies inherited claims before it routes and ends.",
+      "why": "Reads the checkpoint for the task's folder and task first, lists the store before any transcript fallback, rechecks the note against commits that landed after the recorded head, applies the human-rulings epistemics when reconstructing state, and verifies inherited claims before it routes and ends.",
       "since": "0.9.34",
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
       "row": "S3-D3, S3-D4, S3-D5",
-      "ruling": "Use Michael's checkpoint-first pickup and human-rulings priority (S3-D3, S3-D4, S3-D5).",
-      "ruling_zh": "采用 Michael 先读检查点的接手方式，以及人的裁定优先（S3-D3、S3-D4、S3-D5）。",
-      "decided": "2026-11-21"
+      "ruling": "Use Michael's checkpoint-first pickup and human-rulings priority (S3-D3, S3-D4, S3-D5). Stage 5 issue 11: a pause records HEAD, and pickup compares it first and rechecks the note when it moved, which is Lauren's verify-inherited-claims step.",
+      "ruling_zh": "采用 Michael 先读检查点的接手方式，以及人的裁定优先（S3-D3、S3-D4、S3-D5）。阶段 5 第 11 条：暂停时记录 HEAD；接手时先比较，HEAD 变了就先重新核对说明里的结论，这就是 Lauren 核对继承结论的那一步。",
+      "decided": "2026-11-23"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/shipping.md": {
       "kind": "policy",
