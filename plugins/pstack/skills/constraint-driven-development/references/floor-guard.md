@@ -45,9 +45,12 @@ process.chdir(top);
 const mergeBase = git(['merge-base', base, 'HEAD'])?.trim();
 if (!mergeBase) bail('no merge base against ' + base);
 
-// Unified diff plus untracked files (git diff alone cannot see new files).
-const tracked = git(['diff', '--unified=0', mergeBase, '--']);
-if (tracked === null) bail('could not diff against ' + mergeBase);
+// Unified diff plus untracked files (git diff alone cannot see new files). Renames are found
+// (-M), so a renamed file shows only the lines that changed in it. CONSTRAINTS.md is diffed
+// without them, so a bar renamed away still reads as every rule removed.
+const tracked = git(['diff', '--unified=0', '-M', mergeBase, '--', '.', ':(exclude,glob)**/*CONSTRAINTS.md']);
+const bar = git(['diff', '--unified=0', '--no-renames', mergeBase, '--', ':(glob)**/*CONSTRAINTS.md']);
+if (tracked === null || bar === null) bail('could not diff against ' + mergeBase);
 const untrackedFiles = git(['ls-files', '--others', '--exclude-standard']);
 if (untrackedFiles === null) bail('could not list untracked files');
 const untracked = untrackedFiles.split('\n').filter(Boolean).map((f) => {
@@ -55,20 +58,23 @@ const untracked = untrackedFiles.split('\n').filter(Boolean).map((f) => {
   if (d === null) bail('could not diff untracked file ' + f);
   return d;
 }).join('\n');
-const diff = tracked + '\n' + untracked;
+const diff = tracked + '\n' + bar + '\n' + untracked;
 
 // Walk the diff. `---` and `+++` are file headers only between a file's `diff` line and its first
 // `@@` hunk; inside a hunk every line is content, so an added `++i` (shown as `+++i`) or a removed
 // `-- comment` is a change, not a header. Both headers name the file, so a deletion
-// (`+++ /dev/null`) keeps its name. git ends a name that holds a space with a tab.
-const added = [], removed = [], deleted = [];
+// (`+++ /dev/null`) keeps its name. git ends a name that holds a space with a tab. A rename names
+// both paths in its own header lines.
+const added = [], removed = [], deleted = [], renamed = [];
 const pathOf = (s) => s.replace(/^[ab]\//, '').replace(/\t$/, '');
-let file = '', oldFile = '', inHeader = false;
+let file = '', oldFile = '', from = '', inHeader = false;
 for (const line of diff.split('\n')) {
   if (line.startsWith('diff ')) inHeader = true;
   else if (line.startsWith('@@')) inHeader = false;
   else if (inHeader) {
-    if (line.startsWith('--- ')) oldFile = pathOf(line.slice(4));
+    if (line.startsWith('rename from ')) from = line.slice(12);
+    else if (line.startsWith('rename to ')) renamed.push({ from, to: line.slice(10) });
+    else if (line.startsWith('--- ')) oldFile = pathOf(line.slice(4));
     else if (line.startsWith('+++ ')) {
       const newFile = pathOf(line.slice(4));
       file = newFile === '/dev/null' ? oldFile : newFile;
@@ -112,13 +118,29 @@ const hadBar = [mergeBase, base].some((rev) => {
 });
 for (const { file, text } of added) if (hadBar && isConstraints(file) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', file, text);
 
-// 2b. A test file deleted, or an assertion removed from a test file that still exists.
+// 2b. A test file deleted, or renamed to a name no test runner picks up. One renamed to another
+// test name is only renamed, and its changed lines are read like any other.
 const ASSERTION = /\b(expect|assert|should)\b|\bXCTAssert|\bXCTFail\b|#require\b/;
-for (const f of deleted) if (isTest(f) && checked(f)) flag('test-deleted', f, 'file deleted');
-for (const { file, text } of removed) {
-  if (isTest(file) && checked(file) && !deleted.includes(file) && ASSERTION.test(text)) {
-    flag('assertion-removed', file, text);
-  }
+const isTestFile = (f) => isTest(f) && checked(f);
+for (const f of deleted) if (isTestFile(f)) flag('test-deleted', f, 'file deleted');
+for (const { from, to } of renamed) if (isTestFile(from) && !isTestFile(to)) flag('test-deleted', from, 'renamed to ' + to);
+
+// An assertion removed from a test file that still exists, too. One added back unchanged in the
+// same file only moved. Otherwise it pairs, in order, with an assertion added in that file: the
+// expected value changed, which needs evidence that the behavior did. One with no assertion added
+// in its place, or only a commented-out one, was removed.
+const isComment = (t) => /^\s*(\/\/|#|\/\*|\*)/.test(t);
+const inTest = (l) => isTestFile(l.file) && !deleted.includes(l.file) && ASSERTION.test(l.text);
+const assertsAdded = added.filter(inTest);
+const unmoved = removed.filter(inTest).filter((r) => {
+  const i = assertsAdded.findIndex((a) => a.file === r.file && a.text.trim() === r.text.trim());
+  if (i > -1) assertsAdded.splice(i, 1);
+  return i < 0;
+});
+for (const r of unmoved) {
+  const i = assertsAdded.findIndex((a) => a.file === r.file && !isComment(a.text));
+  if (i < 0) flag('assertion-removed', r.file, r.text);
+  else flag('assertion-changed', r.file, r.text.trim() + '  ->  ' + assertsAdded.splice(i, 1)[0].text.trim());
 }
 
 // 2d. A test step removed from CI configuration: a removed line that runs the tests, with no
@@ -242,6 +264,9 @@ console.error('floor-guard: ' + findings.length + ' floor violation(s):');
 for (const f of findings) console.error(`  [${f.rule}] ${f.file}: ${f.text}`);
 if (findings.some((f) => f.rule === 'rule-removed')) {
   console.error('\nA rule-removed finding can also mean the rule\'s label changed: rename a rule in one commit and change its thresholds in another.');
+}
+if (findings.some((f) => f.rule === 'assertion-changed')) {
+  console.error('\nAn assertion-changed finding is a test whose expected value moved. It is a fix only if the behavior really changed: have someone who did not write the change check the evidence before it ships.');
 }
 if (findings.some((f) => f.rule === 'threshold-removed')) {
   console.error('\nA threshold-removed finding can also mean a number gained or lost its direction words (">= 80%" becoming "80%", or the reverse): compare the two lines before assuming a threshold was deleted.');
