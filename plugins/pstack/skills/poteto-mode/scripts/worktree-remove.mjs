@@ -55,8 +55,9 @@ function linkedWorktree(path) {
   let listed;
   try {
     real = realpathSync(path);
-    listed = git(real, ["worktree", "list", "--porcelain"])
-      .split("\n")
+    // -z keeps a path with a newline in one field, so it cannot pose as a record.
+    listed = git(real, ["worktree", "list", "--porcelain", "-z"])
+      .split("\0")
       .filter((line) => line.startsWith("worktree "))
       .map((line) => line.slice(9));
   } catch {
@@ -73,6 +74,7 @@ function linkedWorktree(path) {
   if (realOf(main) === real) return { refused: `${path} is the main worktree, which holds the repository itself` };
   const recorded = listed.slice(1).find((p) => realOf(p) === real);
   if (!recorded) return { refused: `${path} is not the top level of a linked worktree git lists` };
+  if (lstatSync(recorded).isSymbolicLink()) return { refused: `the path git records for ${path} is a symlink; run git worktree repair on the real folder first` };
   const common = realOf(git(real, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim());
   if (common && inside(real, common)) return { refused: `${path} holds the repository's git directory` };
   return { real, main, recorded };
@@ -197,7 +199,11 @@ export async function removeBackedUp(worktree, result, { trash, date, now = Date
   }
   // The folder's .git file points at git's record of the worktree, which a new
   // worktree of the same name would reuse, so the trashed copy stops pointing.
-  if (exists(join(trashed, ".git"))) renameSync(join(trashed, ".git"), join(trashed, ".git.removed"));
+  if (exists(join(trashed, ".git"))) {
+    let name = ".git.removed";
+    for (let n = 2; exists(join(trashed, name)); n++) name = `.git.removed-${n}`;
+    renameSync(join(trashed, ".git"), join(trashed, name));
+  }
   // Only this worktree's record goes; `git worktree prune` would also drop the
   // record of any other worktree whose folder is missing. The path is gone, so
   // this removes nothing on disk.
@@ -210,7 +216,15 @@ export async function main(argv) {
   if (typeof cli === "number") return cli;
   const where = linkedWorktree(cli.path);
   if (where.refused) return process.stderr.write(`refused: ${where.refused}\n`), 2;
-  if (inside(where.real, realPath(cli.trash))) return process.stderr.write(`refused: the trash ${cli.trash} is inside the worktree\n`), 2;
+  let trash;
+  try {
+    trash = realPath(cli.trash);
+  } catch (error) {
+    return process.stderr.write(`refused: cannot read the trash path ${cli.trash} (${error.code ?? error.message})\n`), 2;
+  }
+  if (inside(where.real, trash)) return process.stderr.write(`refused: the trash ${cli.trash} is inside the worktree\n`), 2;
+  // The trash clears expired date folders first, which would take a worktree inside one.
+  if (inside(trash, where.real)) return process.stderr.write(`refused: the worktree is inside the trash ${cli.trash}\n`), 2;
   const now = Date.now();
   const backedUp = backup(cli.path, { ...cli, now });
   const result = backedUp.kind === "hold" ? backedUp : await removeBackedUp(cli.path, backedUp, { ...cli, now });

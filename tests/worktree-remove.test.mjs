@@ -184,6 +184,48 @@ describe("worktree-remove", () => {
     expect(r.json.kind).toBe("removed");
   });
 
+  // From the independent verifier of #38.
+  test("a worktree path crafted to look like another record does not open the main checkout", () => {
+    const { root, repo, git, run } = setup();
+    mkdirSync(join(repo, "src"));
+    writeFileSync(join(repo, "src", "main.c"), "int main;\n");
+    git(repo, "worktree", "add", "-q", "-b", "evil", `${join(root, "x")}\nworktree ${join(repo, "src")}`);
+    const r = run(join(repo, "src"));
+    expect(r.status).toBe(2);
+    expect(existsSync(join(repo, "src", "main.c"))).toBe(true);
+  });
+
+  test("a recorded path that is a symlink, a trash path through a dangling link, and a worktree inside the trash are refused", () => {
+    const { root, repo, wt, git, trash } = setup();
+    const cli = (path, trashPath) => spawnSync("node", [script, path, "--trash", trashPath, "--date", "2026-11-21"], { encoding: "utf8", env });
+    symlinkSync(join(root, "nowhere"), join(root, "dangling"));
+    expect(cli(wt, join(root, "dangling", "t")).status).toBe(2);
+    const inTrash = join(trash, "2026-01-01", "kept");
+    mkdirSync(join(trash, "2026-01-01"), { recursive: true });
+    git(repo, "worktree", "add", "-q", "-b", "kept", inTrash);
+    const r = cli(inTrash, trash);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("inside the trash");
+    expect(existsSync(join(inTrash, "a.txt"))).toBe(true);
+    renameSync(wt, join(root, "wt-real"));
+    symlinkSync(join(root, "wt-real"), wt);
+    const linked = cli(wt, trash);
+    expect(linked.status).toBe(2);
+    expect(linked.stderr).toContain("symlink");
+    expect(existsSync(join(root, "wt-real", "a.txt"))).toBe(true);
+  });
+
+  test("an untracked .git.removed in the worktree is kept, not overwritten or crashed on", () => {
+    const { wt, run } = setup();
+    mkdirSync(join(wt, ".git.removed"));
+    writeFileSync(join(wt, ".git.removed", "mine.txt"), "mine\n");
+    const r = run();
+    expect(r.stderr).toBe("");
+    expect(r.json.kind).toBe("removed");
+    expect(readFileSync(join(r.json.trashed, ".git.removed", "mine.txt"), "utf8")).toBe("mine\n");
+    expect(existsSync(join(r.json.trashed, ".git"))).toBe(false);
+  });
+
   test("a hold from the backup moves nothing", () => {
     const { repo, wt, git, run } = setup();
     git(repo, "worktree", "lock", "--reason", "agent 7 is using it", wt);
