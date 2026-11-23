@@ -368,6 +368,21 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons.map((l) => l.match(/^floor: \[([a-z-]+)\]/)?.[1])).toEqual(["threshold-loosened", "threshold-loosened", "threshold-loosened", "threshold-changed"]);
   });
 
+  test("a branch cut before main gained its first CONSTRAINTS.md cannot add an exception as if it set the bar", () => {
+    const gate = fake({ change: { path: "packages/a/CONSTRAINTS.md", text: "# Constraints\n\n| ID | Rule |\n|---|---|\n| W1 | no-explicit-any |\n" } });
+    writeFileSync(join(gate.work, "CONSTRAINTS.md"), "# Constraints\n\n- Coverage: at least 80%\n");
+    git(gate.work, "add", "CONSTRAINTS.md");
+    git(gate.work, "commit", "-q", "-m", "bar");
+    git(gate.work, "push", "-q", "origin", "main");
+    gate.setView({ baseRefOid: git(gate.work, "rev-parse", "HEAD") });
+    expect(gate.run(...merge, "--dry-run").json.reasons).toEqual(["floor: [new-exception] packages/a/CONSTRAINTS.md: | W1 | no-explicit-any |"]);
+  });
+
+  test("a test command in plain .md under ci_scripts/ is not a CI step", () => {
+    const r = fake({ change: { path: "ci_scripts/README.md", text: "Run the suite first.\n" }, setup: { base: { "ci_scripts/README.md": "Run npm test first.\n" } } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("would-merge");
+  });
+
   test("a path with a space keeps its name, so plain .md stays unchecked and a Swift test there is still a test", () => {
     const swift = "My App Tests/AppTests.swift";
     const r = fake({ change: { path: "docs/Meeting notes.md", text: `Leave a ${"TO"}DO here.\n` }, setup: { base: { [swift]: XCTEST }, remove: [swift] } }).run(...merge, "--dry-run");
