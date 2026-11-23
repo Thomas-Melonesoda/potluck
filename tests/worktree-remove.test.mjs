@@ -226,6 +226,30 @@ describe("worktree-remove", () => {
     expect(existsSync(join(r.json.trashed, ".git"))).toBe(false);
   });
 
+  // From the independent verifier of #42.
+  test("a locked worktree is held even when its path holds a newline", () => {
+    const { root, repo, git, trash } = setup();
+    const odd = join(root, "wt\ntail");
+    git(repo, "worktree", "add", "-q", "-b", "odd", odd);
+    writeFileSync(join(odd, "u.txt"), "mine\n");
+    git(repo, "worktree", "lock", "--reason", "agent 7 is using it", odd);
+    const r = spawnSync("node", [script, odd, "--trash", trash, "--date", "2026-11-21"], { encoding: "utf8", env });
+    expect(r.status).toBe(3);
+    expect(JSON.parse(r.stdout).reason).toBe("locked: agent 7 is using it");
+    expect(existsSync(join(odd, "u.txt"))).toBe(true);
+  });
+
+  test("removal does not need `git worktree list -z`, which git added in 2.36", () => {
+    const { root, wt, trash } = setup();
+    const shim = join(root, "shim");
+    mkdirSync(shim);
+    const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    writeFileSync(join(shim, "git"), `#!/bin/sh\ncase " $* " in *" worktree list "*" -z "*) echo "error: unknown switch" >&2; exit 129;; esac\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+    const r = spawnSync("node", [script, wt, "--trash", trash, "--date", "2026-11-21"], { encoding: "utf8", env: { ...env, PATH: `${shim}:${env.PATH}` } });
+    expect(r.stderr).toBe("");
+    expect(JSON.parse(r.stdout).kind).toBe("removed");
+  });
+
   test("a hold from the backup moves nothing", () => {
     const { repo, wt, git, run } = setup();
     git(repo, "worktree", "lock", "--reason", "agent 7 is using it", wt);

@@ -18,7 +18,7 @@
 // Prints one JSON line. Exit 0 removed, 3 hold, 2 refused or usage.
 
 import { execFileSync } from "node:child_process";
-import { createReadStream, lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, renameSync } from "node:fs";
+import { createReadStream, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createGunzip } from "node:zlib";
 
@@ -49,20 +49,10 @@ const exists = (path) => {
 };
 
 // The worktree's real top level, the path git records for it, and its
-// repository's main worktree, or why the path may not be touched.
+// repository's git directory, or why the path may not be touched. It reads the
+// worktree's own files, never `git worktree list`, whose text a path with a
+// newline can forge (and whose -z form needs git 2.36).
 function linkedWorktree(path) {
-  let real;
-  let listed;
-  try {
-    real = realpathSync(path);
-    // -z keeps a path with a newline in one field, so it cannot pose as a record.
-    listed = git(real, ["worktree", "list", "--porcelain", "-z"])
-      .split("\0")
-      .filter((line) => line.startsWith("worktree "))
-      .map((line) => line.slice(9));
-  } catch {
-    return { refused: `${path} is not the top level of a linked worktree: git lists no worktree there` };
-  }
   const realOf = (p) => {
     try {
       return realpathSync(p);
@@ -70,14 +60,36 @@ function linkedWorktree(path) {
       return null;
     }
   };
-  const main = listed[0];
-  if (realOf(main) === real) return { refused: `${path} is the main worktree, which holds the repository itself` };
-  const recorded = listed.slice(1).find((p) => realOf(p) === real);
-  if (!recorded) return { refused: `${path} is not the top level of a linked worktree git lists` };
+  const not = { refused: `${path} is not the top level of a linked worktree` };
+  // One path per call, with only git's own line end cut, so a newline in a path survives.
+  const ask = (dir, what) => git(dir, ["rev-parse", "--path-format=absolute", what]).replace(/\n$/, "");
+  let real;
+  let top;
+  let gitDir;
+  let common;
+  try {
+    real = realpathSync(path);
+    top = ask(real, "--show-toplevel");
+    gitDir = ask(real, "--git-dir");
+    common = ask(real, "--git-common-dir");
+  } catch {
+    return { refused: `${path} is not the top level of a linked worktree: git finds no worktree there` };
+  }
+  if (realOf(top) !== real) return not;
+  if (realOf(gitDir) === realOf(common)) return { refused: `${path} is the main worktree, which holds the repository itself` };
+  // git's record of a linked worktree is <common>/worktrees/<id>, and its
+  // gitdir file names the .git file in the folder git records.
+  if (realOf(dirname(gitDir)) !== realOf(join(common, "worktrees"))) return not;
+  let recorded;
+  try {
+    recorded = dirname(readFileSync(join(gitDir, "gitdir"), "utf8").replace(/\n$/, ""));
+  } catch {
+    return not;
+  }
+  if (realOf(recorded) !== real) return not;
   if (lstatSync(recorded).isSymbolicLink()) return { refused: `the path git records for ${path} is a symlink; run git worktree repair on the real folder first` };
-  const common = realOf(git(real, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim());
-  if (common && inside(real, common)) return { refused: `${path} holds the repository's git directory` };
-  return { real, main, recorded };
+  if (inside(real, realOf(common))) return { refused: `${path} holds the repository's git directory` };
+  return { real, common, recorded };
 }
 
 // Each file under the given paths as it is on disk, folders walked: path ->
@@ -207,8 +219,15 @@ export async function removeBackedUp(worktree, result, { trash, date, now = Date
   // Only this worktree's record goes; `git worktree prune` would also drop the
   // record of any other worktree whose folder is missing. The path is gone, so
   // this removes nothing on disk.
-  if (!exists(where.recorded)) git(where.main, ["worktree", "remove", "--force", where.recorded]);
-  return { kind: "removed", worktree, trashed, backup: result };
+  let recordKept;
+  try {
+    if (exists(where.recorded)) throw new Error(`${where.recorded} exists again`);
+    execFileSync("git", ["--git-dir", where.common, "worktree", "remove", "--force", where.recorded], { stdio: ["ignore", "pipe", "pipe"] });
+  } catch (error) {
+    // The folder is already in the trash; a record git keeps is only reported.
+    recordKept = String(error.stderr || error.message).trim().split("\n")[0];
+  }
+  return { kind: "removed", worktree, trashed, ...(recordKept && { recordKept }), backup: result };
 }
 
 export async function main(argv) {
