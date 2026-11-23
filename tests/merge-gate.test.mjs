@@ -577,9 +577,35 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(run(...merge, "--dry-run").json.reasons).toEqual(["floor: [rule-removed] CONSTRAINTS.md: - Coverage: changed lines at least 80% covered"]);
   });
 
-  test("an assertion moved within its test file passes", () => {
+  test("an assertion moved within its test file waits for the co-sign too", () => {
     const swapped = `test("adds", () => {\n  ${"expect"}(2 + 2).toBe(4);\n  ${"expect"}(1 + 1).toBe(2);\n});\n`;
-    expect(fake({ setup: { base: { [TEST]: TWO }, files: { [TEST]: swapped } } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+    const r = fake({ setup: { base: { [TEST]: TWO }, files: { [TEST]: swapped } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons[0]).toStartWith(`floor: [assertion-moved] ${TEST}: `);
+    expect(r.json.reasons.at(-1)).toContain("needs the root agent's co-sign");
+  });
+
+  test("a test renamed to a name no runner picks up still reads as deleted", () => {
+    const go = "mathx/add_test.go", py = "tests/test_math.py", pyText = "def test_add():\n    assert 1 + 1 == 2\n";
+    const setup = { base: { [TEST]: TWO, [go]: "package mathx\n", [py]: pyText }, files: { "src/app.test.js.disabled": TWO, "mathx/testdata/add_test.go": "package mathx\n", "tests/latest_math.py": pyText }, remove: [TEST, go, py] };
+    expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([go, TEST, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
+  test("a test renamed into another folder runners read passes", () => {
+    const py = "tests/test_math.py", pyText = "def test_add():\n    assert 1 + 1 == 2\n";
+    const setup = { base: { [TEST]: TWO, [py]: pyText }, files: { "src/__tests__/app.test.js": TWO, "tests/unit/test_math.py": pyText }, remove: [TEST, py] };
+    expect(fake({ setup }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a CI file renamed out of the CI paths still reads as its test step removed", () => {
+    const step = WORKFLOW("      - run: npm test\n");
+    const r = fake({ setup: { base: { [CI]: step }, files: { ".github/ci.yml.off": step }, remove: [CI] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [ci-test-removed] ${CI}: - run: npm test`]);
+  });
+
+  test("a Markdown file renamed into code brings its forbidden forms with it", () => {
+    const text = `// @ts-${"ignore"}\nexport const x = 1;\n`;
+    const r = fake({ setup: { base: { "docs/snippet.md": text }, files: { "src/snippet.ts": text }, remove: ["docs/snippet.md"] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [silenced-checker] src/snippet.ts: // @ts-${"ignore"}`]);
   });
 
   test("an assertion commented out is removed, not changed", () => {
