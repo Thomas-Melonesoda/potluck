@@ -14,15 +14,15 @@
 //   - every other check run and commit status on that head finished green
 //     (a head with no CI passes this one)
 //   - the quality floor passes on that head (design rows D5 and A8): Addy
-//     Osmani's floor guard, taken unchanged from the synced
-//     constraint-driven-development skill, runs in a throwaway clone of the
+//     Osmani's floor guard, taken from the synced constraint-driven-development
+//     skill with potluck's declared fork, runs in a throwaway clone of the
 //     verified head (sharing the checkout's objects, none of its config)
 //     against the PR's base. It refuses a change that lowers the
 //     bar: a weakened CONSTRAINTS.md, a test made easier, a new suppression
-//     comment, a stub or empty catch, a new exception row. Findings in Markdown
-//     other than CONSTRAINTS.md are dropped, since docs only describe these
-//     moves. A guard that cannot run refuses too. Run the gate from a checkout
-//     whose origin is the repo.
+//     comment, a stub or empty catch, a new exception row. It reads every file
+//     that runs and leaves only plain .md unchecked, and CONSTRAINTS.md's own
+//     rule checks always run. A guard that cannot run refuses too. Run the gate
+//     from a checkout whose origin is the repo.
 //   - the project's docs/overview.md is current with its sources and every
 //     ticked Done when item names its proof (grill/scripts/overview.mjs
 //     --check), when the project has those sources
@@ -197,7 +197,6 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
     // .gitattributes can neither re-encode files on checkout nor hide a diff.
     attrs = { GIT_ATTR_SOURCE: base };
     isolated(["checkout", "--quiet", "--detach", sha]);
-    const changed = isolated(["diff", "--name-only", "-z", base, "HEAD"]).split("\0").filter(Boolean);
     // The guard reads text diffs only, so any changed file git sees as binary
     // (one NUL byte is enough) would hide every finding in it. Only known
     // binary formats (images, fonts, media, archives, documents) may be binary.
@@ -222,23 +221,8 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
     const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trimEnd()).filter(Boolean);
     if (run.status === 0) return overviewCheck(tree, env, workflows);
     if (run.status === 1) {
-      // The guard reads every file. Markdown other than CONSTRAINTS.md only
-      // describes these moves and cannot silence a checker, so its findings
-      // are dropped (the owner's ruling, 2026-11-22); a change to
-      // CONSTRAINTS.md still counts. A finding names its file before ": ";
-      // it is matched against the changed paths, longest first, so a colon
-      // or space in a name cannot shift the cut, and a finding whose file is
-      // not a changed path is kept.
       const findings = lines.filter((l) => /^\[[a-z-]+\] /.test(l.trim()));
-      const byLength = [...changed].sort((a, b) => b.length - a.length);
-      const kept = findings.filter((l) => {
-        const rest = l.trim().replace(/^\[[a-z-]+\] /, "");
-        const file = byLength.find((p) => rest.startsWith(`${p}: `) || rest.startsWith(`${p}\t: `));
-        if (file === undefined) return true;
-        return !/\.(md|markdown)$/i.test(file) || /(^|\/)CONSTRAINTS\.md$/.test(file);
-      });
-      if (findings.length && !kept.length) return overviewCheck(tree, env, workflows);
-      return { ok: false, reasons: (kept.length ? kept : lines).map((l) => `floor: ${l.trim()}`) };
+      return { ok: false, reasons: (findings.length ? findings : lines).map((l) => `floor: ${l.trim()}`) };
     }
     return { ok: false, reasons: [`floor guard could not run: ${lines[0] ?? `exit ${run.status ?? run.signal}`}`] };
   } catch (error) {

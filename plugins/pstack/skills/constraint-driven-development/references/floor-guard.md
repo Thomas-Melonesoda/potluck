@@ -19,6 +19,7 @@ This is the reference. Adapt the patterns to your stack; keep the contract ident
 // floor-guard.mjs — diff-scoped enforcement of the CONSTRAINTS.md floor.
 // Usage: node floor-guard.mjs [--base <ref>]   (default base: origin/main)
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 const base = (() => {
   const i = process.argv.indexOf('--base');
@@ -28,7 +29,7 @@ const base = (() => {
 // `git diff --no-index` exits 1 whenever the two sides differ, which is the normal case for a
 // new file, so that output is kept. Any other failure is null, and null never reads as clean.
 const git = (args, { diffExit = false } = {}) => {
-  try { return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
+  try { return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 30, stdio: ['ignore', 'pipe', 'pipe'] }); }
   catch (e) { return diffExit && e.status === 1 && typeof e.stdout === 'string' ? e.stdout : null; }
 };
 const bail = (msg) => { console.error('floor-guard: ' + msg); process.exit(2); };
@@ -80,29 +81,61 @@ for (const line of diff.split('\n')) {
 
 const findings = [];
 const flag = (rule, f, text) => findings.push({ rule, file: f, text: text.trim().slice(0, 120) });
-const isTest = (f) => /\.(test|spec)\.|_test\.|test_/.test(f);
+const isTest = (f) => /\.(test|spec)\.|_test\.|test_|Tests\.swift$/.test(f);
 const isConstraints = (f) => /CONSTRAINTS\.md$/.test(f);
+// Only plain Markdown goes unchecked: it describes these moves and runs none of them. Every other
+// file runs somewhere (code, .mdx, notebooks, CI configuration), so the checks below read it.
+// Widening this list loosens the floor. CONSTRAINTS.md is Markdown too, and its own checks
+// (exceptions, rules, thresholds) never consult the list.
+const UNCHECKED = ['.md'];
+const checked = (f) => !UNCHECKED.some((x) => f.toLowerCase().endsWith(x));
 
 // 1. Silenced checker — extend this list for your ecosystem.
 const SUPPRESSIONS = /@ts-ignore|@ts-nocheck|eslint-disable|biome-ignore|# *noqa|# *type: *ignore|istanbul ignore|nosemgrep|gitleaks:allow|Stryker disable/;
 // 4. Unfinished work.
 const STUBS = /throw new (Error|NotImplemented).*[Nn]ot implemented|catch\s*\(\w*\)\s*\{\s*\}|catch\s*\{\s*\}|\bTODO\b|\bpass\s*# *stub/;
 // 2. A test made easier (added skips).
-const SKIPS = /\.(skip|todo)\b|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(/;
+const SKIPS = /\.(skip|todo)\b|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(|\bXCTSkip/;
 
-for (const { file, text } of added.filter((l) => !isConstraints(l.file))) {
+for (const { file, text } of added.filter((l) => checked(l.file))) {
   if (SUPPRESSIONS.test(text)) flag('silenced-checker', file, text);
   if (STUBS.test(text)) flag('unfinished-work', file, text);
   if (SKIPS.test(text)) flag('test-made-easier', file, text);
 }
-for (const { file, text } of added) if (isConstraints(file) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', file, text);
+// 5. A new exception lowers a bar that already exists. The first CONSTRAINTS.md in a repository
+// sets the bar, so its rows, exceptions included, are the bar itself.
+const baseFiles = git(['ls-tree', '-r', '-z', '--name-only', mergeBase]);
+if (baseFiles === null) bail('could not list the files at ' + mergeBase);
+const hadBar = baseFiles.split('\0').some(isConstraints);
+for (const { file, text } of added) if (hadBar && isConstraints(file) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', file, text);
 
 // 2b. A test file deleted, or an assertion removed from a test file that still exists.
-for (const f of deleted) if (isTest(f)) flag('test-deleted', f, 'file deleted');
+const ASSERTION = /\b(expect|assert|should)\b|\bXCTAssert|\bXCTFail\b|#require\b/;
+for (const f of deleted) if (isTest(f) && checked(f)) flag('test-deleted', f, 'file deleted');
 for (const { file, text } of removed) {
-  if (isTest(file) && !deleted.includes(file) && /\b(expect|assert|should)\b/.test(text)) {
+  if (isTest(file) && checked(file) && !deleted.includes(file) && ASSERTION.test(text)) {
     flag('assertion-removed', file, text);
   }
+}
+
+// 2d. A test step removed from CI configuration: a removed line that runs the tests, with no
+// line running the same command added back in any CI file, so a step that moved still pairs and
+// one commented out does not.
+const isCI = (f) => /^\.github\/workflows\/|^\.circleci\/|^\.buildkite\/|^\.woodpecker|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
+const TEST_RUN = /\b(?:(?:npm|pnpm|yarn|bun)(?: run)?|swift|go|cargo|mvn|gradlew?|make|dotnet|mix|rake) test[\w:-]*|\bxcodebuild\b.*\btest(?:-without-building)?(?![\w-])|\b(?:python3? -m (?:pytest|unittest)|pytest|vitest|jest|rspec|phpunit|ctest|fastlane scan)(?![\w.-])/;
+const testRun = (t) => {
+  if (/^\s*(#|\/\/)/.test(t)) return null;
+  const m = TEST_RUN.exec(t);
+  if (!m || /\binstall\b/.test(t.slice(0, m.index).split(/&&|\|\||[;|]/).pop())) return null;
+  return m[0].replace(/^xcodebuild\b.*/, 'xcodebuild test').replace(/^(npm|pnpm|yarn|bun) run /, '$1 ').replace(/\s+/g, ' ');
+};
+const runsAdded = added.filter((l) => isCI(l.file)).map((l) => testRun(l.text)).filter(Boolean);
+for (const { file, text } of removed.filter((l) => isCI(l.file))) {
+  const run = testRun(text);
+  if (!run) continue;
+  const i = runsAdded.indexOf(run);
+  if (i < 0) flag('ci-test-removed', file, text);
+  else runsAdded.splice(i, 1);
 }
 
 // 1b/2c. A rule in CONSTRAINTS.md weakened or removed. A rule is a floor bullet or a table row,
@@ -121,10 +154,11 @@ const ruleKey = (t) => {
   return null; // prose, headings, dates: not a rule
 };
 const isException = (t) => /^\| *(W|E)\d+ *\|/.test(t.trim());
-const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not drop)\s*$/;
-const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed)\s*$/;
-const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop)/;
-const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed)/;
+// Chinese words count too: 至少 and 不低于 read as at least, 至多 and 不超过 as at most.
+const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not drop|至少|最少|最低|不低于|不少于|不得低于|(?<![不得能])(?:高于|大于))\s*$/;
+const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed|至多|最多|最高|不超过|不高于|不得超过|不得高于|(?<![不得能])(?:低于|小于))\s*$/;
+const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop|以上|或更多|或更高|不得下降)/;
+const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed|以下|以内|或更少|或更低|不得增长|不得增加)/;
 const thresholds = (t) => {
   const out = [], re = /\d+(?:\.\d+)?/g;
   let m;
@@ -137,6 +171,20 @@ const thresholds = (t) => {
   }
   return out;
 };
+// 1c. Rule names are unique within each CONSTRAINTS.md this change touches, so a rule pairs with
+// one line. A table's header and separator rows are not rules.
+const isSeparator = (t) => t.includes('|') && /^[\s|:-]*-[\s|:-]*$/.test(t);
+for (const f of new Set([...added, ...removed].map((l) => l.file).filter(isConstraints))) {
+  if (deleted.includes(f)) continue;
+  let lines;
+  try { lines = readFileSync(f, 'utf8').split('\n'); } catch { bail('could not read ' + f); }
+  const at = new Map();
+  lines.forEach((t, i) => {
+    const key = ruleKey(t);
+    if (key && !isSeparator(t) && !(t.trim().startsWith('|') && isSeparator(lines[i + 1] ?? ''))) at.set(key, [...(at.get(key) ?? []), i + 1]);
+  });
+  for (const [key, n] of at) if (n.length > 1) flag('duplicate-rule', f, `"${key}" names ${n.length} rules (lines ${n.join(', ')}); rule names must be unique`);
+}
 const removedRules = removed.filter((l) => isConstraints(l.file) && ruleKey(l.text) !== null);
 const addedRules = added.filter((l) => isConstraints(l.file) && ruleKey(l.text) !== null);
 const isRow = (t) => t.trim().startsWith('|');

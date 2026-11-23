@@ -704,14 +704,14 @@
   "constraint-driven-development": {
     "plugins/pstack/skills/constraint-driven-development/references/floor-guard.md": {
       "kind": "borrow",
-      "why": "Fixes three faults the first pilot hit: CONSTRAINTS.md gets only its exception and rule checks, so the Floor bullets of the skill's own template no longer read as suppressions or stubs; a bullet's key also ends at a full-width colon; and each removed rule pairs with its own counterpart, same form first, so two rules that share a key cannot both match one surviving line.",
+      "why": "Fixes three faults the first pilot hit, then follows stage 5 issues 1, 2, 3 and 7. The suppression, stub, skip, and test checks read every file that runs and leave only plain `.md` unchecked, while CONSTRAINTS.md's exception and rule checks always run; a repository's first CONSTRAINTS.md may carry exception rows, so the skill's own template passes as written. A bullet's key ends at either colon, Chinese direction words read as minimums or maximums, rule names in a CONSTRAINTS.md the change touches must be unique, and each removed rule pairs with its own counterpart, same form first. Swift `*Tests.swift` files, XCTSkip, and XCTAssert count as tests, and a test step removed or commented out of CI configuration is reported.",
       "since": "0.9.146",
       "upstream": "not-proposed",
       "source": "addy",
       "choice": "compromise",
-      "row": "S4-D5, S3-A8",
-      "ruling": "Fix the three floor-guard faults the first pilot found (the skill's own template refused, full-width colons, shared rule keys) as bugs in one PR; the pilot's other findings go to a design round.",
-      "ruling_zh": "把第一次试点发现的三个底线检查问题（skill 自己的模板过不了、全角冒号、共用规则名）当作 bug 在一个 PR 里修好；试点的其他发现交给设计讨论。",
+      "row": "S4-D5, S3-A8, S3-B5",
+      "ruling": "Fix the three floor-guard faults the first pilot found (the skill's own template refused, full-width colons, shared rule keys) as bugs. Then, stage 5 issue 1: look for the forbidden forms in every file that runs (code, .mdx, notebook code, CI configuration) and skip only plain .md; always run the bar checks on CONSTRAINTS.md; widening the skip list loosens a check and needs the root agent's co-sign and a register entry; CI carries two canaries that must both hold, the template as written passes and a code file with a deliberate suppression is stopped. Issue 2: rule names split on either colon, with Chinese tests. Issue 3: a duplicate rule name is an error. Issue 7: recognize Swift test files and XCTSkip, and report a test step removed from CI, with canaries.",
+      "ruling_zh": "第一次试点发现的三个底线检查问题（skill 自己的模板过不了、全角冒号、共用规则名）当作 bug 修好。然后是阶段 5 第 1 条：禁用写法对所有会运行的文件都查（代码、.mdx、notebook 代码格子、CI 配置），只有纯 .md 不查；CONSTRAINTS.md 的质量线检查照查；把文件类型加进不查名单算放松检查，要 root agent 会签并登记；CI 里放两个埋雷测试，两个都对才算检查没坏：原样的模板必须通过，故意写了禁用注释的代码文件必须被拦。第 2 条：规则名的分隔认两种冒号，补中文测试。第 3 条：规则名重名直接报错。第 7 条：识别 Swift 测试文件和 XCTSkip，CI 配置里删掉测试步骤要报，补埋雷测试。",
       "decided": "2026-11-23"
     }
   }
