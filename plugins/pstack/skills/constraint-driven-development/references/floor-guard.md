@@ -103,10 +103,13 @@ for (const { file, text } of added.filter((l) => checked(l.file))) {
   if (SKIPS.test(text)) flag('test-made-easier', file, text);
 }
 // 5. A new exception lowers a bar that already exists. The first CONSTRAINTS.md in a repository
-// sets the bar, so its rows, exceptions included, are the bar itself.
-const baseFiles = git(['ls-tree', '-r', '-z', '--name-only', mergeBase]);
-if (baseFiles === null) bail('could not list the files at ' + mergeBase);
-const hadBar = baseFiles.split('\0').some(isConstraints);
+// sets the bar, so its rows, exceptions included, are the bar itself. The bar exists if the branch
+// point or the base it merges into has one, so a branch cut before main gained its first is not.
+const hadBar = [mergeBase, base].some((rev) => {
+  const files = git(['ls-tree', '-r', '-z', '--name-only', rev]);
+  if (files === null) bail('could not list the files at ' + rev);
+  return files.split('\0').some(isConstraints);
+});
 for (const { file, text } of added) if (hadBar && isConstraints(file) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', file, text);
 
 // 2b. A test file deleted, or an assertion removed from a test file that still exists.
@@ -131,8 +134,8 @@ const testRun = (t) => {
   }
   return null;
 };
-const runsAdded = added.filter((l) => isCI(l.file)).map((l) => testRun(l.text)).filter(Boolean);
-for (const { file, text } of removed.filter((l) => isCI(l.file))) {
+const runsAdded = added.filter((l) => isCI(l.file) && checked(l.file)).map((l) => testRun(l.text)).filter(Boolean);
+for (const { file, text } of removed.filter((l) => isCI(l.file) && checked(l.file))) {
   const run = testRun(text);
   if (!run) continue;
   const i = runsAdded.indexOf(run);
