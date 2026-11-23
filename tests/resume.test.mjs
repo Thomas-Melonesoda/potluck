@@ -2,8 +2,8 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -260,21 +260,96 @@ test('publish records the head and read reports when it has moved', () => fixtur
   assert.equal(later.value.moved, true);
 }));
 
-test('a checkpoint published in the single-pointer format still reads until the folder publishes again', () => fixture(({ project, git }) => {
-  const gitDir = realpathSync(git('rev-parse', '--path-format=absolute', '--git-common-dir'));
-  const directory = join(gitDir, 'pstack', 'resume', 'legacy');
+function storeOf(git) {
+  return join(realpathSync(git('rev-parse', '--path-format=absolute', '--git-common-dir')), 'pstack', 'resume');
+}
+// Writes latest.json the way resume.mjs did before pointers were per folder and task.
+function legacyPointer(project, git, text) {
+  const store = storeOf(git);
+  const directory = join(store, `legacy-${Date.now()}`);
   mkdirSync(directory, { recursive: true });
   const legacy = join(directory, 'resume.md');
-  writeFileSync(legacy, 'Old pause.\n');
-  const note = { path: legacy, sha256: createHash('sha256').update('Old pause.\n').digest('hex') };
-  writeFileSync(join(gitDir, 'pstack', 'resume', 'latest.json'), JSON.stringify({
-    schemaVersion: 1, gitDir, worktree: project, branch: 'main', createdAt: new Date().toISOString(), note, artifacts: [],
+  writeFileSync(legacy, text);
+  const note = { path: legacy, sha256: createHash('sha256').update(text).digest('hex') };
+  writeFileSync(join(store, 'latest.json'), JSON.stringify({
+    schemaVersion: 1, gitDir: dirname(dirname(store)), worktree: project, branch: 'main', createdAt: new Date().toISOString(), note, artifacts: [],
   }) + '\n');
+  return legacy;
+}
+
+test('a checkpoint published in the single-pointer format still reads and lists until the folder publishes again', () => fixture(({ project, git }) => {
+  const legacy = legacyPointer(project, git, 'Old pause.\n');
   const old = resume('read', '--project', project);
   assert.equal(savedText(old), 'Old pause.\n');
   assert.equal(old.value.moved, null);
+  assert.deepEqual(resume('list', '--project', project).value.checkpoints.map(({ folder, task, note }) => ({ folder, task, note })), [
+    { folder: '', task: null, note: legacy },
+  ]);
   save(project, 'New pause.\n');
   assert.equal(savedText(resume('read', '--project', project)), 'New pause.\n');
+  assert.equal(resume('list', '--project', project).value.checkpoints.length, 1);
+}));
+
+test('a single-pointer checkpoint written after a folder pointer wins, as from an older plugin in another runtime', () => fixture(({ project, git }) => {
+  save(project, 'Newer plugin paused first.\n');
+  legacyPointer(project, git, 'Older plugin paused later.\n');
+  assert.equal(savedText(resume('read', '--project', project)), 'Older plugin paused later.\n');
+  save(project, 'Newer plugin paused last.\n');
+  assert.equal(savedText(resume('read', '--project', project)), 'Newer plugin paused last.\n');
+  // An older plugin reads only latest.json; once retired it reports missing instead of a stale note.
+  assert.equal(existsSync(join(storeOf(git), 'latest.json')), false);
+}));
+
+test('the head comparison follows the saved branch, not the checkout that reads it', () => fixture(({ project, git }) => {
+  const worktree = join(project, 'feature-worktree');
+  git('worktree', 'add', '-q', '-b', 'feature', worktree);
+  save(worktree, 'Paused on the feature branch.\n');
+  git('commit', '--allow-empty', '-m', 'main moves on');
+  const fromMain = resume('read', '--project', project);
+  assert.equal(fromMain.status, 0, fromMain.value.detail);
+  assert.equal(fromMain.value.moved, false);
+  assert.equal(fromMain.value.headNow, git('rev-parse', 'feature'));
+  execFileSync('git', ['-C', worktree, 'commit', '--allow-empty', '-q', '-m', 'feature moves on']);
+  assert.equal(resume('read', '--project', project).value.moved, true);
+}));
+
+test('list skips dot files in the pointer folder, where publications are written first', () => fixture(({ project, git }) => {
+  save(project, 'Done.\n');
+  writeFileSync(join(storeOf(git), 'pointers', '.unfinished.json'), '{"schemaVer');
+  const listed = resume('list', '--project', project);
+  assert.equal(listed.status, 0, listed.value.detail);
+  assert.equal(listed.value.checkpoints.length, 1);
+}));
+
+test('a pointer holding another task\'s record is refused', () => fixture(({ project, git }) => {
+  save(project, 'Task alpha.\n', '--task', 'alpha');
+  save(project, 'Task beta.\n', '--task', 'beta');
+  const pointers = join(storeOf(git), 'pointers');
+  const [first, second] = readdirSync(pointers).map(name => join(pointers, name));
+  writeFileSync(first, readFileSync(second));
+  const reads = ['alpha', 'beta'].map(task => resume('read', '--project', project, '--task', task));
+  assert.deepEqual(reads.map(({ status }) => status).sort(), [0, 1]);
+  assert.match(reads.find(({ status }) => status === 1).value.detail, /mismatch/);
+}));
+
+test('a default store that a symlink sends outside the project is refused', () => fixture(({ project, git }) => {
+  const outside = scratch('resume-outside-');
+  try {
+    symlinkSync(outside, dirname(storeOf(git)));
+    for (const operation of ['begin', 'read']) {
+      const result = resume(operation, '--project', project);
+      assert.equal(result.status, 1, operation);
+      assert.match(result.value.detail, /escapes/);
+    }
+  } finally { rmSync(outside, { recursive: true, force: true }); }
+}));
+
+const caseInsensitive = tmpdir() !== tmpdir().toUpperCase() && existsSync(tmpdir().toUpperCase());
+test.skipIf(!caseInsensitive)('a project path typed in another letter case finds the same checkpoint', () => fixture(({ project }) => {
+  save(project, 'Same folder.\n');
+  const typed = join(dirname(project), basename(project).toUpperCase());
+  assert.equal(savedText(resume('read', '--project', typed)), 'Same folder.\n');
+  assert.equal(resume('list', '--project', typed).value.checkpoints[0].folder, '');
 }));
 
 test('a bare repository is an error, not a plain folder', () => plain(folder => {
