@@ -590,6 +590,19 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([go, TEST, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
   });
 
+  test("a test moved to another runner's naming, or into a folder runners skip, still reads as deleted", () => {
+    const go = "mathx/add_test.go", py = "tests/test_math.py", js = "src/math.test.js", nm = "src/b.test.js";
+    const goText = "package mathx\n", pyText = "def test_add():\n    assert 1 + 1 == 2\n", jsText = TWO.replace("adds", "math");
+    const setup = { base: { [go]: goText, [py]: pyText, [js]: jsText, [nm]: TWO }, files: { "mathx/add.test.go": goText, "tests/math.test.py": pyText, "src/test_math.js": jsText, "node_modules/x/b.test.js": TWO }, remove: [go, py, js, nm] };
+    expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([go, nm, js, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
+  test("a CI file with a test-like name moved out of the CI paths still reads as its test step removed", () => {
+    const UNIT = ".github/workflows/unit_test.yml", step = WORKFLOW("      - run: npm test\n");
+    const r = fake({ setup: { base: { [UNIT]: step }, files: { ".github/unit_test.yml": step }, remove: [UNIT] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.sort()).toEqual([`floor: [ci-test-removed] ${UNIT}: - run: npm test`, `floor: [test-deleted] ${UNIT}: file deleted`]);
+  });
+
   test("a test renamed into another folder runners read passes", () => {
     const py = "tests/test_math.py", pyText = "def test_add():\n    assert 1 + 1 == 2\n";
     const setup = { base: { [TEST]: TWO, [py]: pyText }, files: { "src/__tests__/app.test.js": TWO, "tests/unit/test_math.py": pyText }, remove: [TEST, py] };
