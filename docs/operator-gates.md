@@ -27,7 +27,9 @@ Both files apply. For each gate the stricter value wins, so a repository's file 
 | `foreignRepos` | `"allow"`, `"ask"` | A `gh` command that writes to a repository that neither the `gh` account nor one of its organizations owns needs the user's yes first: a comment, review, issue, or pull request, an edit or state change to one, or a write through `gh api`. |
 | `askFirst` | a list of actions | The agent asks the user before each one. Items from both files apply. |
 
-Every key is optional. An unknown key or value is an error, so a typo such as `"noCi"` fails loudly instead of dropping a gate. JSON has no comments, so keep notes about the file somewhere else.
+Every key is optional. An unknown key or value, or a key given twice, is an error, so a typo such as `"noCi"` fails loudly instead of dropping a gate. JSON has no comments, so keep notes about the file somewhere else.
+
+A repository's file that cannot be parsed refuses every merge, including the PR that would fix it, because the merge gate reads the file at the PR's base as well as its head. Fix such a file on the default branch by hand, or have a person merge the fix.
 
 ## Who reads it
 

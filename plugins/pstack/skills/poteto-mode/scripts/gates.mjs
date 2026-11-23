@@ -52,8 +52,9 @@ export function parseGates(text, source) {
   }
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${source}: must be a JSON object`);
   // JSON.parse keeps a repeated key's last value, which could drop a gate.
-  // The file is one flat object, so every quoted string before a colon is a key.
-  const keys = [...text.matchAll(/"((?:[^"\\]|\\.)*)"\s*:/g)].map((m) => m[1]);
+  // The file is one flat object, so every quoted string before a colon is a
+  // key, compared as JSON decodes it, escapes included.
+  const keys = [...text.matchAll(/"((?:[^"\\]|\\.)*)"\s*:/g)].map((m) => JSON.parse(`"${m[1]}"`));
   const twice = keys.find((key, i) => keys.indexOf(key) !== i);
   if (twice !== undefined) throw new Error(`${source}: key ${JSON.stringify(twice)} appears more than once`);
   for (const [key, value] of Object.entries(raw)) {
