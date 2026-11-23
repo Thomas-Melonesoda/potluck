@@ -1,7 +1,17 @@
 #!/bin/sh
 # potluck: Claude Code's PreToolUse hook for Bash calls. git-guardrail.mjs
 # reads the call on stdin and exits 2 to block a git command that would lose
-# uncommitted or unpushed work. Without node on PATH the guardrail is off and
-# every call runs, as it did before.
+# uncommitted or unpushed work. A call it lets through goes on to
+# operator-gates.mjs, which prints an "ask" decision when the operator's gates
+# set foreignRepos to "ask" and the call runs gh in a way not proven to be a
+# read or a write to the user's own repository. That check starts node only
+# for a call that names gh or holds a quote, backslash, $, backtick, or glob
+# character ([, *, ?), the ways a command can spell gh without writing it out.
+# Without node on PATH both are off and every call runs, as it did before.
 command -v node >/dev/null 2>&1 || exit 0
-exec node "$(dirname "$0")/git-guardrail.mjs"
+input=$(cat)
+here=$(dirname "$0")
+printf '%s' "$input" | node "$here/git-guardrail.mjs" || exit $?
+case $input in
+  *gh* | *\'* | *\\* | *'$'* | *'`'* | *'['* | *'*'* | *'?'*) printf '%s' "$input" | node "$here/operator-gates.mjs" ;;
+esac

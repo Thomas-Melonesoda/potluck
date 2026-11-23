@@ -224,7 +224,7 @@ describe("the hook on a real repository", () => {
 
   test("hooks.json runs the wrapper before every Bash call on Claude Code", () => {
     const hooksJson = JSON.parse(readFileSync(join(hooks, "hooks.json"), "utf8"));
-    expect(hooksJson.hooks.PreToolUse).toEqual([{ matcher: "Bash", hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh"' }] }]);
+    expect(hooksJson.hooks.PreToolUse).toEqual([{ matcher: "Bash", hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh"', timeout: 60 }] }]);
   });
 
   test("without node on PATH the wrapper lets the call run", () => {
