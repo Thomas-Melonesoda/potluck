@@ -45,21 +45,21 @@ process.chdir(top);
 const mergeBase = git(['merge-base', base, 'HEAD'])?.trim();
 if (!mergeBase) bail('no merge base against ' + base);
 
-// Unified diff plus untracked files (git diff alone cannot see new files). A test file renamed to
-// a name its own runner still reads, with the same extension, was only renamed: it is diffed with
-// rename detection, so it shows only the lines that changed in it. Every other path is diffed
-// without, so a file renamed out of what the guard checks (a test, CI configuration,
-// CONSTRAINTS.md, plain Markdown into code) still reads as deleted and added.
+// Unified diff plus untracked files (git diff alone cannot see new files). A test file that was
+// only renamed is diffed with rename detection, so it shows only the lines that changed in it.
+// Every other path is diffed without, so a file renamed out of what the guard checks (a test, CI
+// configuration, CONSTRAINTS.md, plain Markdown into code) still reads as deleted and added.
 const isCI = (f) => /^\.github\/(workflows|actions)\/.*\.ya?ml$|^\.(circleci|buildkite|woodpecker)\/.*\.ya?ml$|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|\.woodpecker|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
-// Each runner's own default naming: Go, pytest, Jest and Vitest, XCTest, RSpec, minitest. A rename
-// keeps a test only when one of them reads both names, outside CI configuration and outside the
-// folders runners skip.
-const RUNNERS = [/_test\.go$/, /(^|\/)test_[^/]*\.py$|_test\.py$/, /\.(test|spec)\.[cm]?[jt]sx?$/, /Tests\.swift$/, /_spec\.rb$/, /(^|\/)test_[^/]*\.rb$|_test\.rb$/];
+// A test is only renamed when it stays in its folder, keeps its extension and its exact naming form
+// (*.test.js stays *.test.js, test_*.py stays test_*.py), and outside CI configuration. The folder,
+// the form, and for Go a leading _ or . or a build-constraint suffix (_windows_test.go) decide what
+// runs it, so any other rename reads as a deletion, as before.
+const FORMS = [/_test\.go$/, /(^|\/)test_[^/]*\.py$/, /_test\.py$/, /\.test\.[cm]?[jt]sx?$/, /\.spec\.[cm]?[jt]sx?$/, /Tests\.swift$/, /_spec\.rb$/, /(^|\/)test_[^/]*\.rb$/, /_test\.rb$/];
+const GO_SKIPPED = /(^|\/)[._][^/]*\.go$|_(aix|android|darwin|dragonfly|freebsd|hurd|illumos|ios|js|linux|nacl|netbsd|openbsd|plan9|solaris|wasip1|windows|zos|386|amd64|amd64p32|arm|armbe|arm64|arm64be|loong64|mips|mipsle|mips64|mips64le|mips64p32|mips64p32le|ppc|ppc64|ppc64le|riscv|riscv64|s390|s390x|sparc|sparc64|wasm)_test\.go$/;
+const folderOf = (f) => f.slice(0, f.lastIndexOf('/') + 1);
 const extOf = (f) => f.match(/\.[^./]+$/)?.[0] ?? '';
-const keepsTest = (from, to) => !isCI(from) && !isCI(to) && extOf(from) === extOf(to)
-  && !/(^|\/)(node_modules|vendor|dist|build|testdata|\.[^/]+)\//.test(to)
-  && !(extOf(to) === '.go' && /(^|\/)_[^/]*\//.test(to))
-  && RUNNERS.some((r) => r.test(from) && r.test(to));
+const keepsTest = (from, to) => !isCI(from) && !isCI(to) && folderOf(from) === folderOf(to) && extOf(from) === extOf(to)
+  && !GO_SKIPPED.test(to) && FORMS.some((r) => r.test(from) && r.test(to));
 const names = git(['diff', '-M', '--name-status', '-z', mergeBase, '--']);
 if (names === null) bail('could not diff against ' + mergeBase);
 const kept = [];
