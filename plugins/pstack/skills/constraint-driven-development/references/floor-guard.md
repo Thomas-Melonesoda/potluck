@@ -95,7 +95,7 @@ const SUPPRESSIONS = /@ts-ignore|@ts-nocheck|eslint-disable|biome-ignore|# *noqa
 // 4. Unfinished work.
 const STUBS = /throw new (Error|NotImplemented).*[Nn]ot implemented|catch\s*\(\w*\)\s*\{\s*\}|catch\s*\{\s*\}|\bTODO\b|\bpass\s*# *stub/;
 // 2. A test made easier (added skips).
-const SKIPS = /\.(skip|todo)\b|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(|\bXCTSkip/;
+const SKIPS = /\.(skip|todo)\b|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(|\bXCTSkip(?:If|Unless)?\s*\(/;
 
 for (const { file, text } of added.filter((l) => checked(l.file))) {
   if (SUPPRESSIONS.test(text)) flag('silenced-checker', file, text);
@@ -119,15 +119,17 @@ for (const { file, text } of removed) {
 }
 
 // 2d. A test step removed from CI configuration: a removed line that runs the tests, with no
-// line running the same command added back in any CI file, so a step that moved still pairs and
-// one commented out does not.
-const isCI = (f) => /^\.github\/workflows\/|^\.circleci\/|^\.buildkite\/|^\.woodpecker|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
-const TEST_RUN = /\b(?:(?:npm|pnpm|yarn|bun)(?: run)?|swift|go|cargo|mvn|gradlew?|make|dotnet|mix|rake) test[\w:-]*|\bxcodebuild\b.*\btest(?:-without-building)?(?![\w-])|\b(?:python3? -m (?:pytest|unittest)|pytest|vitest|jest|rspec|phpunit|ctest|fastlane scan)(?![\w.-])/;
+// line running the same kind of test added back in any CI file, so a step that moved still pairs
+// and one commented out does not. A step's name is not a step.
+const isCI = (f) => /^\.github\/(workflows|actions)\/.*\.ya?ml$|^\.(circleci|buildkite|woodpecker)\/.*\.ya?ml$|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|\.woodpecker|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
+const TEST_RUN = /\b(?:(?:npm|pnpm|yarn|bun)(?: run)?|swift|go|cargo|mvn|gradlew?|make|dotnet|mix|rake) test[\w:-]*|\bxcodebuild\b.*\btest(?:-without-building)?(?![\w-])|\b(?:python3? -m (?:pytest|unittest)|pytest|vitest|jest|rspec|phpunit|ctest|fastlane scan)(?![\w.-])/g;
 const testRun = (t) => {
-  if (/^\s*(#|\/\/)/.test(t)) return null;
-  const m = TEST_RUN.exec(t);
-  if (!m || /\binstall\b/.test(t.slice(0, m.index).split(/&&|\|\||[;|]/).pop())) return null;
-  return m[0].replace(/^xcodebuild\b.*/, 'xcodebuild test').replace(/^(npm|pnpm|yarn|bun) run /, '$1 ').replace(/\s+/g, ' ');
+  if (/^\s*(#|\/\/)|^\s*(-\s+)?name:/.test(t)) return null;
+  for (const m of t.matchAll(TEST_RUN)) {
+    if (/\binstall\b/.test(t.slice(0, m.index).split(/&&|\|\||[;|]/).pop())) continue;
+    return m[0].replace(/^(npm|pnpm|yarn|bun)( run)? test.*/, 'package test').replace(/^xcodebuild\b.*/, 'xcodebuild test').replace(/ test[\w:-]*$/, ' test').replace(/\s+/g, ' ');
+  }
+  return null;
 };
 const runsAdded = added.filter((l) => isCI(l.file)).map((l) => testRun(l.text)).filter(Boolean);
 for (const { file, text } of removed.filter((l) => isCI(l.file))) {
@@ -154,11 +156,14 @@ const ruleKey = (t) => {
   return null; // prose, headings, dates: not a rule
 };
 const isException = (t) => /^\| *(W|E)\d+ *\|/.test(t.trim());
-// Chinese words count too: 至少 and 不低于 read as at least, 至多 and 不超过 as at most.
-const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not drop|至少|最少|最低|不低于|不少于|不得低于|(?<![不得能])(?:高于|大于))\s*$/;
-const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed|至多|最多|最高|不超过|不高于|不得超过|不得高于|(?<![不得能])(?:低于|小于))\s*$/;
-const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop|以上|或更多|或更高|不得下降)/;
-const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed|以下|以内|或更少|或更低|不得增长|不得增加)/;
+// Chinese words count too: 至少 and 不低于 read as at least, 至多 and 不超过 as at most. Chinese has no
+// spaces, so a word after the number counts only when it follows the number and its unit directly
+// (or opens the next cell) and ends there: 以上 and 以下 also mean "the above" and "the following".
+// A bare 低于 or 高于 can state a failure as easily as a bar, so it gives no direction.
+const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not drop|至少|最少|最低|不低于|不少于|不得低于)\s*$/;
+const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed|至多|最多|最高|不超过|不高于|不得超过|不得高于)\s*$/;
+const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop)|^\s*(?:%|[a-z]+)?\s*(?:\|\s*)?(以上|或更多|或更高|不得下降)(?=$|[\s|，。；、,.;)）])/;
+const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed)|^\s*(?:%|[a-z]+)?\s*(?:\|\s*)?(以下|以内|或更少|或更低|不得增长|不得增加)(?=$|[\s|，。；、,.;)）])/;
 const thresholds = (t) => {
   const out = [], re = /\d+(?:\.\d+)?/g;
   let m;
@@ -172,16 +177,19 @@ const thresholds = (t) => {
   return out;
 };
 // 1c. Rule names are unique within each CONSTRAINTS.md this change touches, so a rule pairs with
-// one line. A table's header and separator rows are not rules.
+// one line. Only top-level bullets and table rows count: a nested bullet, a fenced example, and a
+// table's header and separator rows are not rules of their own.
 const isSeparator = (t) => t.includes('|') && /^[\s|:-]*-[\s|:-]*$/.test(t);
 for (const f of new Set([...added, ...removed].map((l) => l.file).filter(isConstraints))) {
   if (deleted.includes(f)) continue;
   let lines;
   try { lines = readFileSync(f, 'utf8').split('\n'); } catch { bail('could not read ' + f); }
   const at = new Map();
+  let fenced = false;
   lines.forEach((t, i) => {
-    const key = ruleKey(t);
-    if (key && !isSeparator(t) && !(t.trim().startsWith('|') && isSeparator(lines[i + 1] ?? ''))) at.set(key, [...(at.get(key) ?? []), i + 1]);
+    if (/^\s*(```|~~~)/.test(t)) fenced = !fenced;
+    const key = fenced || /^\s/.test(t) ? null : ruleKey(t);
+    if (key && !isSeparator(t) && !(t.startsWith('|') && isSeparator(lines[i + 1] ?? ''))) at.set(key, [...(at.get(key) ?? []), i + 1]);
   });
   for (const [key, n] of at) if (n.length > 1) flag('duplicate-rule', f, `"${key}" names ${n.length} rules (lines ${n.join(', ')}); rule names must be unique`);
 }
