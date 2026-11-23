@@ -54,6 +54,6 @@ The owner ruled on all 17 issues from stage 5 (2026-11-23). potluck's defaults k
 - Operator's gates, the merge gate reading them, a stop for comments in repositories the user does not own, and repositories with no checks on a PR.
 - Quality floor: forbidden forms in every file that runs, not only code; unique rule names; Swift tests; renames and changed assertions.
 - Git guardrail: no force push or deletion of a default or protected branch, lease or not; narrower `git add` advice; safer worktree cleanup.
-- Handoffs: one pointer per folder and task, folders outside git, the head recorded at pause, a checkpoint-and-continue mode, Chinese phrases.
+- Handoffs: done ([#35](https://github.com/Thomas-Melonesoda/potluck/pull/35), [#40](https://github.com/Thomas-Melonesoda/potluck/pull/40)). `resume.mjs` keeps one checkpoint pointer per folder and task and lists them, keeps a checkpoint for a folder outside Git in the folder or at a `--store` location, and records HEAD at each pause, so pickup rechecks the note when the branch moved. Pause safely has a checkpoint-and-keep-going mode that is not a pause, and poteto-mode and every session-start mandate route handoff requests in Chinese as well as English.
 - New projects: a starter with CI on pull requests, a pre-commit hook, and an AGENTS.md skeleton, run after grill.
 - Eval: the rank-1 floor only rises; new skills bring their own cases; routing for the three unstable skills.

@@ -2,7 +2,7 @@
 // sentence that carries it, so an edit or an upstream merge that drops one
 // fails here. Rows refer to docs/decisions.md.
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const skills = join(import.meta.dir, "../plugins/pstack/skills");
@@ -15,8 +15,13 @@ const RULES = [
   { row: "S3-A8", file: "poteto-mode/playbooks/shipping.md", phrase: "Never run `gh pr merge` yourself." },
   { row: "S3-A8", file: "poteto-mode/playbooks/shipping.md", phrase: "Never arm `--auto`" },
   { row: "S3-A11", file: "poteto-help/SKILL.md", phrase: "runs [Autopilot-stack](../poteto-mode/playbooks/autopilot-stack.md), which stacks the PRs and merges nothing." },
-  { row: "S3-C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "For every worktree in the confirmed set, clean ones included, run `node` on `skills/poteto-mode/scripts/worktree-backup.mjs`" },
-  { row: "S3-C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "Only a recorded `backed-up` or `nothing-to-back-up` result clears a worktree for step 5, and the agent then deletes it without asking." },
+  { row: "S3-C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "For every worktree in the confirmed set, clean ones included, run `node` on `skills/poteto-mode/scripts/worktree-remove.mjs`" },
+  { row: "S3-C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "It runs `worktree-backup.mjs` first" },
+  { row: "S3-C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "A recorded `removed` result is the agent's deletion, made without asking." },
+  // Stage 5 issue 6: the three safeguards on top of S3-C3.
+  { row: "S3-C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "Then it checks the backup: each backup branch exists at the commit the backup made, and the tarball holds the same files, at the same sizes, as the worktree on disk." },
+  { row: "S3-C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "Never `git worktree remove --force` or `rm -rf` a worktree, what is left of one, or a trash folder" },
+  { row: "S3-C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "It refuses any other path (the main checkout, a folder inside a worktree, anything outside every worktree)." },
   { row: "S3-C3", file: "poteto-mode/playbooks/worktree-cleanup.md", phrase: "Never push a `backup/` branch" },
   { row: "S4-G1", file: "poteto-mode/SKILL.md", phrase: "A new project, or a large feature whose intent is unclear, with the user present → **grill** first, and build to the files it writes." },
   { row: "S4-G1", file: "grill/SKILL.md", phrase: "A bug fix, a small change, or a request that is already clear skips this and goes straight to its playbook." },
@@ -44,11 +49,23 @@ const RULES = [
   { row: "S3-D2", file: "poteto-mode/playbooks/pause-safely.md", phrase: "the task's folder, inside Git or not, plus a task name when another task may checkpoint in the same folder." },
   { row: "S3-D3", file: "poteto-mode/playbooks/session-pickup.md", phrase: "If it reports missing, list the store and read the checkpoint whose folder and task match the request." },
   { row: "S3-D3", file: "poteto-mode/playbooks/session-pickup.md", phrase: "Compare the recorded head first. When it moved, the branch changed after the pause (new commits, a reset, or a deleted branch), so recheck the note's claims against that change, as step 4 does, before you rely on it." },
+  { row: "S3-D2", file: "poteto-mode/playbooks/pause-safely.md", phrase: "is not a pause, so \"keep going\" still holds. Skip step 1 and keep any subagents running." },
+  { row: "S3-D2", file: "poteto-mode/SKILL.md", phrase: "its checkpoint-and-keep-going mode serves a request to save progress or write a handoff that does not ask you to stop (存一下进度, 交接)" },
+  { row: "S3-D3", file: "poteto-mode/SKILL.md", phrase: "Session pickup serves a request to resume earlier work (接着上次做, 接手, or 接着做 at the start of a session)." },
 ];
 
 describe("potluck's ruled rules", () => {
   test.each(RULES.map((r) => [r.row, r.file, r.phrase]))("%s holds in %s", (_, file, phrase) => {
     const text = readFileSync(join(skills, file), "utf8").replace(/\s+/g, " ");
     expect(text).toContain(phrase);
+  });
+});
+
+describe("handoff requests load poteto-mode from every session-start mandate", () => {
+  const hooks = join(import.meta.dir, "../plugins/pstack/hooks");
+  const mandates = readdirSync(hooks).filter((f) => f.endsWith(".md") && readFileSync(join(hooks, f), "utf8").includes("when a task meets any of these"));
+  test("finds the mandates", () => expect(mandates.length).toBeGreaterThan(0));
+  test.each(mandates)("S3-D2, S3-D3 hold in hooks/%s", (file) => {
+    expect(readFileSync(join(hooks, file), "utf8")).toContain("- it asks to pause, hand off, save progress, or pick up earlier work, in any language (暂停一下, 交接, 存一下进度, 接着做)");
   });
 });

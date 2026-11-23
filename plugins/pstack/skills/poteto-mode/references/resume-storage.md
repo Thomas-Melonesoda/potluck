@@ -10,7 +10,7 @@ Claude Code, Codex, and other runtimes use this same command and location. Runti
 
 ## Write a checkpoint
 
-`--project` is the task's folder: the worktree for code, or a project's own folder inside a larger repository or vault. Add `--task <name>` when another task may checkpoint in the same folder, such as a second session in the same checkout, or when the user named the task. Pass the same `--project`, `--task`, and `--store` to every command below (`begin` takes no `--task`).
+`--project` is the task's folder: the worktree for code, or a project's own folder inside a larger repository or vault. Add `--task <name>` when another task may checkpoint in the same folder, such as a second session in the same checkout or in another worktree of the repository (their top folders share one pointer), or when the user named the task. Use a name of letters, digits, `.`, `_`, and `-`; Copilot asks before it runs a command with any other name. Pass the same `--project`, `--task`, and `--store` to every command below (`begin` takes no `--task`).
 
 1. Run `node <scripts>/resume.mjs begin --project <folder>` to allocate a new checkpoint directory. Write `resume.md` there with intent, verified progress, current state, and next steps.
 2. Save requested artifacts in that directory and link them from the note. Reuse existing artifacts in the project when their location survives the anticipated interruption. Do not make competing copies. For a worktree that will be removed, place the requested material in the common checkpoint store instead. Check exact wording, completeness, and order where required.
