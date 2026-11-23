@@ -12,7 +12,6 @@
 //     verified SHA
 //   - that head carries a `potluck/verdict` status of success
 //   - every other check run and commit status on that head finished green
-//     (a head with no CI passes this one)
 //   - the quality floor passes on that head (design rows D5 and A8): Addy
 //     Osmani's floor guard, taken unchanged from the synced
 //     constraint-driven-development skill, runs in a throwaway clone of the
@@ -26,14 +25,28 @@
 //   - the project's docs/overview.md is current with its sources and every
 //     ticked Done when item names its proof (grill/scripts/overview.mjs
 //     --check), when the project has those sources
+//   - no CI result at all ("no checks": the repository has no CI, or its CI
+//     does not run on pull requests) is not a failure: potluck's default
+//     merges on the verdict alone (stage 5 issues 4 and 16). It is refused
+//     while a check suite says CI is coming: an unfinished GitHub Actions
+//     suite, or one waiting for a maintainer's approval, as on a fork PR. In a
+//     repository with workflows it is also refused until GitHub has held the
+//     head for a minute (its oldest status is that old), and when the head
+//     commit asks GitHub to skip CI.
+//   - a PR with no checks is "held", merge-ready and left for a person to
+//     merge, when it changes .github/workflows/ (so silence may be its own
+//     doing), and when the operator's gates (gates.mjs) set noCI "wait" in the
+//     user's ~/.potluck/gates.json or in .potluck/gates.json at the PR's base
+//     or head.
 // It merges with `gh pr merge --squash --match-head-commit <sha>`, never
 // `--auto`, so GitHub itself refuses if the head moves after the checks, and
 // it reads the PR back to confirm the merge.
 //
-// Output is one JSON line: { kind: "merged" | "would-merge" | "refused" |
-// "unconfirmed" | "recorded", ... }. "unconfirmed" means the merge was
-// requested but not read back as merged, so it may have landed. Exit 0 on
-// merged, would-merge, or recorded; 1 on refused or unconfirmed; 2 on a usage
+// Output is one JSON line: { kind: "merged" | "would-merge" | "held" |
+// "refused" | "unconfirmed" | "recorded", ... }; a PR with no checks carries
+// checks: "none". "unconfirmed" means the merge was requested
+// but not read back as merged, so it may have landed. Exit 0 on merged,
+// would-merge, or recorded; 1 on held, refused, or unconfirmed; 2 on a usage
 // error.
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -42,6 +55,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+
+import { parseGates, REPO_FILE, strictest, userFile } from "./gates.mjs";
 
 export const CONTEXT = "potluck/verdict";
 const GREEN = new Set(["success", "neutral", "skipped"]);
@@ -122,15 +137,19 @@ export const OVERVIEW = join(dirname(fileURLToPath(import.meta.url)), "../../gri
 // The project overview (design rows R2 and R4) must match the sources grill
 // writes, and no Done when item may be ticked without its proof. A project
 // with none of those sources needs no overview and passes.
-function overviewCheck(tree, env, workflows) {
+function overviewCheck(tree, env, head) {
   const run = spawnSync(process.execPath, [OVERVIEW, "--root", tree, "--check"], { cwd: tree, env, encoding: "utf8", timeout: 120_000 });
-  if (run.status === 0) return { ok: true, reasons: [], workflows };
+  if (run.status === 0) return { ok: true, reasons: [], ...head };
   const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trim()).filter(Boolean);
   if (run.status === 1) return { ok: false, reasons: lines.map((l) => `overview: ${l}`) };
   return { ok: false, reasons: [`overview check could not run: ${lines[0] ?? `exit ${run.status ?? run.signal}`}`] };
 }
 
-// Runs the floor guard on the verified head. Returns { ok, reasons }.
+// GitHub skips push and pull_request workflows for a head commit whose message says so.
+const SKIP_CI = /\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]|^skip-checks: ?true$/im;
+
+// Runs the floor guard on the verified head. Returns { ok, reasons } and, when
+// ok, what the head says about its CI and the repository's gates files.
 export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
   let top;
   try {
@@ -216,11 +235,27 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
       }
     };
     const workflows = hasWorkflows(base) || hasWorkflows("HEAD");
+    // A PR that changes the workflows, or whose head skips CI, may be why it
+    // has no checks. The repository's gates count from the base and the head,
+    // so a PR cannot loosen the gates it is judged by.
+    const repoGates = [[base, "base"], ["HEAD", "head"]].flatMap(([rev, at]) => {
+      try {
+        return [{ source: `${REPO_FILE} at the PR's ${at}`, text: isolated(["cat-file", "blob", `${rev}:${REPO_FILE}`]) }];
+      } catch {
+        return [];
+      }
+    });
+    const head = {
+      workflows,
+      workflowsChanged: changed.some((f) => f.startsWith(".github/workflows/")),
+      skipsCI: SKIP_CI.test(isolated(["log", "-1", "--format=%B", "HEAD"])),
+      repoGates,
+    };
     const script = join(scratch, "floor-guard.mjs");
     writeFileSync(script, source);
     const run = spawnSync(process.execPath, [script, "--base", base], { cwd: tree, env: { ...env, ...attrs }, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
     const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trimEnd()).filter(Boolean);
-    if (run.status === 0) return overviewCheck(tree, env, workflows);
+    if (run.status === 0) return overviewCheck(tree, env, head);
     if (run.status === 1) {
       // The guard reads every file. Markdown other than CONSTRAINTS.md only
       // describes these moves and cannot silence a checker, so its findings
@@ -237,7 +272,7 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
         if (file === undefined) return true;
         return !/\.(md|markdown)$/i.test(file) || /(^|\/)CONSTRAINTS\.md$/.test(file);
       });
-      if (findings.length && !kept.length) return overviewCheck(tree, env, workflows);
+      if (findings.length && !kept.length) return overviewCheck(tree, env, head);
       return { ok: false, reasons: (kept.length ? kept : lines).map((l) => `floor: ${l.trim()}`) };
     }
     return { ok: false, reasons: [`floor guard could not run: ${lines[0] ?? `exit ${run.status ?? run.signal}`}`] };
@@ -249,9 +284,47 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
   }
 }
 
+// CI that has not reported a minute after GitHub first held the head is not coming.
+export const CI_START_MS = 60_000;
+
+// Why a head with no CI result, in a repository with workflows, may not count
+// as having no checks yet; null when it does.
+export function noChecksBlocker({ statuses, skipsCI }, now) {
+  const first = Math.min(...statuses.map((s) => Date.parse(s.created_at)).filter(Number.isFinite));
+  if (!(now - first >= CI_START_MS)) return "the repository has workflows, and CI may not have started yet; rerun in a minute";
+  return skipsCI ? "its head commit's message asks GitHub to skip CI; push a head without it" : null;
+}
+
+// A head with no check run or status can still have CI on its way. GitHub
+// Actions creates its suite before any run, and a fork PR's suite waits for a
+// maintainer's approval with no runs at all. Another app may queue a suite on
+// every push and never run it, so its queued suite with no runs does not count,
+// as in watch-pr/check-suites.ts.
+export function suiteBlocker(suites) {
+  for (const s of suites) {
+    const actions = s.app?.slug === "github-actions";
+    const name = actions ? "GitHub Actions" : (s.app?.name ?? s.app?.slug ?? "an app's");
+    if (s.status !== "completed") {
+      if (!actions && s.status === "queued" && !s.latest_check_runs_count) continue;
+      return `the ${name} check suite has not finished; wait for it`;
+    }
+    if (GREEN.has(s.conclusion)) continue;
+    if (s.conclusion === "action_required" && actions) return "GitHub Actions waits for a maintainer's approval to run; approve the workflows on the pull request";
+    return `the ${name} check suite concluded ${s.conclusion}`;
+  }
+  return null;
+}
+
+// The gates in force for this PR: the user's file, then the repository's at the base and the head.
+function operatorGates(repoGates) {
+  const user = userFile();
+  const layers = existsSync(user) ? [{ source: user, text: readFileSync(user, "utf8") }] : [];
+  return strictest([...layers, ...repoGates].map(({ source, text }) => ({ source, gates: parseGates(text, source) })));
+}
+
 function out(result) {
   process.stdout.write(`${JSON.stringify(result)}\n`);
-  return result.kind === "refused" || result.kind === "unconfirmed" ? 1 : 0;
+  return ["held", "refused", "unconfirmed"].includes(result.kind) ? 1 : 0;
 }
 
 function usage(message) {
@@ -308,12 +381,28 @@ function run(argv) {
     if (reasons.length) return out({ kind: "refused", repo, pr, sha, reasons });
     const guard = floor({ repo, pr, sha, view: facts.view });
     if (!guard.ok) return out({ kind: "refused", repo, pr, sha, reasons: guard.reasons });
-    // A head whose repository has CI workflows but shows no CI result yet has
-    // not been tested: CI may not have started, or may never fire. Only a
-    // repository with no workflows merges on the verdict alone.
-    const ciResults = facts.runs.length + facts.statuses.filter((s) => s.context !== CONTEXT).length;
-    if (guard.workflows && ciResults === 0) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha} yet, though the repository has workflows; wait for CI, or push again if it never started`] });
-    if (values["dry-run"]) return out({ kind: "would-merge", repo, pr, sha });
+    let gates;
+    try {
+      gates = operatorGates(guard.repoGates);
+    } catch (error) {
+      return out({ kind: "refused", repo, pr, sha, reasons: [`operator's gates could not be read: ${error.message}`] });
+    }
+    // Failed or pending checks were refused above, so a head here either has
+    // green checks or none at all.
+    const none = facts.runs.length + facts.statuses.filter((s) => s.context !== CONTEXT).length === 0;
+    if (none) {
+      const suites = pages(`repos/${repo}/commits/${sha}/check-suites?per_page=100`, "check_suites");
+      const blocker = suiteBlocker(suites) ?? (guard.workflows ? noChecksBlocker({ statuses: facts.statuses, skipsCI: guard.skipsCI }, Date.now()) : null);
+      if (blocker) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha}: ${blocker}`] });
+      const hold = guard.workflowsChanged
+        ? "the PR changes .github/workflows/, so the gate cannot tell whether CI was meant to run on it"
+        : gates.noCI === "wait"
+          ? `the operator's gates hold such a PR for a person (noCI: wait, from ${gates.from.noCI})`
+          : null;
+      if (hold) return out({ kind: "held", repo, pr, sha, checks: "none", reasons: [`no CI result on ${sha}, and ${hold}; it is merge-ready, so report it and leave the merge to a person`] });
+    }
+    const checks = none ? { checks: "none" } : {};
+    if (values["dry-run"]) return out({ kind: "would-merge", repo, pr, sha, ...checks });
     const author = values["author-email"] ? ["--author-email", values["author-email"]] : [];
     // From here the merge request may have reached GitHub, so a failure is
     // "unconfirmed", never "refused": the PR may already be merged.
@@ -328,7 +417,7 @@ function run(argv) {
     if (after.state !== "MERGED" || !after.mergeCommit?.oid || after.headRefOid !== sha) {
       return out({ kind: "unconfirmed", repo, pr, sha, reasons: [`merge not confirmed: state ${after.state}, head ${after.headRefOid}`] });
     }
-    return out({ kind: "merged", repo, pr, sha, mergeCommit: after.mergeCommit.oid });
+    return out({ kind: "merged", repo, pr, sha, ...checks, mergeCommit: after.mergeCommit.oid });
   }
 
   return usage(`unknown command ${JSON.stringify(command ?? "")}`);
