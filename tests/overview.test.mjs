@@ -181,3 +181,8 @@ describe("files that are not features", () => {
     expect(main(["--root", root, "--check"])).toBe(1);
   });
 });
+
+test("a wrapped README paragraph shows whole, and a language switcher is not the description", () => {
+  const root = project({ "README.md": "# Club\n\n**English** | [中文](README.zh-CN.md)\n\nLine one of about\ncontinues here.\n", "docs/features/a.md": "# A\n\n## Done when\n\n- [ ] x\n" });
+  expect(build(root).text).toContain("# Club: overview\n\nLine one of about\ncontinues here.\n\n1 feature;");
+});
