@@ -1,8 +1,9 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -160,4 +161,126 @@ test('rejects symlink artifacts outside the project', () => fixture(({ run }) =>
   const result = run('publish', '--note', saved.note, '--artifact', saved.artifact);
   assert.equal(result.status, 1);
   assert.match(result.value.detail, /must belong to this project/);
+}));
+
+// Stage 5 issue 11: one pointer per folder and task, plain folders, and the head recorded at pause.
+function resume(...args) {
+  const result = spawnSync('node', [cli, ...args], { encoding: 'utf8' });
+  return { status: result.status, value: JSON.parse(result.stdout) };
+}
+function scratch(prefix) {
+  return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+}
+function plain(body) {
+  const folders = [scratch('resume-plain-'), scratch('resume-plain-'), scratch('resume-store-')];
+  try { body(...folders); } finally { for (const folder of folders) rmSync(folder, { recursive: true, force: true }); }
+}
+function save(project, text, ...flags) {
+  const store = flags.includes('--store') ? flags.slice(flags.indexOf('--store'), flags.indexOf('--store') + 2) : [];
+  const begun = resume('begin', '--project', project, ...store);
+  assert.equal(begun.status, 0, begun.value.detail);
+  const note = join(begun.value.directory, 'resume.md');
+  writeFileSync(note, text);
+  const published = resume('publish', '--project', project, '--note', note, ...flags);
+  assert.equal(published.status, 0, published.value.detail);
+  return note;
+}
+function savedText(result) {
+  assert.equal(result.status, 0, result.value.detail);
+  return readFileSync(result.value.checkpoint.note.path, 'utf8');
+}
+
+test('two folders of one repository keep separate checkpoints', () => fixture(({ project }) => {
+  for (const name of ['notes-a', 'notes-b']) mkdirSync(join(project, name));
+  save(join(project, 'notes-a'), 'Folder a.\n');
+  save(join(project, 'notes-b'), 'Folder b.\n');
+  assert.equal(savedText(resume('read', '--project', join(project, 'notes-a'))), 'Folder a.\n');
+  assert.equal(savedText(resume('read', '--project', join(project, 'notes-b'))), 'Folder b.\n');
+  assert.deepEqual(resume('read', '--project', project), { status: 2, value: { kind: 'missing' } });
+}));
+
+test('two tasks in one folder keep separate checkpoints', () => fixture(({ project }) => {
+  save(project, 'Task alpha.\n', '--task', 'alpha');
+  save(project, 'Task beta.\n', '--task', 'beta');
+  assert.equal(savedText(resume('read', '--project', project, '--task', 'alpha')), 'Task alpha.\n');
+  assert.equal(savedText(resume('read', '--project', project, '--task', 'beta')), 'Task beta.\n');
+  assert.equal(resume('read', '--project', project).status, 2);
+}));
+
+test('list names every folder and task in the store, newest first', () => fixture(({ project }) => {
+  mkdirSync(join(project, 'notes-a'));
+  save(join(project, 'notes-a'), 'Folder a.\n');
+  save(project, 'Task beta.\n', '--task', 'beta');
+  const listed = resume('list', '--project', project);
+  assert.equal(listed.status, 0, listed.value.detail);
+  assert.equal(listed.value.kind, 'list');
+  assert.deepEqual(listed.value.checkpoints.map(({ folder, task }) => ({ folder, task })), [
+    { folder: '', task: 'beta' },
+    { folder: 'notes-a', task: null },
+  ]);
+}));
+
+test('a plain folder outside Git keeps its checkpoint inside the folder', () => plain(folder => {
+  writeFileSync(join(folder, 'questions.md'), 'Which errors are final?\n');
+  const begun = resume('begin', '--project', folder);
+  assert.equal(begun.status, 0, begun.value.detail);
+  assert.ok(begun.value.directory.startsWith(join(folder, '.pstack', 'resume') + sep), begun.value.directory);
+  const note = join(begun.value.directory, 'resume.md');
+  writeFileSync(note, `[Questions](${join(folder, 'questions.md')})\n`);
+  const published = resume('publish', '--project', folder, '--note', note, '--artifact', join(folder, 'questions.md'));
+  assert.equal(published.status, 0, published.value.detail);
+  const cold = resume('read', '--project', folder);
+  assert.equal(cold.status, 0, cold.value.detail);
+  assert.equal(cold.value.checkpoint.note.path, note);
+  assert.equal(readFileSync(cold.value.checkpoint.artifacts[0].path, 'utf8'), 'Which errors are final?\n');
+  assert.equal(cold.value.moved, null);
+  assert.equal(existsSync(join(folder, '.git')), false);
+}));
+
+test('plain folders can share a given store without overwriting each other', () => plain((first, second, store) => {
+  save(first, 'First folder.\n', '--store', store);
+  save(second, 'Second folder.\n', '--store', store);
+  assert.equal(savedText(resume('read', '--project', first, '--store', store)), 'First folder.\n');
+  assert.equal(savedText(resume('read', '--project', second, '--store', store)), 'Second folder.\n');
+  assert.equal(resume('list', '--project', first, '--store', store).value.checkpoints.length, 2);
+  assert.equal(existsSync(join(first, '.pstack')), false);
+}));
+
+test('publish records the head and read reports when it has moved', () => fixture(({ project, git }) => {
+  save(project, 'Paused.\n');
+  const paused = git('rev-parse', 'HEAD');
+  const same = resume('read', '--project', project);
+  assert.equal(same.status, 0, same.value.detail);
+  assert.equal(same.value.checkpoint.head, paused);
+  assert.equal(same.value.moved, false);
+  git('commit', '--allow-empty', '-m', 'Landed after the pause');
+  const later = resume('read', '--project', project);
+  assert.equal(later.value.checkpoint.head, paused);
+  assert.equal(later.value.headNow, git('rev-parse', 'HEAD'));
+  assert.equal(later.value.moved, true);
+}));
+
+test('a checkpoint published in the single-pointer format still reads until the folder publishes again', () => fixture(({ project, git }) => {
+  const gitDir = realpathSync(git('rev-parse', '--path-format=absolute', '--git-common-dir'));
+  const directory = join(gitDir, 'pstack', 'resume', 'legacy');
+  mkdirSync(directory, { recursive: true });
+  const legacy = join(directory, 'resume.md');
+  writeFileSync(legacy, 'Old pause.\n');
+  const note = { path: legacy, sha256: createHash('sha256').update('Old pause.\n').digest('hex') };
+  writeFileSync(join(gitDir, 'pstack', 'resume', 'latest.json'), JSON.stringify({
+    schemaVersion: 1, gitDir, worktree: project, branch: 'main', createdAt: new Date().toISOString(), note, artifacts: [],
+  }) + '\n');
+  const old = resume('read', '--project', project);
+  assert.equal(savedText(old), 'Old pause.\n');
+  assert.equal(old.value.moved, null);
+  save(project, 'New pause.\n');
+  assert.equal(savedText(resume('read', '--project', project)), 'New pause.\n');
+}));
+
+test('a bare repository is an error, not a plain folder', () => plain(folder => {
+  execFileSync('git', ['init', '--bare', '-q', folder]);
+  const begun = resume('begin', '--project', folder);
+  assert.equal(begun.status, 1);
+  assert.equal(begun.value.kind, 'unavailable');
+  assert.equal(existsSync(join(folder, '.pstack')), false);
 }));
