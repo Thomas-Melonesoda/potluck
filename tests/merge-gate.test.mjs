@@ -597,6 +597,15 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([go, nm, js, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
   });
 
+  test("a test renamed in its folder to a name a runner's discovery skips reads as deleted", () => {
+    const js = "src/a.test.mjs", swift = "Tests/AppTests/BTests.swift", rb = "test/a_test.rb", py = "pkg/test_math.py", py2 = "pkg/test_calc.py";
+    const pyText = "def test_add():\n    assert 1 + 1 == 2\n";
+    const base = { [js]: TWO, [swift]: "import XCTest\nfinal class BTests: XCTestCase {}\n", [rb]: "require 'minitest/autorun'\n", [py]: pyText, [py2]: pyText.replace("add", "sub") };
+    const files = { "src/.a.test.mjs": base[js], "Tests/AppTests/.BTests.swift": base[swift], "test/.a_test.rb": base[rb], "pkg/test_math-old.py": base[py], "pkg/test_calc.old.py": base[py2] };
+    const r = fake({ setup: { base, files, remove: Object.keys(base) } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.sort()).toEqual([swift, js, rb, py2, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
   test("a CI file with a test-like name moved out of the CI paths still reads as its test step removed", () => {
     const UNIT = ".github/workflows/unit_test.yml", step = WORKFLOW("      - run: npm test\n");
     const r = fake({ setup: { base: { [UNIT]: step }, files: { ".github/unit_test.yml": step }, remove: [UNIT] } }).run(...merge, "--dry-run");
