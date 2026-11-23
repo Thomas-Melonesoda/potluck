@@ -9,13 +9,18 @@
 //     on HEAD that no remote branch, other branch, or tag holds
 //   - deleting a branch (`branch -D`, `branch -d --force`) that has commits no
 //     other branch, tag, or remote holds
-// Two push rules hold even in a clean repository (stage 5 issue 5), because
-// others build on shared branches:
-//   - a force push to the default branch (the remote's HEAD, main, or master),
-//     with a lease or not
+// These rules hold even in a clean repository, because others build on
+// shared branches (stage 5 issue 5) and changes reach a default branch only
+// through a pull request that potluck's merge gate merges (stage 5 follow-up
+// issue 1, design row S3-A8):
+//   - any push to the default branch (the remote's HEAD, main, or master),
+//     forced, with a lease, or plain
 //   - deleting a remote branch (`:branch`, `--delete`, `--prune`, `--mirror`)
-// A plain push, a push with --force-with-lease (without --force beside it) to
-// any other branch, and every other command pass. During a merge, rebase,
+//   - a direct merge: `gh pr merge`, or `gh api` on a REST merge endpoint
+//     (`pulls/<n>/merge`, `repos/<o>/<r>/merges`) or with a GraphQL merge
+//     mutation; the merge gate runs gh itself, outside this hook
+// A push to any other branch, with a lease or plain, and every other command
+// pass. During a merge, rebase,
 // cherry-pick, or revert, taking one side of a conflict (`--ours`,
 // `--theirs`) passes, and a blocked call is told to finish or abort the
 // operation rather than commit, which would record conflict markers. Commands
@@ -355,7 +360,6 @@ function sharedPush(dir, args) {
   if (configured.length && (!specs.length || specs.some((s) => !s.named))) specs.push(...configured.map((word) => refspec(word, plan.force, false)));
   if (!specs.length && !plan.every && !plan.tags) specs.push({ implicit: true, force: plan.force });
   const forcesEvery = plan.every && plan.force;
-  if (!forcesEvery && !specs.some((s) => s.force || s.delete)) return null;
 
   for (const spec of specs.filter((s) => s.delete)) {
     const branch = spec.dst === "" ? current : computed(spec.dst) ? "named when the command runs" : spec.dst.includes("*") ? spec.dst : branchName(spec.dst);
@@ -394,6 +398,16 @@ function sharedPush(dir, args) {
   }
   if (forced.includes(null)) {
     return `potluck git guardrail: blocked a force push whose branch it cannot read (${known ? "the branch is computed when the command runs" : "the repository it runs in could not be read"}). A force push that may land on a default branch is blocked, so name the branch plainly (\`git push --force-with-lease origin <branch>\`); it passes when that branch is not a default branch.`;
+  }
+  const pushed = [...(plan.every ? local() : []), ...specs.filter((s) => !s.force).flatMap(writes)];
+  const landed = [...shared].find((name) => pushed.some((target) => target && covers(target, name)));
+  if (landed) {
+    return `potluck git guardrail: blocked a push to ${landed}, a default branch. Changes reach a default branch only through a pull request that potluck's merge gate merges: push to a branch of your own (\`git push -u origin <branch>\`) and open a pull request. A person can still merge on GitHub's website.`;
+  }
+  // A branch computed when the command runs is most often the current one, so
+  // it is blocked only where the current branch is a default branch.
+  if (known && pushed.includes(null) && [...shared].some((name) => covers(current, name))) {
+    return `potluck git guardrail: blocked a push whose branch is computed when the command runs while ${current}, a default branch, is checked out, since it may land there. Push from a branch of your own and name it plainly (\`git push -u origin <branch>\`).`;
   }
   return null;
 }
@@ -452,7 +466,40 @@ function namesFile(dir, path) {
   }
 }
 
+// GitHub's merge endpoints, and the GraphQL mutations that merge or queue a merge.
+const MERGE_API = /(?:^|\/)(?:repos\/[^/\s]+\/[^/\s]+\/pulls\/[^/\s]+\/merge|repos\/[^/\s]+\/[^/\s]+\/merges)(?:$|[?\s])/;
+const MERGE_MUTATION = /\b(?:mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|mergeBranch)\b/;
+
+// A gh call that merges a pull request without the merge gate.
+function directMerge(words) {
+  if (!/(^|\/)gh$/.test(words[0] ?? "")) return null;
+  const args = words.slice(1);
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "-R" || args[i] === "--repo") i++;
+    else if (!args[i].startsWith("-")) positional.push(args[i]);
+  }
+  const help = args.some((a) => a === "--help" || a === "-h");
+  if (positional[0] === "pr" && positional[1] === "merge" && !help) return "`gh pr merge`";
+  if (positional[0] !== "api") return null;
+  const method = (() => {
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "-X" || args[i] === "--method") return args[i + 1];
+      if (/^-X./.test(args[i])) return args[i].slice(2);
+      if (args[i].startsWith("--method=")) return args[i].slice(9);
+    }
+    return args.some((a) => /^-[fF]|^--(raw-)?field|^--input/.test(a)) ? "POST" : "GET";
+  })().toUpperCase();
+  if (method !== "GET" && args.some((a) => MERGE_API.test(a.replace(/^https?:\/\/[^/]+/, "")))) return "`gh api` on a merge endpoint";
+  if (args.some((a) => MERGE_MUTATION.test(a))) return "a GraphQL merge mutation";
+  return null;
+}
+
 function checkOne(words, dir) {
+  const merge = directMerge(words);
+  if (merge) {
+    return `potluck git guardrail: blocked a direct merge (${merge}). potluck merges only through its merge gate: a verifier records the verdict, then the owner runs \`node <installed plugin>/skills/poteto-mode/scripts/merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head>\`. A person can still merge on GitHub's website.`;
+  }
   const call = gitCall(words, dir);
   if (!call) return null;
   let found = risk(call);

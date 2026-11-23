@@ -47,7 +47,19 @@ codex plugin add pstack@potluck
 
 ## git 护栏
 
-在 Claude Code 里，agent 每次执行 shell 命令前，potluck 会先检查一下。仓库里有未提交的改动、未跟踪的文件，或者只有这里才有的提交时，它会拦住会弄丢这些东西的 git 命令：`reset --hard`、`clean -f`、会丢掉改动的 `checkout`、`switch` 或 `restore`、不带 `--force-with-lease` 的强推，以及删除一个提交只在它上面的分支。报错会告诉 agent 先怎么保存，所以它不用等你就能接着做。有两条 push 规则在仓库干净时也照样生效，因为共享分支上有别人的工作：不许强推默认分支（远程的默认分支、`main` 或 `master`），带不带 lease 都不行；不许删除远程分支（`git push origin :<分支>`、`--delete`、`--prune`、`--mirror`）。普通的 push，以及带 lease 强推到其他分支，都直接放行。这项检查需要电脑上有 `node`；没有的话，命令照常执行。
+在 Claude Code 和 Codex 里，agent 每次执行 shell 命令前，potluck 会先检查一下。仓库里有未提交的改动、未跟踪的文件，或者只有这里才有的提交时，它会拦住会弄丢这些东西的 git 命令：`reset --hard`、`clean -f`、会丢掉改动的 `checkout`、`switch` 或 `restore`、不带 `--force-with-lease` 的强推，以及删除一个提交只在它上面的分支。报错会告诉 agent 先怎么保存，所以它不用等你就能接着做。有几条规则在仓库干净时也照样生效：
+
+- 不许 push 到默认分支（远程的默认分支、`main` 或 `master`），普通 push、强推、带 lease 都不行。改动只能经过 pull request，由 potluck 的合并闸门合并进去。
+- 不许直接合并：`gh pr merge`，或者用 `gh api` 调 GitHub 的合并接口、发 GraphQL 合并请求。agent 只能用 `merge-gate.mjs merge` 合并，它自己调用 `gh`；你在 GitHub 网页上手动合并不受影响。
+- 不许删除远程分支（`git push origin :<分支>`、`--delete`、`--prune`、`--mirror`）。
+
+push 到其他分支，普通的或带 lease 的，都放行。这项检查需要电脑上有 `node`；没有的话，命令照常执行。
+
+它管不到的地方：
+
+- 钩子只读命令行，所以脚本文件、运行时才拼出来的命令、在别的电脑上做的合并，都拦不住。
+- 在 Codex 里，钩子要你先在 `/hooks` 里信任才会运行；Codex 也没法暂停命令来问你，所以在 Claude Code 上会问你的检查，在 Codex 上只能直接拦下。
+- 其他工具没有钩子。GitHub 套餐允许的话，可以在默认分支上开分支保护或规则集，要求提交带 `potluck/verdict` 状态，在 GitHub 那边补上这些缺口；potluck 不会在你没同意的情况下改仓库设置。
 
 ## 开始使用
 

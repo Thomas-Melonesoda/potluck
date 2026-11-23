@@ -231,7 +231,19 @@ Run `setup-pstack` to turn automatic routing on or off, change model defaults, o
 
 ## Git guardrail
 
-On Claude Code, potluck checks each shell command the agent runs before it runs. In a repository with uncommitted changes, untracked files, or commits nothing else holds, it blocks the git commands that would lose them: `reset --hard`, `clean -f`, a `checkout`, `switch`, or `restore` that discards changes, a force push without `--force-with-lease`, and deleting a branch whose commits exist nowhere else. The message tells the agent how to save the work first, so it carries on without you. Two push rules hold even in a clean repository, because others build on shared branches: no force push to the default branch (the remote's default, `main`, or `master`), with a lease or without, and no deleting a remote branch (`git push origin :<branch>`, `--delete`, `--prune`, `--mirror`). A plain push, and a push with a lease to any other branch, pass. The check needs `node` on your PATH; without it, commands run as before.
+On Claude Code and Codex, potluck checks each shell command the agent runs before it runs. In a repository with uncommitted changes, untracked files, or commits nothing else holds, it blocks the git commands that would lose them: `reset --hard`, `clean -f`, a `checkout`, `switch`, or `restore` that discards changes, a force push without `--force-with-lease`, and deleting a branch whose commits exist nowhere else. The message tells the agent how to save the work first, so it carries on without you. Some rules hold even in a clean repository:
+
+- No push to the default branch (the remote's default, `main`, or `master`), plain, forced, or with a lease. Changes reach it only through a pull request that potluck's merge gate merges.
+- No direct merge: `gh pr merge`, or `gh api` on GitHub's merge endpoints or with a GraphQL merge mutation. The agent merges only with `merge-gate.mjs merge`, which runs `gh` itself, and you can still merge on GitHub's website.
+- No deleting a remote branch (`git push origin :<branch>`, `--delete`, `--prune`, `--mirror`).
+
+A push to any other branch, plain or with a lease, passes. The check needs `node` on your PATH; without it, commands run as before.
+
+What this does not cover:
+
+- A hook reads the command line, so a script file, a command assembled at run time, or a merge from another machine gets past it.
+- On Codex the hook runs only after you trust it through `/hooks`, and Codex cannot pause a command to ask you, so checks that ask on Claude Code can only block there.
+- Other harnesses have no hook. Where your GitHub plan allows it, branch protection or a ruleset that requires the `potluck/verdict` status on the default branch closes these gaps on GitHub's side; potluck does not change repository settings without your go.
 
 ## Getting started
 
