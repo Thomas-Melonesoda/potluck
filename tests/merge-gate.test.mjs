@@ -248,6 +248,38 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons.some((l) => l.includes("[new-exception] CONSTRAINTS.md"))).toBe(true);
   });
 
+  // Step 3's template, read from the skill, so this test follows the template the skill hands out.
+  const TEMPLATE = readFileSync(join(import.meta.dir, "../plugins/pstack/skills/constraint-driven-development/SKILL.md"), "utf8")
+    .match(/^### Step 3[\s\S]*?^```markdown\n([\s\S]*?)^```$/m)[1];
+
+  test("the skill's own CONSTRAINTS.md template passes the floor, and its example exception still counts", () => {
+    const own = fake({ change: { path: "CONSTRAINTS.md", text: TEMPLATE.replace(/^\| W1 \|.*\n/m, "") } });
+    expect(own.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+    const verbatim = fake({ change: { path: "CONSTRAINTS.md", text: TEMPLATE } }).run(...merge, "--dry-run");
+    expect(verbatim.json.kind).toBe("refused");
+    expect(verbatim.json.reasons).toHaveLength(1);
+    expect(verbatim.json.reasons[0]).toStartWith("floor: [new-exception] CONSTRAINTS.md: | W1 |");
+  });
+
+  test("a rule written with a full-width colon keeps its key, so rewording it is not a removal", () => {
+    const rule = (text) => `# 约束\n\n## 底线\n\n- 测试覆盖率：${text}\n`;
+    const edit = (from, to) => fake({ change: { path: "CONSTRAINTS.md", text: rule(to) }, setup: { base: { "CONSTRAINTS.md": rule(from) } } }).run(...merge, "--dry-run");
+    expect(edit("改动的行至少 80%", "每次改动的行至少 80%").json.kind).toBe("would-merge");
+    const loosened = edit(">= 80%", ">= 70%");
+    expect(loosened.json.kind).toBe("refused");
+    expect(loosened.json.reasons).toEqual(["floor: [threshold-loosened] CONSTRAINTS.md: - 测试覆盖率：>= 80%  ->  - 测试覆盖率：>= 70%"]);
+  });
+
+  test("two rules that share a key each need a counterpart, so deleting one while editing the other is a removal", () => {
+    const bullet = "- Coverage: changed lines at least 80% covered\n";
+    const table = "| Dimension | Rule | Checked by |\n|---|---|---|\n| Coverage | Changed lines ≥ 80% covered | `vitest run --coverage` |\n";
+    const before = `# Constraints\n\n## Floor\n\n${bullet}\n## Enforced with numbers\n\n${table}`;
+    const after = before.replace(bullet, "").replace("`vitest run --coverage` |", "`vitest run --coverage` + git diff |");
+    const r = fake({ change: { path: "CONSTRAINTS.md", text: after }, setup: { base: { "CONSTRAINTS.md": before } } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons).toEqual([`floor: [rule-removed] CONSTRAINTS.md: ${bullet.trim()}`]);
+  });
+
   const TEST = "src/app.test.js";
   const ASSERT = `test("adds", () => { ${"expect"}(1 + 1).toBe(2); });\n`;
 
