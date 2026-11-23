@@ -3,6 +3,7 @@
 //
 //   node merge-gate.mjs verdict --repo <owner/repo> --sha <head> --state pass|fail [--description <text>]
 //   node merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--author-email <email>] [--dry-run]
+//   node merge-gate.mjs cosign --repo <owner/repo> --pr <number> --sha <head> --log <decision log> --evidence <pointer> [--why <text>]
 //
 // `verdict` records a verifier's result as the `potluck/verdict` commit status
 // on that exact head, so the result is a fact GitHub holds, not a comment.
@@ -21,7 +22,8 @@
 //     comment, a stub or empty catch, a new exception row. It reads every file
 //     that runs and leaves only plain .md unchecked, and CONSTRAINTS.md's own
 //     rule checks always run. A guard that cannot run refuses too. Run the gate
-//     from a checkout whose origin is the repo.
+//     from a checkout whose origin is the repo. A changed assertion passes
+//     only with the root agent's co-sign on that head for those findings.
 //   - the project's docs/overview.md is current with its sources and every
 //     ticked Done when item names its proof (grill/scripts/overview.mjs
 //     --check), when the project has those sources
@@ -42,6 +44,14 @@
 // `--auto`, so GitHub itself refuses if the head moves after the checks, and
 // it reads the PR back to confirm the merge.
 //
+// `cosign` is the root agent's step for a changed assertion (stage 5 issue
+// 17), taken once it has checked the verifier's evidence that the behavior
+// really changed. It needs a passing verdict on the head and a floor whose
+// only findings are changed assertions. It appends a row to the root agent's
+// decision log (show-me-your-work's log.sh) and records a `potluck/cosign`
+// status on the head whose description ends in a fingerprint of those
+// findings, so a new head or different findings need a new co-sign.
+//
 // Output is one JSON line: { kind: "merged" | "would-merge" | "held" |
 // "refused" | "unconfirmed" | "recorded", ... }; a PR with no checks carries
 // checks: "none". "unconfirmed" means the merge was requested
@@ -50,6 +60,7 @@
 // error.
 
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -59,6 +70,11 @@ import { parseArgs } from "node:util";
 import { parseGates, REPO_FILE, strictest, userFile } from "./gates.mjs";
 
 export const CONTEXT = "potluck/verdict";
+export const COSIGN = "potluck/cosign";
+// The only floor findings a co-sign clears. Every other finding refuses outright.
+const COSIGNABLE = /^\[assertion-(changed|moved)\] /;
+const fingerprint = (findings) => createHash("sha256").update([...findings].sort().join("\n")).digest("hex").slice(0, 16);
+export const LOG = join(dirname(fileURLToPath(import.meta.url)), "../../show-me-your-work/scripts/log.sh");
 const GREEN = new Set(["success", "neutral", "skipped"]);
 const SHA = /^[0-9a-f]{40}$/;
 
@@ -105,7 +121,7 @@ export function refusals({ view, statuses, runs }, sha) {
   else if (verdict.state !== "success") reasons.push(`${CONTEXT} is ${verdict.state} on ${sha}`);
 
   for (const [context, s] of latest) {
-    if (context === CONTEXT) continue;
+    if (context === CONTEXT || context === COSIGN) continue;
     if (s.state === "pending") reasons.push(`status ${context} is still pending`);
     else if (s.state !== "success") reasons.push(`status ${context} is ${s.state}`);
   }
@@ -148,9 +164,16 @@ function overviewCheck(tree, env, head) {
 // GitHub skips push and pull_request workflows for a head commit whose message says so.
 const SKIP_CI = /\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]|^skip-checks: ?true$/im;
 
+// The fingerprint a passing co-sign on the head names, or null.
+function cosignOf(statuses) {
+  const s = latestByContext(statuses).get(COSIGN);
+  return s?.state === "success" ? (s.description?.match(/\b([0-9a-f]{16})$/)?.[1] ?? null) : null;
+}
+
 // Runs the floor guard on the verified head. Returns { ok, reasons } and, when
-// ok, what the head says about its CI and the repository's gates files.
-export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
+// ok, what the head says about its CI and the repository's gates files; plus
+// `cosign`, the findings' fingerprint, when a co-sign could clear them all.
+export function floor({ repo, pr, sha, view, cosigned = null, cwd = process.cwd() }) {
   let top;
   try {
     top = gitIn(cwd, ["rev-parse", "--show-toplevel"]).trim();
@@ -180,8 +203,9 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
   // The guard runs in a throwaway clone that shares the checkout's objects but
   // none of its config, hooks, or worktrees, with global and system config off.
   // Attributes come from the base commit, so a PR's own .gitattributes cannot
-  // mark files -diff or binary; renames are off, so a renamed test file shows
-  // as deleted; colour and path quoting are off, so the guard reads plain names.
+  // mark files -diff or binary; renames are off by default, and the guard asks
+  // for them only where a test file kept a name its runner reads; colour and
+  // path quoting are off, so the guard reads plain names.
   // Variables that would point git elsewhere or swap its diff are dropped.
   const inherited = Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|EXTERNAL_DIFF|DIFF_OPTS|ATTR_SOURCE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|CONFIG.*|NAMESPACE|CEILING_DIRECTORIES|COMMON_DIR)$/.test(k)),
@@ -257,8 +281,10 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
     const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trimEnd()).filter(Boolean);
     if (run.status === 0) return overviewCheck(tree, env, head);
     if (run.status === 1) {
-      const findings = lines.filter((l) => /^\[[a-z-]+\] /.test(l.trim()));
-      return { ok: false, reasons: (findings.length ? findings : lines).map((l) => `floor: ${l.trim()}`) };
+      const findings = lines.map((l) => l.trim()).filter((l) => /^\[[a-z-]+\] /.test(l));
+      const cosign = findings.length && findings.every((f) => COSIGNABLE.test(f)) ? fingerprint(findings) : null;
+      if (cosign && cosign === cosigned) return overviewCheck(tree, env, head);
+      return { ok: false, cosign, reasons: (findings.length ? findings : lines).map((l) => `floor: ${l.trim()}`) };
     }
     return { ok: false, reasons: [`floor guard could not run: ${lines[0] ?? `exit ${run.status ?? run.signal}`}`] };
   } catch (error) {
@@ -313,7 +339,7 @@ function out(result) {
 }
 
 function usage(message) {
-  process.stderr.write(`${message}\nusage: merge-gate.mjs verdict --repo <owner/repo> --sha <head> --state pass|fail [--description <text>]\n       merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--author-email <email>] [--dry-run]\n`);
+  process.stderr.write(`${message}\nusage: merge-gate.mjs verdict --repo <owner/repo> --sha <head> --state pass|fail [--description <text>]\n       merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--author-email <email>] [--dry-run]\n       merge-gate.mjs cosign --repo <owner/repo> --pr <number> --sha <head> --log <decision log> --evidence <pointer> [--why <text>]\n`);
   return 2;
 }
 
@@ -341,6 +367,9 @@ function run(argv) {
         description: { type: "string" },
         "author-email": { type: "string" },
         "dry-run": { type: "boolean" },
+        log: { type: "string" },
+        evidence: { type: "string" },
+        why: { type: "string" },
       },
     }));
   } catch (error) {
@@ -358,13 +387,37 @@ function run(argv) {
     return out({ kind: "recorded", repo, sha, state });
   }
 
+  if (command === "cosign") {
+    if (!/^\d+$/.test(values.pr ?? "")) return usage("--pr must be a number");
+    if (!values.log || !values.evidence) return usage("--log and --evidence are required");
+    const pr = Number(values.pr);
+    const facts = readFacts(repo, pr, sha);
+    if (latestByContext(facts.statuses).get(CONTEXT)?.state !== "success") {
+      return out({ kind: "refused", repo, pr, sha, reasons: [`no passing ${CONTEXT} on ${sha}: a co-sign checks the verifier's evidence, so the verifier comes first`] });
+    }
+    const guard = floor({ repo, pr, sha, view: facts.view });
+    if (guard.ok) return out({ kind: "refused", repo, pr, sha, reasons: ["the floor passes on this head, so there is nothing to co-sign"] });
+    if (!guard.cosign) return out({ kind: "refused", repo, pr, sha, reasons: ["a co-sign clears only changed assertions, moved ones included, and these findings refuse on their own", ...guard.reasons] });
+    const n = guard.reasons.length;
+    const what = `${n} changed assertion${n === 1 ? "" : "s"}`;
+    const row = [LOG, values.log, "cosign", `co-signed ${what} on ${repo}#${pr} at ${sha}`, values.why ?? "the verifier's evidence shows the behavior changed", values.evidence, `${COSIGN} ${guard.cosign}`];
+    const logged = spawnSync("bash", row, { encoding: "utf8", timeout: 60_000 });
+    if (logged.status !== 0) return out({ kind: "refused", repo, pr, sha, reasons: [`could not write the decision log: ${String(logged.stderr || logged.error || "").trim().split("\n")[0]}`] });
+    gh(["api", "--method", "POST", `repos/${repo}/statuses/${sha}`, "-f", "state=success", "-f", `context=${COSIGN}`, "-f", `description=co-signed ${what} ${guard.cosign}`]);
+    return out({ kind: "recorded", repo, pr, sha, cosign: guard.cosign });
+  }
+
   if (command === "merge") {
     if (!/^\d+$/.test(values.pr ?? "")) return usage("--pr must be a number");
     const pr = Number(values.pr);
     const facts = readFacts(repo, pr, sha);
     const reasons = refusals(facts, sha);
     if (reasons.length) return out({ kind: "refused", repo, pr, sha, reasons });
-    const guard = floor({ repo, pr, sha, view: facts.view });
+    const guard = floor({ repo, pr, sha, view: facts.view, cosigned: cosignOf(facts.statuses) });
+    if (guard.cosign) {
+      const hint = `a changed or moved assertion needs the root agent's co-sign: it checks the verifier's evidence that the behavior changed and that the new form is no weaker, then runs merge-gate.mjs cosign --repo ${repo} --pr ${pr} --sha ${sha} --log <its decision log> --evidence <where the evidence is>`;
+      return out({ kind: "refused", repo, pr, sha, reasons: [...guard.reasons, hint] });
+    }
     if (!guard.ok) return out({ kind: "refused", repo, pr, sha, reasons: guard.reasons });
     let gates;
     try {
@@ -374,7 +427,7 @@ function run(argv) {
     }
     // Failed or pending checks were refused above, so a head here either has
     // green checks or none at all.
-    const none = facts.runs.length + facts.statuses.filter((s) => s.context !== CONTEXT).length === 0;
+    const none = facts.runs.length + facts.statuses.filter((s) => s.context !== CONTEXT && s.context !== COSIGN).length === 0;
     if (none) {
       const suites = pages(`repos/${repo}/commits/${sha}/check-suites?per_page=100`, "check_suites");
       const blocker = suiteBlocker(suites) ?? (guard.workflows ? noChecksBlocker({ statuses: facts.statuses, skipsCI: guard.skipsCI }, Date.now()) : null);

@@ -59,6 +59,28 @@ test("the floor guard's code is the one js block in the synced floor-guard.md", 
   expect(() => guardSource(join(import.meta.dir, "merge-gate.test.mjs"))).toThrow("expected one");
 });
 
+// Stage 5 issue 17, standalone: a renamed test does not hide an untracked file left at its old path.
+test("the guard on its own still reads an untracked file at a renamed test's old path", () => {
+  const dir = mkdtempSync(join(tmpdir(), "potluck-guard-")), out = mkdtempSync(join(tmpdir(), "potluck-guard-script-"));
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" };
+  const g = (...args) => execFileSync("git", ["-C", dir, ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
+  try {
+    g("init", "-q", "-b", "main");
+    mkdirSync(join(dir, "t"));
+    writeFileSync(join(dir, "t/a.test.js"), `test("a", () => { ${"expect"}(1).toBe(1); });\n`);
+    g("add", "."), g("commit", "-q", "-m", "base");
+    g("mv", "t/a.test.js", "t/b.test.js");
+    writeFileSync(join(dir, "t/a.test.js"), `test.${"skip"}("a", () => {});\n`);
+    writeFileSync(join(out, "guard.mjs"), guardSource());
+    const r = spawnSync(process.execPath, [join(out, "guard.mjs"), "--base", "main"], { cwd: dir, env, encoding: "utf8" });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("[test-made-easier] t/a.test.js:");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
 // Stage 5 issue 1: widening what the floor leaves unchecked loosens it, so the
 // list is pinned here and each type on it must be named in the guard's register entry.
 test("only plain .md goes unchecked, and the register entry names each unchecked type", () => {
@@ -102,11 +124,11 @@ describe("merge-gate CLI against a fake gh", () => {
     git(work, "switch", "-q", "-c", "feature");
     mkdirSync(join(work, change.path, ".."), { recursive: true });
     writeFileSync(join(work, change.path), change.text);
+    for (const path of remove) git(work, "rm", "-q", path);
     for (const [path, text] of Object.entries(files)) {
       mkdirSync(join(work, path, ".."), { recursive: true });
       writeFileSync(join(work, path), text);
     }
-    for (const path of remove) git(work, "rm", "-q", path);
     if (move) git(work, "mv", move[0], move[1]);
     git(work, "add", ".");
     git(work, "commit", "-q", "-m", message);
@@ -164,7 +186,13 @@ else if (line.includes("POST")) process.stdout.write("{}");
       f.view = { ...f.view, ...over };
       writeFileSync(join(dir, "fixture.json"), JSON.stringify(f));
     };
-    return { run, runAt, calls, head, work: repoDir.work, setView };
+    // Lists a status first, the way GitHub lists the newest.
+    const addStatus = (status) => {
+      const f = JSON.parse(readFileSync(join(dir, "fixture.json"), "utf8"));
+      f.statuses = [status, ...f.statuses];
+      writeFileSync(join(dir, "fixture.json"), JSON.stringify(f));
+    };
+    return { run, runAt, calls, head, work: repoDir.work, setView, addStatus, dir };
   }
   // Stands for the fixture's PR head in a command line.
   const SHA = "<head>";
@@ -545,6 +573,188 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons.some((l) => l.includes("[test-deleted] src/app.test.js"))).toBe(true);
   });
 
+  // Stage 5 issue 17: a renamed test is only renamed, and a changed assertion waits for the root
+  // agent's co-sign instead of refusing outright.
+  const TWO = `test("adds", () => {\n  ${"expect"}(1 + 1).toBe(2);\n  ${"expect"}(2 + 2).toBe(4);\n});\n`;
+
+  test("a test file renamed to another test name passes", () => {
+    const { run } = fake({ setup: { base: { [TEST]: TWO }, move: [TEST, "src/sum.test.js"] } });
+    expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a renamed test file's old skip does not read as new", () => {
+    const { run } = fake({ setup: { base: { [TEST]: `${TWO}test.${"skip"}("later", () => {});\n` }, move: [TEST, "src/sum.test.js"] } });
+    expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a test renamed with edits was not only renamed, so it reads as deleted, as on main", () => {
+    const fewer = TWO.replace(`  ${"expect"}(2 + 2).toBe(4);\n`, "");
+    const { run } = fake({ setup: { base: { [TEST]: TWO }, files: { [TEST]: fewer }, move: [TEST, "src/sum.test.js"] } });
+    expect(run(...merge, "--dry-run").json.reasons).toEqual([`floor: [test-deleted] ${TEST}: file deleted`]);
+  });
+
+  test("a rename that changes the content, or drops one of two naming forms, reads as deleted", () => {
+    const py = "pkg/test_math_test.py", rb = "test/test_user_test.rb", js = "src/a.test.js";
+    const pyText = "def test_add():\n    assert 1 + 1 == 2\n", rbText = "require 'minitest/autorun'\n";
+    const setup = { base: { [py]: pyText, [rb]: rbText, [js]: TWO }, files: { "pkg/math_test.py": pyText, "test/user_test.rb": rbText, "src/b.test.js": `${TWO}// renamed\n` }, remove: [py, rb, js] };
+    expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([py, rb, js].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
+  });
+
+  test("a CONSTRAINTS.md renamed away reads as every rule removed", () => {
+    const bar = "# Constraints\n\n- Coverage: changed lines at least 80% covered\n";
+    const { run } = fake({ setup: { base: { "CONSTRAINTS.md": bar }, move: ["CONSTRAINTS.md", "old-rules.md"] } });
+    expect(run(...merge, "--dry-run").json.reasons).toEqual(["floor: [rule-removed] CONSTRAINTS.md: - Coverage: changed lines at least 80% covered"]);
+  });
+
+  test("an assertion moved within its test file waits for the co-sign too", () => {
+    const swapped = `test("adds", () => {\n  ${"expect"}(2 + 2).toBe(4);\n  ${"expect"}(1 + 1).toBe(2);\n});\n`;
+    const r = fake({ setup: { base: { [TEST]: TWO }, files: { [TEST]: swapped } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons[0]).toStartWith(`floor: [assertion-moved] ${TEST}: `);
+    expect(r.json.reasons.at(-1)).toContain("needs the root agent's co-sign");
+  });
+
+  test("a test renamed to a name no runner picks up still reads as deleted", () => {
+    const go = "mathx/add_test.go", py = "tests/test_math.py", pyText = "def test_add():\n    assert 1 + 1 == 2\n";
+    const setup = { base: { [TEST]: TWO, [go]: "package mathx\n", [py]: pyText }, files: { "src/app.test.js.disabled": TWO, "mathx/testdata/add_test.go": "package mathx\n", "tests/latest_math.py": pyText }, remove: [TEST, go, py] };
+    expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([go, TEST, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
+  test("a test moved to another runner's naming, or into a folder runners skip, still reads as deleted", () => {
+    const go = "mathx/add_test.go", py = "tests/test_math.py", js = "src/math.test.js", nm = "src/b.test.js";
+    const goText = "package mathx\n", pyText = "def test_add():\n    assert 1 + 1 == 2\n", jsText = TWO.replace("adds", "math");
+    const setup = { base: { [go]: goText, [py]: pyText, [js]: jsText, [nm]: TWO }, files: { "mathx/add.test.go": goText, "tests/math.test.py": pyText, "src/test_math.js": jsText, "node_modules/x/b.test.js": TWO }, remove: [go, py, js, nm] };
+    expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([go, nm, js, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
+  test("a test renamed in its folder to a name a runner's discovery skips reads as deleted", () => {
+    const js = "src/a.test.mjs", swift = "Tests/AppTests/BTests.swift", rb = "test/a_test.rb", py = "pkg/test_math.py", py2 = "pkg/test_calc.py";
+    const pyText = "def test_add():\n    assert 1 + 1 == 2\n";
+    const base = { [js]: TWO, [swift]: "import XCTest\nfinal class BTests: XCTestCase {}\n", [rb]: "require 'minitest/autorun'\n", [py]: pyText, [py2]: pyText.replace("add", "sub") };
+    const files = { "src/.a.test.mjs": base[js], "Tests/AppTests/.BTests.swift": base[swift], "test/.a_test.rb": base[rb], "pkg/test_math-old.py": base[py], "pkg/test_calc.old.py": base[py2] };
+    const r = fake({ setup: { base, files, remove: Object.keys(base) } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.sort()).toEqual([swift, js, rb, py2, py].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
+  });
+
+  test("a rename git scores R100 whose content still changed reads as deleted", () => {
+    const before = `test("t", () => {\n  ${"expect"}(1 + 1).toBe(3);\n  return;\n});\n`;
+    const after = `test("t", () => {\n  return;\n  ${"expect"}(1 + 1).toBe(3);\n});\n`;
+    const r = fake({ setup: { base: { "src/a.test.js": before }, files: { "src/b.test.js": after }, remove: ["src/a.test.js"] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual(["floor: [test-deleted] src/a.test.js: file deleted"]);
+  });
+
+  test("a folder at a renamed test's old path is still read", () => {
+    const r = fake({ setup: { base: { "src/a.test.js": TWO }, files: { "src/b.test.js": TWO, "src/a.test.js/x.ts": `// @ts-${"ignore"}\nexport const x = 1;\n` }, remove: ["src/a.test.js"] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [silenced-checker] src/a.test.js/x.ts: // @ts-${"ignore"}`]);
+  });
+
+  test("a rename that changes what any runner's default naming reads reads as deleted", () => {
+    const js = "src/test-foo.spec.js", py = "pkg/testing_test.py", rb = "test/testing_test.rb";
+    const base = { [js]: TWO, [py]: "def test_add():\n    assert 1 + 1 == 2\n", [rb]: "require 'minitest/autorun'\n" };
+    const files = { "src/foo.spec.js": base[js], "pkg/foo_test.py": base[py], "test/foo_test.rb": base[rb] };
+    const r = fake({ setup: { base, files, remove: Object.keys(base) } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.sort()).toEqual([py, js, rb].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
+  });
+
+  test("a rename minitest or test-unit stops reading, or one that orphans a snapshot, reads as deleted", () => {
+    const rb = "test/test_parser.rb", rb2 = "test/test_lexer.rb", js = "src/foo.test.js";
+    const base = { [rb]: "require 'minitest/autorun'\n", [rb2]: "require 'minitest/autorun' # lexer\n", [js]: TWO, "src/__snapshots__/foo.test.js.snap": "exports[`adds 1`] = `2`;\n" };
+    const files = { "test/testparser.rb": base[rb], "test/test-lexer.rb": base[rb2], "src/bar.test.js": TWO };
+    const r = fake({ setup: { base, files, remove: [rb, rb2, js] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.sort()).toEqual([js, rb2, rb].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
+  });
+
+  test("a CI file with a test-like name moved out of the CI paths still reads as its test step removed", () => {
+    const UNIT = ".github/workflows/unit_test.yml", step = WORKFLOW("      - run: npm test\n");
+    const r = fake({ setup: { base: { [UNIT]: step }, files: { ".github/unit_test.yml": step }, remove: [UNIT] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.sort()).toEqual([`floor: [ci-test-removed] ${UNIT}: - run: npm test`, `floor: [test-deleted] ${UNIT}: file deleted`]);
+  });
+
+  test("a test moved to another folder reads as deleted, as on main, since the folder decides what runs it", () => {
+    const swift = "Tests/AppTests/MathTests.swift", rb = "test/test_user.rb";
+    const swiftText = "import XCTest\nfinal class MathTests: XCTestCase {}\n", rbText = "require 'minitest/autorun'\n";
+    const setup = { base: { [TEST]: TWO, [swift]: swiftText, [rb]: rbText }, files: { "src/__tests__/app.test.js": TWO, "Archive/MathTests.swift": swiftText, "lib/test_user.rb": rbText }, remove: [TEST, swift, rb] };
+    expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([swift, TEST, rb].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
+  test("a test renamed in its folder to a name Go skips, or to another naming form, reads as deleted", () => {
+    const go = "mathx/add_test.go", sub = "mathx/sub_test.go", py = "tests/test_math.py", js = "src/math.test.js";
+    const goText = "package mathx\n", pyText = "def test_add():\n    assert 1 + 1 == 2\n", jsText = TWO.replace("adds", "math");
+    const setup = { base: { [go]: goText, [sub]: "package mathx // sub\n", [py]: pyText, [js]: jsText }, files: { "mathx/_add_test.go": goText, "mathx/sub_windows_test.go": "package mathx // sub\n", "tests/math_test.py": pyText, "src/math.spec.js": jsText }, remove: [go, sub, py, js] };
+    expect(fake({ setup }).run(...merge, "--dry-run").json.reasons.sort()).toEqual([go, sub, js, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
+  test("a CI file renamed out of the CI paths still reads as its test step removed", () => {
+    const step = WORKFLOW("      - run: npm test\n");
+    const r = fake({ setup: { base: { [CI]: step }, files: { ".github/ci.yml.off": step }, remove: [CI] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [ci-test-removed] ${CI}: - run: npm test`]);
+  });
+
+  test("a Markdown file renamed into code brings its forbidden forms with it", () => {
+    const text = `// @ts-${"ignore"}\nexport const x = 1;\n`;
+    const r = fake({ setup: { base: { "docs/snippet.md": text }, files: { "src/snippet.ts": text }, remove: ["docs/snippet.md"] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [silenced-checker] src/snippet.ts: // @ts-${"ignore"}`]);
+  });
+
+  test("an assertion commented out is removed, not changed", () => {
+    const off = TWO.replace(`  ${"expect"}(2 + 2)`, `  // ${"expect"}(2 + 2)`);
+    const r = fake({ setup: { base: { [TEST]: TWO }, files: { [TEST]: off } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [assertion-removed] ${TEST}: ${"expect"}(2 + 2).toBe(4);`]);
+  });
+
+  const CHANGED = TWO.replace("toBe(4)", "toBe(5)");
+  const changed = (over = {}) => fake({ ...over, setup: { base: { [TEST]: TWO }, files: { [TEST]: CHANGED } } });
+  const FINDING = `floor: [assertion-changed] ${TEST}: ${"expect"}(2 + 2).toBe(4);  ->  ${"expect"}(2 + 2).toBe(5);`;
+  const cosign = (gate) => ["cosign", "--repo", "o/r", "--pr", "7", "--sha", SHA, "--log", join(gate.dir, "decisions.tsv"), "--evidence", "verifier report: sums now round up"];
+
+  test("a changed assertion is refused until the root agent co-signs it", () => {
+    const r = changed().run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toBe(FINDING);
+    expect(r.json.reasons[1]).toContain("needs the root agent's co-sign");
+  });
+
+  test("the co-sign is a status on the head and a row in the root agent's decision log, and it clears those findings", () => {
+    const gate = changed();
+    const r = gate.run(...cosign(gate));
+    expect(r.json.kind).toBe("recorded");
+    const post = gate.calls().find((a) => a.includes("POST"));
+    expect(post).toContain("context=potluck/cosign");
+    const description = post.find((a) => a.startsWith("description=")).slice("description=".length);
+    expect(description).toBe(`co-signed 1 changed assertion ${r.json.cosign}`);
+    const rows = readFileSync(join(gate.dir, "decisions.tsv"), "utf8").trim().split("\n").map((l) => l.split("\t"));
+    expect(rows[0]).toEqual(["ts", "phase", "decision", "why", "evidence", "result"]);
+    expect(rows[1].slice(1)).toEqual(["cosign", `co-signed 1 changed assertion on o/r#7 at ${gate.head}`, "the verifier's evidence shows the behavior changed", "verifier report: sums now round up", `potluck/cosign ${r.json.cosign}`]);
+    gate.addStatus({ context: "potluck/cosign", state: "success", description });
+    expect(gate.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  }, 20_000);
+
+  test("a co-sign of other findings does not clear these", () => {
+    const gate = changed();
+    gate.addStatus({ context: "potluck/cosign", state: "success", description: "co-signed 1 changed assertion 0123456789abcdef" });
+    expect(gate.run(...merge, "--dry-run").json.reasons[0]).toBe(FINDING);
+  });
+
+  test("a co-sign cannot clear a removed assertion", () => {
+    const gate = fake({ setup: { base: { [TEST]: TWO }, files: { [TEST]: TWO.replace(`  ${"expect"}(2 + 2).toBe(4);\n`, "") } } });
+    const r = gate.run(...cosign(gate));
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("clears only changed assertions");
+    expect(gate.calls().some((a) => a.includes("POST"))).toBe(false);
+  });
+
+  test("a co-sign waits for the verifier's verdict", () => {
+    const gate = changed({ statuses: [] });
+    const r = gate.run(...cosign(gate));
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("no passing potluck/verdict");
+  });
+
+  test("a co-sign is not a CI result", () => {
+    const gate = fake({ runs: [], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" } } });
+    gate.addStatus({ context: "potluck/cosign", state: "success", description: "co-signed 1 changed assertion 0123456789abcdef" });
+    expect(gate.run(...merge, "--dry-run").json.reasons[0]).toContain("no CI result on");
+  });
+
   test("a colon in a code file's name does not make its finding look like Markdown", () => {
     const { run } = fake({ change: { path: "src/x.md:y.js", text: `// eslint-${"disable"}\nexport {};\n` } });
     const r = run(...merge, "--dry-run");
@@ -811,6 +1021,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
     [["merge", "--repo", "o/r", "--pr", "7", "--sha", "abc"], "--sha must be a full"],
     [["merge", "--repo", "nope", "--pr", "7", "--sha", sha], "--repo must be owner/repo"],
     [["verdict", "--repo", "o/r", "--sha", sha, "--state", "maybe"], "--state must be pass or fail"],
+    [["cosign", "--repo", "o/r", "--pr", "7", "--sha", sha], "--log and --evidence are required"],
     [["land", "--repo", "o/r", "--sha", sha], 'unknown command "land"'],
   ])("usage error %#", (args, message) => {
     const { run } = fake();

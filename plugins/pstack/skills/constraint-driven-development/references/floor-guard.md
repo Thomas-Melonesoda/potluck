@@ -45,11 +45,52 @@ process.chdir(top);
 const mergeBase = git(['merge-base', base, 'HEAD'])?.trim();
 if (!mergeBase) bail('no merge base against ' + base);
 
-// Unified diff plus untracked files (git diff alone cannot see new files).
-const tracked = git(['diff', '--unified=0', mergeBase, '--']);
-if (tracked === null) bail('could not diff against ' + mergeBase);
+// Unified diff plus untracked files (git diff alone cannot see new files), without rename
+// detection, so a renamed file reads as deleted and added. The two paths of a test file that was
+// only renamed (below) are dropped from it by name.
+const isCI = (f) => /^\.github\/(workflows|actions)\/.*\.ya?ml$|^\.(circleci|buildkite|woodpecker)\/.*\.ya?ml$|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|\.woodpecker|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
+// A test is only renamed when its blob is unchanged (git's similarity score alone is not enough: it
+// rates reordered lines 100%), it stays in its folder with its extension and a plain name, it is not
+// CI configuration, and the new name changes no listed runner's default discovery: every pattern
+// below reads both names or neither. For Go, a name go test skips also fails, and a test whose
+// snapshot is keyed by its old name (Jest, Vitest, Bun, node --test) is not only renamed: under the
+// new name the runner writes a fresh snapshot.
+const DISCOVERY = [
+  /\.test\.[cm]?[jt]sx?$/, /\.spec\.[cm]?[jt]sx?$/, /_test\.[cm]?[jt]sx?$/, /-test\.[cm]?[jt]sx?$/, /_spec\.[cm]?[jt]sx?$/,
+  /^test-.*\.[cm]?[jt]sx?$/, /^test\.[cm]?[jt]sx?$/, // Jest, Vitest, node --test, Bun, Deno, AVA
+  /^test_.*\.py$/, /_test\.py$/, /^test.*\.py$/, // pytest, unittest
+  /_test\.go$/, /Tests\.swift$/, // go test, XCTest
+  /^test.*\.rb$/, /^test_.*\.rb$/, /^test[_-].+\.rb$/, /_test\.rb$/, /[_-]test\.rb$/, /_spec\.rb$/, // rake, minitest, test-unit, rails, RSpec
+  /\.cy\.[cm]?[jt]sx?$/, // Cypress
+];
+const GO_SKIPPED = /^[._].*\.go$|_(aix|android|darwin|dragonfly|freebsd|hurd|illumos|ios|js|linux|nacl|netbsd|openbsd|plan9|solaris|wasip1|windows|zos|386|amd64|amd64p32|arm|armbe|arm64|arm64be|loong64|mips|mipsle|mips64|mips64le|mips64p32|mips64p32le|ppc|ppc64|ppc64le|riscv|riscv64|s390|s390x|sparc|sparc64|wasm)_test\.go$/;
+const folderOf = (f) => f.slice(0, f.lastIndexOf('/') + 1);
+const nameOf = (f) => f.slice(f.lastIndexOf('/') + 1);
+const extOf = (f) => f.match(/\.[^./]+$/)?.[0] ?? '';
+// A plain name: a letter or digit first, then letters, digits, _ and - (no - for Python, whose module
+// names cannot hold one), and no dot beyond .test or .spec and the extension.
+const plainName = (f) => {
+  const stem = nameOf(f).slice(0, nameOf(f).length - extOf(f).length).replace(/\.(test|spec)$/, '');
+  return extOf(f) === '.py' ? /^[A-Za-z_]\w*$/.test(stem) : /^[A-Za-z0-9][\w-]*$/.test(stem);
+};
+const keepsTest = (from, to) => !isCI(from) && !isCI(to) && folderOf(from) === folderOf(to) && extOf(from) === extOf(to)
+  && plainName(to) && !GO_SKIPPED.test(nameOf(to))
+  && DISCOVERY.some((r) => r.test(nameOf(from))) && DISCOVERY.every((r) => r.test(nameOf(from)) === r.test(nameOf(to)));
 const untrackedFiles = git(['ls-files', '--others', '--exclude-standard']);
 if (untrackedFiles === null) bail('could not list untracked files');
+const raw = git(['diff', '--raw', '-M', '-z', '--no-abbrev', mergeBase, '--']);
+if (raw === null) bail('could not diff against ' + mergeBase);
+const kept = new Set();
+for (let i = 0, t = raw.split('\0'); i < t.length - 1;) {
+  const [, , blobFrom, blobTo, status] = t[i++].split(' ');
+  if (!/^[RC]/.test(status)) { i++; continue; }
+  const from = t[i++], to = t[i++];
+  const snapshot = [folderOf(from) + '__snapshots__/' + nameOf(from) + '.snap', from + '.snapshot'].some((f) => git(['cat-file', '-e', mergeBase + ':' + f]) !== null);
+  const reused = untrackedFiles.split('\n').includes(from);
+  if (status[0] === 'R' && blobFrom === blobTo && !/^0+$/.test(blobTo) && keepsTest(from, to) && !snapshot && !reused) kept.add(from).add(to);
+}
+const tracked = git(['diff', '--unified=0', '--no-renames', mergeBase, '--']);
+if (tracked === null) bail('could not diff against ' + mergeBase);
 const untracked = untrackedFiles.split('\n').filter(Boolean).map((f) => {
   const d = git(['diff', '--no-index', '--unified=0', '/dev/null', f], { diffExit: true });
   if (d === null) bail('could not diff untracked file ' + f);
@@ -72,15 +113,16 @@ for (const line of diff.split('\n')) {
     else if (line.startsWith('+++ ')) {
       const newFile = pathOf(line.slice(4));
       file = newFile === '/dev/null' ? oldFile : newFile;
-      if (newFile === '/dev/null') deleted.push(file);
+      if (newFile === '/dev/null' && !kept.has(file)) deleted.push(file);
     }
   }
+  else if (kept.has(file)) continue;
   else if (line.startsWith('+')) added.push({ file, text: line.slice(1) });
   else if (line.startsWith('-')) removed.push({ file, text: line.slice(1) });
 }
 
 const findings = [];
-const flag = (rule, f, text) => findings.push({ rule, file: f, text: text.trim().slice(0, 120) });
+const flag = (rule, f, text, max = 120) => findings.push({ rule, file: f, text: text.trim().slice(0, max) });
 const isTest = (f) => /\.(test|spec)\.|_test\.|test_|Tests\.swift$/.test(f);
 const isConstraints = (f) => /CONSTRAINTS\.md$/.test(f);
 // Only plain Markdown goes unchecked: it describes these moves and runs none of them. Every other
@@ -112,19 +154,33 @@ const hadBar = [mergeBase, base].some((rev) => {
 });
 for (const { file, text } of added) if (hadBar && isConstraints(file) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', file, text);
 
-// 2b. A test file deleted, or an assertion removed from a test file that still exists.
+// 2b. A test file deleted (one renamed to a name its runner still reads is only renamed).
 const ASSERTION = /\b(expect|assert|should)\b|\bXCTAssert|\bXCTFail\b|#require\b/;
-for (const f of deleted) if (isTest(f) && checked(f)) flag('test-deleted', f, 'file deleted');
-for (const { file, text } of removed) {
-  if (isTest(file) && checked(file) && !deleted.includes(file) && ASSERTION.test(text)) {
-    flag('assertion-removed', file, text);
-  }
+const isTestFile = (f) => isTest(f) && checked(f);
+for (const f of deleted) if (isTestFile(f)) flag('test-deleted', f, 'file deleted');
+
+// An assertion removed from a test file that still exists, too. One added back unchanged in the
+// same file moved, which can carry it into dead code. Otherwise it pairs, in order, with an
+// assertion added in that file: it changed. Either needs evidence that the behavior changed and
+// that the new form is no weaker. One with no assertion added in its place, or only a
+// commented-out one, was removed.
+const isComment = (t) => /^\s*(\/\/|#|\/\*|\*)/.test(t);
+const inTest = (l) => isTestFile(l.file) && !deleted.includes(l.file) && ASSERTION.test(l.text);
+const assertsAdded = added.filter(inTest);
+const unmoved = removed.filter(inTest).filter((r) => {
+  const i = assertsAdded.findIndex((a) => a.file === r.file && a.text.trim() === r.text.trim());
+  if (i > -1) flag('assertion-moved', r.file, assertsAdded.splice(i, 1)[0].text);
+  return i < 0;
+});
+for (const r of unmoved) {
+  const i = assertsAdded.findIndex((a) => a.file === r.file && !isComment(a.text));
+  if (i < 0) flag('assertion-removed', r.file, r.text);
+  else flag('assertion-changed', r.file, r.text.trim().slice(0, 100) + '  ->  ' + assertsAdded.splice(i, 1)[0].text.trim().slice(0, 100), 210);
 }
 
 // 2d. A test step removed from CI configuration: a removed line that runs the tests, with no
 // line running the same kind of test added back in any CI file, so a step that moved still pairs
 // and one commented out does not. A step's name is not a step.
-const isCI = (f) => /^\.github\/(workflows|actions)\/.*\.ya?ml$|^\.(circleci|buildkite|woodpecker)\/.*\.ya?ml$|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|\.woodpecker|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
 const TEST_RUN = /\b(?:(?:npm|pnpm|yarn|bun)(?: -\S+)*(?: run)?|swift|go|cargo|mvn|gradlew?|make|dotnet|mix|rake) test[\w:-]*|\bxcodebuild\b.*\btest(?:-without-building)?(?![\w-])|\b(?:python3? -m (?:pytest|unittest)|pytest|vitest|jest|rspec|phpunit|ctest|fastlane scan)(?![\w.-])/g;
 const testRun = (t) => {
   if (/^\s*(#|\/\/)|^\s*(-\s+)?name:/.test(t)) return null;
@@ -242,6 +298,9 @@ console.error('floor-guard: ' + findings.length + ' floor violation(s):');
 for (const f of findings) console.error(`  [${f.rule}] ${f.file}: ${f.text}`);
 if (findings.some((f) => f.rule === 'rule-removed')) {
   console.error('\nA rule-removed finding can also mean the rule\'s label changed: rename a rule in one commit and change its thresholds in another.');
+}
+if (findings.some((f) => f.rule === 'assertion-changed' || f.rule === 'assertion-moved')) {
+  console.error('\nAn assertion-changed or assertion-moved finding is a test assertion replaced or moved. It is a fix only if the behavior really changed and the new form is no weaker: have someone who did not write the change check the evidence before it ships.');
 }
 if (findings.some((f) => f.rule === 'threshold-removed')) {
   console.error('\nA threshold-removed finding can also mean a number gained or lost its direction words (">= 80%" becoming "80%", or the reverse): compare the two lines before assuming a threshold was deleted.');
