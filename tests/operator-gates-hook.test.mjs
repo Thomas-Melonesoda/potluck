@@ -126,6 +126,14 @@ describe("with foreignRepos: ask", () => {
     ["sh -c \"$CMD\"", "which the shell fills in at run time"],
     ["/usr/local/bin/g? pr comment 1 -R me/app -b hi", "a pattern the shell may expand to gh"],
     ["gh pr comment 1 -R me/app -b hi 2>&1", "is not one plain gh call"],
+    // -h is --homepage or --hostname in some subcommands, so only --help is help.
+    ["gh repo edit -h https://example.com", "`gh repo edit` is neither a read nor a write this check can place"],
+    ["gh repo edit cli/cli -h https://example.com", "`gh repo edit` is neither a read nor a write this check can place"],
+    ["cd ../foreign && gh repo edit -h https://example.com", "is not one plain gh call"],
+    ["gh auth login -h github.com", "`gh auth login` is neither a read nor a write this check can place"],
+    ["gh config set -h x", "`gh config set` is neither a read nor a write this check can place"],
+    // --comment takes a value in pr and issue close and reopen.
+    ["gh pr close 1 --comment -R me/app", "gives --repo right after --comment, which may take it as its value"],
   ])("%s asks", (command, reason) => {
     const { run, user } = setup();
     const r = run(command);

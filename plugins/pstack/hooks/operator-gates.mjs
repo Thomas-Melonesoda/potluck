@@ -2,11 +2,11 @@
 // potluck: the operator's gates before each shell command Claude Code runs
 // (stage 5 issue 8). potluck's default lets every command through. When a
 // gates file (see skills/poteto-mode/scripts/gates.mjs) sets "foreignRepos":
-// "ask", a gh call runs without a prompt only when the command text alone
-// proves it cannot write to someone else's repository:
+// "ask", a gh call runs without a prompt only when the command text, as this
+// hook reads it, shows one of two things:
 //   - a read: a gh subcommand on the READS list, or `gh api` with no method
 //     other than GET or HEAD, no fields or --input, and no GraphQL endpoint,
-//     or --help; or
+//     or --help (never -h, which some subcommands read as --homepage); or
 //   - an owned write: the whole command is one plain gh call (no `&&`, `;`,
 //     pipes, redirects, `$`, backticks, globs, or a VAR= prefix), one of the
 //     WRITES below or a `gh api` call on repos/<owner>/<name>/..., and every
@@ -52,7 +52,7 @@ const API_LONG = { include: false, paginate: false, slurp: false, silent: false,
 const API_FIELDS = new Set(["f", "F", "raw-field", "field", "input"]);
 // Long flags that take no value in every WRITES subcommand, so a --repo after
 // one is not its value.
-const NO_VALUE = new Set(["--fill", "--fill-first", "--fill-verbose", "--draft", "--web", "--squash", "--merge", "--rebase", "--auto", "--admin", "--delete-branch", "--approve", "--request-changes", "--comment", "--edit-last", "--yes"]);
+const NO_VALUE = new Set(["--fill", "--fill-first", "--fill-verbose", "--draft", "--web", "--squash", "--merge", "--rebase", "--auto", "--admin", "--delete-branch", "--approve", "--request-changes", "--edit-last", "--yes"]);
 // Commands that never run their words, so a gh in their text is not a call.
 const QUIET = new Set(["echo", "printf", "grep", "egrep", "fgrep", "rg"]);
 const QUIET_GIT = new Set(["commit", "tag", "log", "grep", "show"]);
@@ -98,7 +98,8 @@ function parseApi(args) {
 
 // Whether a gh call (its arguments after gh) only reads.
 function isRead(args) {
-  const help = args.findIndex((a) => a === "--help" || a === "-h");
+  // Only --help: some subcommands read -h as --homepage or --hostname.
+  const help = args.indexOf("--help");
   const before = args.slice(0, help);
   if (help >= 0 && !before.some((a) => a === "--" || OPAQUE.test(a)) && !(before.at(-1) ?? "").startsWith("-")) return true;
   const [group, sub] = args;
