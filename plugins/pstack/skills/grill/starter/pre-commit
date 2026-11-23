@@ -7,8 +7,9 @@ cd "$(git rev-parse --show-toplevel)"
 
 # The floor (constraint-driven-development): no new suppression, stub, empty
 # catch, skipped or deleted test, or weaker CONSTRAINTS.md rule since the last
-# commit. Untracked files count too, so keep build output and dependencies in
-# .gitignore. A first commit has nothing to compare against. The guard lives
+# commit. It reads the working tree, unstaged and untracked files included, so
+# keep build output and dependencies in .gitignore. A first commit has nothing
+# to compare against. The guard lives
 # in this clone's git folder, not in the tree, because its own patterns name
 # the forms it refuses; grill's starter.mjs puts it there.
 if git rev-parse --verify --quiet HEAD >/dev/null; then

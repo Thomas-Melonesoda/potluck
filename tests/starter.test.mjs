@@ -95,6 +95,47 @@ test("another hooks folder is left alone, and a folder outside git gets the file
   expect(existsSync(join(plain, ".githooks/pre-commit"))).toBe(true);
 });
 
+describe("a project folder inside another repository", () => {
+  const outer = () => {
+    const root = repo();
+    const inner = join(root, "inner");
+    mkdirSync(inner);
+    return { root, inner };
+  };
+  test("gets the files itself, and the outer repository is left alone", () => {
+    const { root, inner } = outer();
+    const run = spawnSync("node", [join(import.meta.dir, "../plugins/pstack/skills/grill/scripts/starter.mjs")], { cwd: inner, encoding: "utf8", env });
+    expect(run.status).toBe(0);
+    expect(existsSync(join(inner, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(root, "AGENTS.md"))).toBe(false);
+    expect(existsSync(join(root, ".githooks"))).toBe(false);
+    expect(git(root, ["config", "core.hooksPath"]).stdout.trim()).toBe("");
+    expect(existsSync(join(root, ".git/potluck"))).toBe(false);
+    expect(run.stdout).toContain("is not the top of a git work tree");
+  }, 30_000);
+  test("--root on a subfolder does not point the repository's hooks at a folder that is not there", () => {
+    const { root, inner } = outer();
+    const lines = start(inner, {});
+    expect(git(root, ["config", "core.hooksPath"]).stdout.trim()).toBe("");
+    expect(lines.at(-1)).toContain("is not the top of a git work tree");
+  });
+});
+
+test("a check command keeps its dollar signs", () => {
+  const root = repo();
+  const check = `echo $$ && test "$&" = ok && printf $'a\\tb'`;
+  start(root, { name: "a $& b", check });
+  expect(Bun.YAML.parse(read(root, ".github/workflows/ci.yml")).jobs.check.steps.at(-1).run.trim()).toBe(check);
+  expect(read(root, "AGENTS.md")).toContain(`\`${check}\``);
+  expect(read(root, "AGENTS.md").startsWith("# a $& b\n")).toBe(true);
+});
+
+test("a check command given after CI exists is reported, not dropped in silence", () => {
+  const root = repo();
+  start(root, {});
+  expect(start(root, { check: "npm test" })).toContain("note: kept .github/workflows/ci.yml, so --check was not applied; put `npm test` in its Check step");
+});
+
 describe("the hook", () => {
   // A stand-in gitleaks: fails when the staged change holds the word LEAKED.
   const bin = scratch();
