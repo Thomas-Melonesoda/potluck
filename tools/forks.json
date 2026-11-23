@@ -86,15 +86,15 @@
     },
     "plugins/pstack/skills/poteto-mode/SKILL.md": {
       "kind": "policy",
-      "why": "Adds the Platform Adaptation section, whose runtime sentence the generator stamps from RUNTIMES, with its task-tool and todo.md fallback (per task slug when sessions share a checkout, and beside the desktop app's short update_plan list), keeps a skipped playbook step in the todolist as a skip line, the deploy-platform and defect-severity triggers, the focused-fix exception to the architect trigger, the port's principle summaries, the project playbooks paragraph, and the closed-review-gate rule that the Codex and Pi mappings point to, and it uses the namespaced pstack:poteto-agent name, requires stopping an abandoned agent before replacing it, renders every reply item as prose, layers technical-writing on top of unslop, points the bot-review trigger at the triage rubric, and lets a level above xhigh that the sheet sets for a role stand, since the port's setup offers max where upstream's budget step capped at xhigh, and routes a new project or an unclear large feature to potluck's grill skill while the user is present, or to the floor and a ketchup list of questions when nobody is, and attaches a statechart to the reply when a change touches a feature's state logic, and ticks a feature's Done when item with its proof, regenerating the overview, when a change meets it.",
+      "why": "Adds the Platform Adaptation section, whose runtime sentence the generator stamps from RUNTIMES, with its task-tool and todo.md fallback (per task slug when sessions share a checkout, and beside the desktop app's short update_plan list), keeps a skipped playbook step in the todolist as a skip line, the deploy-platform and defect-severity triggers, the focused-fix exception to the architect trigger, the port's principle summaries, the project playbooks paragraph, and the closed-review-gate rule that the Codex and Pi mappings point to, and it uses the namespaced pstack:poteto-agent name, requires stopping an abandoned agent before replacing it, renders every reply item as prose, layers technical-writing on top of unslop, points the bot-review trigger at the triage rubric, and lets a level above xhigh that the sheet sets for a role stand, since the port's setup offers max where upstream's budget step capped at xhigh, and routes a new project or an unclear large feature to potluck's grill skill while the user is present, or to the floor and a ketchup list of questions when nobody is, and attaches a statechart to the reply when a change touches a feature's state logic, and ticks a feature's Done when item with its proof, regenerating the overview, when a change meets it, and routes handoff requests in any language to Pause safely, its checkpoint mode, or Session pickup.",
       "since": "0.9.2",
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
-      "row": "S3-B4, S3-E1, S3-E2, S3-E3, S3-E5, S3-E6, S3-E7, S3-E8, S3-E9, S3-E10, S3-E11, S4-G1, S4-G8, S4-R2, S4-R5",
-      "ruling": "Use all of Michael's front-door additions (group S3-E), including the focused-fix exception (S3-B4). Route new projects and unclear large features to grill, and skip it when nobody is present (S4-G1, S4-G8). Attach a statechart unasked when a change touches a feature's state logic, and give one whenever asked (S4-R5). Progress is a Done when checkbox ticked only with its proof, and the overview is regenerated with it (S4-R2).",
-      "ruling_zh": "采用 Michael 加在前台的全部规则（S3-E 组），包括聚焦修复的例外（S3-B4）。新项目和意图不清的大功能先走 grill，没人在场时跳过（S4-G1、S4-G8）。改动涉及功能的状态逻辑时主动附上状态图，用户要时随时给（S4-R5）。进度以带证据勾选的完成条件为准，同时重新生成总览（S4-R2）。",
-      "decided": "2026-11-22"
+      "row": "S3-B4, S3-D2, S3-D3, S3-E1, S3-E2, S3-E3, S3-E5, S3-E6, S3-E7, S3-E8, S3-E9, S3-E10, S3-E11, S4-G1, S4-G8, S4-R2, S4-R5",
+      "ruling": "Use all of Michael's front-door additions (group S3-E), including the focused-fix exception (S3-B4). Route new projects and unclear large features to grill, and skip it when nobody is present (S4-G1, S4-G8). Attach a statechart unasked when a change touches a feature's state logic, and give one whenever asked (S4-R5). Progress is a Done when checkbox ticked only with its proof, and the overview is regenerated with it (S4-R2). Stage 5 issue 11: handoff requests route in Chinese as well as English, and a request to save progress that does not ask to stop goes to the checkpoint-and-keep-going mode (S3-D2, S3-D3).",
+      "ruling_zh": "采用 Michael 加在前台的全部规则（S3-E 组），包括聚焦修复的例外（S3-B4）。新项目和意图不清的大功能先走 grill，没人在场时跳过（S4-G1、S4-G8）。改动涉及功能的状态逻辑时主动附上状态图，用户要时随时给（S4-R5）。进度以带证据勾选的完成条件为准，同时重新生成总览（S4-R2）。阶段 5 第 11 条：交接相关的请求用中文说也能分派，要求存档但没说停下的，走存完接着做的模式（S3-D2、S3-D3）。",
+      "decided": "2026-11-23"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/autopilot-full.md": {
       "kind": "policy",
@@ -182,14 +182,14 @@
     },
     "plugins/pstack/skills/poteto-mode/playbooks/pause-safely.md": {
       "kind": "policy",
-      "why": "Writes the resume note to a checkpoint directory for the task's folder and task, in Git or not, and preserves artifacts the user asked to keep across the resume.",
+      "why": "Writes the resume note to a checkpoint directory for the task's folder and task, in Git or not, preserves artifacts the user asked to keep across the resume, and adds a checkpoint-and-keep-going mode for a handoff request that does not ask to stop.",
       "since": "0.9.34",
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
       "row": "S3-D2",
-      "ruling": "Use Michael's checkpoint location and kept artifacts (S3-D2). Stage 5 issue 11: one checkpoint pointer per folder and task, so projects in one repository or vault stop overwriting each other, and folders outside Git get checkpoints too.",
-      "ruling_zh": "采用 Michael 的检查点位置和保留的产物（S3-D2）。阶段 5 第 11 条：每个文件夹加任务各有一个检查点指针，一个仓库或 vault 里的几个项目不会再覆盖彼此的指针；Git 之外的文件夹也能存检查点。",
+      "ruling": "Use Michael's checkpoint location and kept artifacts (S3-D2). Stage 5 issue 11: one checkpoint pointer per folder and task, so projects in one repository or vault stop overwriting each other, and folders outside Git get checkpoints too. A checkpoint the user asks for without asking to stop is not a pause, and the session keeps going.",
+      "ruling_zh": "采用 Michael 的检查点位置和保留的产物（S3-D2）。阶段 5 第 11 条：每个文件夹加任务各有一个检查点指针，一个仓库或 vault 里的几个项目不会再覆盖彼此的指针；Git 之外的文件夹也能存检查点。用户要求存档但没说停下时，存完检查点继续做，这不算暂停。",
       "decided": "2026-11-23"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/session-pickup.md": {

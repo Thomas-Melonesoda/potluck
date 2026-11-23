@@ -2,6 +2,8 @@
 
 **You own a clean stop. Leave a checkpoint a cold-start agent can resume from.** This is explicit only. On "keep going", "going to bed, keep going", or "don't stop", do not pause.
 
+**Checkpoint and keep going.** A request to save progress or write a handoff that does not ask you to stop, such as "checkpoint", "save progress", 存一下进度, or 交接, is not a pause, so "keep going" still holds. Skip step 1 and keep any subagents running. Do steps 2 to 5, committing only files that no running subagent is still writing and naming each running subagent and its worktree in the note. Then go on with the task in this session, and say in one line where the checkpoint is.
+
 1. Stop at a safe boundary. Finish the current atomic step or back out of it. Start nothing new, and cancel any nested subagents.
 2. Take no irreversible action to pause. No PR and no push unless you already had one out.
 3. Make the work durable. Commit uncommitted edits as one clear `wip:` commit on the current branch so nothing is lost. If the tree is broken, say so in the commit body in one line.
