@@ -306,8 +306,8 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(editRule("改动的行至少 80%", "改动的行至少 70%").json.reasons).toEqual(["floor: [threshold-loosened] CONSTRAINTS.md: - 测试覆盖率：改动的行至少 80%  ->  - 测试覆盖率：改动的行至少 70%"]);
   });
 
-  test("a Chinese minimum raised passes, since tightening is silent", () => {
-    expect(editRule("改动的行不低于 80%", "改动的行不低于 90%").json.kind).toBe("would-merge");
+  test("a raised Chinese minimum is still reported, as main reports any change to a Chinese number", () => {
+    expect(editRule("改动的行不低于 80%", "改动的行不低于 90%").json.reasons[0]).toStartWith("floor: [threshold-changed] CONSTRAINTS.md:");
   });
 
   test("a Chinese minimum turned into a maximum is stopped", () => {
@@ -334,22 +334,22 @@ else if (line.includes("POST")) process.stdout.write("{}");
     ]);
   });
 
-  test("a Chinese bar word before a number outranks a word after it, and 以上 or 以下 after it gives no direction", () => {
+  test("a Chinese ceiling word before a number is read, and 以上 or 以下 after it gives no direction", () => {
     const bar = (a, b, c, d, e) => `# 约束\n\n- 包大小：不得增长到 ${a}KB 以上\n- 构建时间：不得增长到 ${b} min 以上\n- 产物大小：不得超过 ${c}KB 以上\n- 页面大小：不得增长到 ${d} KB 以上\n\n| 指标 | 门槛 | 说明 |\n|---|---|---|\n| 镜像大小 | ${e} KB | 以上，适用于所有包 |\n`;
     const r = fake({ change: { path: "CONSTRAINTS.md", text: bar(500, 30, 500, 150, 500) }, setup: { base: { "CONSTRAINTS.md": bar(200, 10, 200, 200, 200) } } }).run(...merge, "--dry-run");
     expect(r.json.reasons.map((l) => l.split(/：| KB \|/)[0])).toEqual([
       "floor: [threshold-loosened] CONSTRAINTS.md: - 包大小",
       "floor: [threshold-loosened] CONSTRAINTS.md: - 构建时间",
       "floor: [threshold-loosened] CONSTRAINTS.md: - 产物大小",
+      "floor: [threshold-changed] CONSTRAINTS.md: - 页面大小",
       "floor: [threshold-changed] CONSTRAINTS.md: | 镜像大小 | 200",
     ]);
   });
 
-  test("words before and after a number that disagree give it no direction, so a change to it is reported", () => {
+  test("English words are read as main reads them, and Chinese words that disagree give no direction", () => {
     const bar = (a, b, c, d, e, f, g, h) => `# Constraints\n\n- Coverage: never below ${a}%, must not drop\n- Small files: files under ${b} KB must not drop\n- Modules: modules below ${c} lines must not drop\n\n| Metric | Bar | Direction |\n|---|---|---|\n| Line coverage | not under ${d}% | must not drop |\n| Branch coverage | fails if < ${e}% | must not drop |\n| Statement coverage | never below ${f}% | must not fall |\n| 覆盖率 | 不超过 ${g}% | 不得下降 |\n| 包大小 | 不低于 ${h} kB | 不得增长 |\n`;
     const r = fake({ change: { path: "CONSTRAINTS.md", text: bar(60, 1, 500, 60, 60, 60, 60, 300) }, setup: { base: { "CONSTRAINTS.md": bar(80, 2, 1000, 80, 80, 80, 80, 184) } } }).run(...merge, "--dry-run");
-    expect(r.json.reasons).toHaveLength(8);
-    expect(r.json.reasons.every((l) => l.startsWith("floor: [threshold-changed] CONSTRAINTS.md:"))).toBe(true);
+    expect(r.json.reasons.map((l) => l.match(/^floor: \[([a-z-]+)\]/)?.[1])).toEqual([...Array(6).fill("threshold-loosened"), "threshold-changed", "threshold-changed"]);
   });
 
   test("dropping the words around a number whose words disagree reads as removed, and 甚至少 is not 至少", () => {

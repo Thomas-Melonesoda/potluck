@@ -156,31 +156,47 @@ const ruleKey = (t) => {
   return null; // prose, headings, dates: not a rule
 };
 const isException = (t) => /^\| *(W|E)\d+ *\|/.test(t.trim());
-// Chinese words count too, but only the unambiguous ones before the number: 至少 and 不低于 read as
-// at least, 至多 and 不超过 as at most, 不得下降到 and 不得增长到 as must not fall or grow to. After
-// the number only a whole direction cell counts (| 62.4% | 不得下降 |): 以上, 以下 and 以内 also
-// mean "the above", "the following" and "within", and a bare 低于, 高于, 最高 or 最低 can state a
-// record or a failure as easily as a bar, so a number they sit beside has no direction and any
-// change to it is reported. Words that disagree, a minimum on one side and a maximum on the other,
-// put the number in a class of its own: any change to it is reported, and losing those words reads
-// as a removed threshold, so the guard never reads a number more loosely than its English words
-// alone would.
-const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not drop|(?<!甚)至少|不低于|不少于|不得低于|不得下降到)\s*$/;
-const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed|(?<!甚)至多|不超过|不高于|不得超过|不得高于|不得增长到)\s*$/;
-const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop)|^\s*(?:%|[a-z]+)?\s*\|\s*不得下降\s*(?:\||$)/;
-const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed)|^\s*(?:%|[a-z]+)?\s*\|\s*不得增长\s*(?:\||$)/;
-const thresholds = (t) => {
+const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not drop)\s*$/;
+const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed)\s*$/;
+const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop)/;
+const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed)/;
+// The Chinese pass only adds findings: it gives a direction to a number the English words leave
+// without one, from an unambiguous bar word before it (至少 or 不低于 for at least, 至多 or 不超过 for at
+// most) or a whole direction cell after it (| 62.4% | 不得下降 |), so a bar flipped from 至少 to 至多,
+// or stripped of its word, is reported. Words that disagree, and 以上, 以下 or 低于, which also mean
+// "the above", "the following" or a failure condition, give none.
+const ZH_MIN = /((?<!甚)至少|不低于|不少于|不得低于|不得下降到)\s*$/, ZH_MIN_CELL = /^\s*(?:%|[a-z]+)?\s*\|\s*不得下降\s*(?:\||$)/;
+const ZH_MAX = /((?<!甚)至多|不超过|不高于|不得超过|不得高于|不得增长到)\s*$/, ZH_MAX_CELL = /^\s*(?:%|[a-z]+)?\s*\|\s*不得增长\s*(?:\||$)/;
+const thresholds = (t, zh = false) => {
   const out = [], re = /\d+(?:\.\d+)?/g;
   let m;
   while ((m = re.exec(t))) {
     const before = t.slice(Math.max(0, m.index - 24), m.index).toLowerCase();
     const after = t.slice(m.index + m[0].length, m.index + m[0].length + 40).toLowerCase();
-    const min = MIN_BEFORE.test(before) || MIN_AFTER.test(after);
-    const max = MAX_BEFORE.test(before) || MAX_AFTER.test(after);
-    const dir = min && max ? 'both' : min ? 'min' : max ? 'max' : null;
+    const zhMin = zh && (ZH_MIN.test(before) || ZH_MIN_CELL.test(after)), zhMax = zh && (ZH_MAX.test(before) || ZH_MAX_CELL.test(after));
+    const dir = MIN_BEFORE.test(before) || MIN_AFTER.test(after) ? 'min'
+      : MAX_BEFORE.test(before) || MAX_AFTER.test(after) ? 'max'
+      : zhMin && !zhMax ? 'min' : zhMax && !zhMin ? 'max' : null;
     out.push({ n: Number(m[0]), dir });
   }
   return out;
+};
+const compare = (r, a, zh) => {
+  const before = thresholds(r, zh), after = thresholds(a, zh);
+  let verdict = null;
+  for (const dir of ['min', 'max', null]) {
+    const was = before.filter((x) => x.dir === dir), now = after.filter((x) => x.dir === dir);
+    was.forEach((b, i) => {
+      const n = now[i];
+      if (verdict) return;
+      if (!n) verdict = 'threshold-removed';
+      else if (n.n === b.n) return;
+      else if (dir === 'min' ? n.n < b.n : dir === 'max' ? n.n > b.n : true) {
+        verdict = dir ? 'threshold-loosened' : 'threshold-changed';
+      }
+    });
+  }
+  return verdict;
 };
 // 1c. Rule names are unique within each CONSTRAINTS.md this change touches, so a rule pairs with
 // one line. Only top-level bullets and table rows count: a nested bullet, a fenced example, and a
@@ -213,20 +229,8 @@ for (const { r, a } of pairs) {
     if (!isException(r.text)) flag('rule-removed', r.file, r.text); // dropping an exception tightens: silent
     continue;
   }
-  const before = thresholds(r.text), after = thresholds(a.text);
-  let verdict = null;
-  for (const dir of ['min', 'max', 'both', null]) {
-    const was = before.filter((x) => x.dir === dir), now = after.filter((x) => x.dir === dir);
-    was.forEach((b, i) => {
-      const n = now[i];
-      if (verdict) return;
-      if (!n) verdict = 'threshold-removed';
-      else if (n.n === b.n) return;
-      else if (dir === 'min' ? n.n < b.n : dir === 'max' ? n.n > b.n : true) {
-        verdict = dir === 'min' || dir === 'max' ? 'threshold-loosened' : 'threshold-changed';
-      }
-    });
-  }
+  // Every change the English reading reports is reported; the Chinese reading may add one.
+  const verdict = compare(r.text, a.text, true) ?? compare(r.text, a.text, false);
   if (verdict) flag(verdict, r.file, r.text + '  ->  ' + a.text);
 }
 
