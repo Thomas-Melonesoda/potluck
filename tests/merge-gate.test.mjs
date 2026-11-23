@@ -573,7 +573,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
 
   test("a CONSTRAINTS.md renamed away reads as every rule removed", () => {
     const bar = "# Constraints\n\n- Coverage: changed lines at least 80% covered\n";
-    const { run } = fake({ setup: { base: { "CONSTRAINTS.md": bar }, move: ["CONSTRAINTS.md", "docs/old-constraints.md"] } });
+    const { run } = fake({ setup: { base: { "CONSTRAINTS.md": bar }, move: ["CONSTRAINTS.md", "old-rules.md"] } });
     expect(run(...merge, "--dry-run").json.reasons).toEqual(["floor: [rule-removed] CONSTRAINTS.md: - Coverage: changed lines at least 80% covered"]);
   });
 
