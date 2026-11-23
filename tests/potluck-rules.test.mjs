@@ -71,3 +71,12 @@ describe("handoff requests load poteto-mode from every session-start mandate", (
     expect(readFileSync(join(hooks, file), "utf8")).toContain("- it asks to pause, hand off, save progress, or pick up earlier work, in any language (暂停一下, 交接, 存一下进度, 接着做)");
   });
 });
+
+test("docs/reference.md lists as many routing conditions as the session-start mandate", () => {
+  const root = join(import.meta.dir, "..");
+  const mandate = readFileSync(join(root, "plugins/pstack/hooks/session-start-context.md"), "utf8");
+  const reference = readFileSync(join(root, "docs/reference.md"), "utf8");
+  const conditions = mandate.match(/^- it /gm).length;
+  const listed = reference.split("when a task meets any of these conditions:\n\n")[1].split("\n\n")[0].match(/^- /gm).length;
+  expect(listed).toBe(conditions);
+});
