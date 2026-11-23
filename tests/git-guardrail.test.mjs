@@ -142,6 +142,8 @@ describe("the hook on a real repository", () => {
     expect(r.reason).toContain("A merge is in progress, so do not commit to save the work");
     expect(r.reason).toContain("git merge --abort");
     expect(r.reason).not.toContain("git add -A && git commit");
+    // Mid-merge, the general advice to commit must not appear either.
+    expect(r.reason).not.toContain("commit the files this task touched");
   });
 
   test("wrapped and spelled-out forms are read too", () => {
