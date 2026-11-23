@@ -7,8 +7,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "F1",
-      "ruling": "Use Michael's review and cleanup rules (group F).",
+      "row": "S3-F1",
+      "ruling": "Use Michael's review and cleanup rules (group S3-F).",
+      "ruling_zh": "采用 Michael 的审查和清理规则（S3-F 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/architect/SKILL.md": {
@@ -18,8 +19,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "F3",
-      "ruling": "Use Michael's review and cleanup rules (group F).",
+      "row": "S3-F3",
+      "ruling": "Use Michael's review and cleanup rules (group S3-F).",
+      "ruling_zh": "采用 Michael 的审查和清理规则（S3-F 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/blast-radius/SKILL.md": {
@@ -29,8 +31,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "F4",
-      "ruling": "Use Michael's review and cleanup rules (group F).",
+      "row": "S3-F4",
+      "ruling": "Use Michael's review and cleanup rules (group S3-F).",
+      "ruling_zh": "采用 Michael 的审查和清理规则（S3-F 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/bro/SKILL.md": {
@@ -40,8 +43,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/create-verification-skill/SKILL.md": {
@@ -51,8 +55,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/no-comments/SKILL.md": {
@@ -62,8 +67,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "F2",
-      "ruling": "Use Michael's review and cleanup rules (group F).",
+      "row": "S3-F2",
+      "ruling": "Use Michael's review and cleanup rules (group S3-F).",
+      "ruling_zh": "采用 Michael 的审查和清理规则（S3-F 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-help/SKILL.md": {
@@ -73,8 +79,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
-      "row": "A11, H",
-      "ruling": "Keep Michael's runtime routing (H), but say again that autopilot-full merges and autopilot-stack only stacks, as in Lauren's design (A11).",
+      "row": "S3-A11, S3-H",
+      "ruling": "Keep Michael's runtime routing (S3-H), but say again that autopilot-full merges and autopilot-stack only stacks, as in Lauren's design (S3-A11).",
+      "ruling_zh": "保留 Michael 的运行时路由（S3-H），但按 Lauren 的设计重申：autopilot-full 会合并，autopilot-stack 只堆叠 PR（S3-A11）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/SKILL.md": {
@@ -84,8 +91,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
-      "row": "B4, E1, E2, E3, E5, E6, E7, E8, E9, E10, E11, G1, G8, R2, R5",
-      "ruling": "Use all of Michael's front-door additions (group E), including the focused-fix exception (B4). Route new projects and unclear large features to grill, and skip it when nobody is present (G1, G8). Attach a statechart unasked when a change touches a feature's state logic, and give one whenever asked (R5). Progress is a Done when checkbox ticked only with its proof, and the overview is regenerated with it (R2).",
+      "row": "S3-B4, S3-E1, S3-E2, S3-E3, S3-E5, S3-E6, S3-E7, S3-E8, S3-E9, S3-E10, S3-E11, S4-G1, S4-G8, S4-R2, S4-R5",
+      "ruling": "Use all of Michael's front-door additions (group S3-E), including the focused-fix exception (S3-B4). Route new projects and unclear large features to grill, and skip it when nobody is present (S4-G1, S4-G8). Attach a statechart unasked when a change touches a feature's state logic, and give one whenever asked (S4-R5). Progress is a Done when checkbox ticked only with its proof, and the overview is regenerated with it (S4-R2).",
+      "ruling_zh": "采用 Michael 加在前台的全部规则（S3-E 组），包括聚焦修复的例外（S3-B4）。新项目和意图不清的大功能先走 grill，没人在场时跳过（S4-G1、S4-G8）。改动涉及功能的状态逻辑时主动附上状态图，用户要时随时给（S4-R5）。进度以带证据勾选的完成条件为准，同时重新生成总览（S4-R2）。",
       "decided": "2026-11-22"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/autopilot-full.md": {
@@ -95,8 +103,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
-      "row": "A1, A2, A3, A4, A5, A6, C4",
-      "ruling": "The lead agent merges on a clean verdict with no human step, as in Lauren's design (A1). Keep Michael's notes.md objective, diff-scoped review, and dynamic loop (A2, A4, A5). State the program's size but do not wait for a go above three owners (A3). Keep two fix rounds per PR, then the root agent retries with a fresh approach, splits the PR, or parks it as a draft, without waiting (A6). Babysit keeps reporting conflicts and behind-base, and the owner rebases a conflict-free branch itself, reporting only a conflict or a push that would need force beyond its lease (C4).",
+      "row": "S3-A1, S3-A2, S3-A3, S3-A4, S3-A5, S3-A6, S3-C4",
+      "ruling": "The lead agent merges on a clean verdict with no human step, as in Lauren's design (S3-A1). Keep Michael's notes.md objective, diff-scoped review, and dynamic loop (S3-A2, S3-A4, S3-A5). State the program's size but do not wait for a go above three owners (S3-A3). Keep two fix rounds per PR, then the root agent retries with a fresh approach, splits the PR, or parks it as a draft, without waiting (S3-A6). Babysit keeps reporting conflicts and behind-base, and the owner rebases a conflict-free branch itself, reporting only a conflict or a push that would need force beyond its lease (S3-C4).",
+      "ruling_zh": "按 Lauren 的设计，主 agent 在结论干净时直接合并，不经人工（S3-A1）。保留 Michael 的 notes.md 目标、只看 diff 的审查和动态循环（S3-A2、S3-A4、S3-A5）。说明整个程序的规模，但超过三个负责人也不等人放行（S3-A3）。每个 PR 最多修两轮，之后由 root agent 换思路重试、拆分 PR 或改成草稿搁置，不等人（S3-A6）。Babysit 继续报告冲突和落后于基线，没有冲突的分支由负责人自己 rebase，只报告冲突或超出 lease 的强推（S3-C4）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/autopilot-stack.md": {
@@ -106,8 +115,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "A7",
-      "ruling": "Use Michael's verdict records and leased restacks (A7).",
+      "row": "S3-A7",
+      "ruling": "Use Michael's verdict records and leased restacks (S3-A7).",
+      "ruling_zh": "采用 Michael 的结论记录和带 lease 的重新堆叠（S3-A7）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/babysit.md": {
@@ -117,8 +127,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
-      "row": "C4",
-      "ruling": "Babysit reports conflicts and behind-base to the owner; in autopilot the owner rebases a conflict-free branch itself, as in Lauren's design, and reports only conflicts or force pushes. Keep Michael's first-read confirmation (C4).",
+      "row": "S3-C4",
+      "ruling": "Babysit reports conflicts and behind-base to the owner; in autopilot the owner rebases a conflict-free branch itself, as in Lauren's design, and reports only conflicts or force pushes. Keep Michael's first-read confirmation (S3-C4).",
+      "ruling_zh": "Babysit 把冲突和落后于基线报告给负责人；在 autopilot 里，没有冲突的分支按 Lauren 的设计由负责人自己 rebase，只报告冲突或强推。保留 Michael 的首读确认（S3-C4）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/bug-fix.md": {
@@ -128,8 +139,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "B3, B4",
-      "ruling": "Use Michael's evidence rules and his focused-fix exception as written; it came from user feedback that small fixes triggered a full design pass (B3, B4).",
+      "row": "S3-B3, S3-B4",
+      "ruling": "Use Michael's evidence rules and his focused-fix exception as written; it came from user feedback that small fixes triggered a full design pass (S3-B3, S3-B4).",
+      "ruling_zh": "照原样采用 Michael 的证据规则和聚焦修复例外；它来自用户反馈：小修复会触发完整的设计流程（S3-B3、S3-B4）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/feature.md": {
@@ -139,8 +151,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "C1",
-      "ruling": "Use Michael's one worktree per writing delegate (C1).",
+      "row": "S3-C1",
+      "ruling": "Use Michael's one worktree per writing delegate (S3-C1).",
+      "ruling_zh": "采用 Michael 的规则：每个写代码的委派 agent 用一个独立 worktree（S3-C1）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/multi-phase-plan.md": {
@@ -150,8 +163,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/opening-a-pr.md": {
@@ -161,8 +175,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "C2",
-      "ruling": "Use Michael's rule to stop live agents before committing (C2).",
+      "row": "S3-C2",
+      "ruling": "Use Michael's rule to stop live agents before committing (S3-C2).",
+      "ruling_zh": "采用 Michael 的规则：提交前先停掉还在跑的 agent（S3-C2）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/pause-safely.md": {
@@ -172,8 +187,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "D2",
-      "ruling": "Use Michael's checkpoint location and kept artifacts (D2).",
+      "row": "S3-D2",
+      "ruling": "Use Michael's checkpoint location and kept artifacts (S3-D2).",
+      "ruling_zh": "采用 Michael 的检查点位置和保留的产物（S3-D2）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/session-pickup.md": {
@@ -183,8 +199,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "D3, D4, D5",
-      "ruling": "Use Michael's checkpoint-first pickup and human-rulings priority (D3, D4, D5).",
+      "row": "S3-D3, S3-D4, S3-D5",
+      "ruling": "Use Michael's checkpoint-first pickup and human-rulings priority (S3-D3, S3-D4, S3-D5).",
+      "ruling_zh": "采用 Michael 先读检查点的接手方式，以及人的裁定优先（S3-D3、S3-D4、S3-D5）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/shipping.md": {
@@ -194,8 +211,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
-      "row": "A8, A9, A10, C4",
-      "ruling": "Merge through potluck's deterministic gate: a verdict commit status, green CI, the quality floor, and --match-head-commit, without --auto or waiting for a human (A8). Use Michael's one-at-a-time landing and verifier rules (A9, A10). A conflict-free rebase is the owner's own job; only conflicts or force pushes are reported (C4).",
+      "row": "S3-A8, S3-A9, S3-A10, S3-C4",
+      "ruling": "Merge through potluck's deterministic gate: a verdict commit status, green CI, the quality floor, and --match-head-commit, without --auto or waiting for a human (S3-A8). Use Michael's one-at-a-time landing and verifier rules (S3-A9, S3-A10). A conflict-free rebase is the owner's own job; only conflicts or force pushes are reported (S3-C4).",
+      "ruling_zh": "通过 potluck 的确定性闸门合并：verdict 提交状态、CI 通过、质量底线和 --match-head-commit，不用 --auto，也不等人（S3-A8）。采用 Michael 的一次落一个和验证者规则（S3-A9、S3-A10）。没有冲突的 rebase 由负责人自己做，只报告冲突或强推（S3-C4）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/worktree-cleanup.md": {
@@ -205,8 +223,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
-      "row": "C3",
-      "ruling": "Use Michael's risk checks, then back up automatically and let the agent delete without asking: uncommitted work to a wip commit on a backup branch, untracked and ignored files to a trash directory kept 30 days, HEAD-only commits to a branch; skip and report worktrees another agent holds (C3).",
+      "row": "S3-C3",
+      "ruling": "Use Michael's risk checks, then back up automatically and let the agent delete without asking: uncommitted work to a wip commit on a backup branch, untracked and ignored files to a trash directory kept 30 days, HEAD-only commits to a branch; skip and report worktrees another agent holds (S3-C3).",
+      "ruling_zh": "采用 Michael 的风险检查，然后自动备份并让 agent 不问就删除：未提交的改动做成备份分支上的 wip 提交，未跟踪和被忽略的文件放进保留 30 天的回收目录，只在 HEAD 上的提交存成分支；别的 agent 占用的 worktree 跳过并报告（S3-C3）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/bootstrap.ts": {
@@ -216,8 +235,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/package.json": {
@@ -227,8 +247,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/watch-pr/cli.test.ts": {
@@ -238,8 +259,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/watch-pr/cli.ts": {
@@ -249,8 +271,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/watch-pr/fakes.test-helper.ts": {
@@ -260,8 +283,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/watch-pr/github.test.ts": {
@@ -271,8 +295,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/watch-pr/github.ts": {
@@ -282,8 +307,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/watch-pr/policy.test.ts": {
@@ -293,8 +319,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/watch-pr/policy.ts": {
@@ -304,8 +331,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/watch-pr/render.ts": {
@@ -315,8 +343,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/watch-pr/types.compile.ts": {
@@ -326,8 +355,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/poteto-mode/scripts/watch-pr/types.ts": {
@@ -337,8 +367,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/principle-build-the-lever/SKILL.md": {
@@ -348,8 +379,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "B5",
-      "ruling": "Use Michael's evidence rules (B5).",
+      "row": "S3-B5",
+      "ruling": "Use Michael's evidence rules (S3-B5).",
+      "ruling_zh": "采用 Michael 的证据规则（S3-B5）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/principle-prove-it-works/SKILL.md": {
@@ -359,8 +391,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "B1",
-      "ruling": "Use Michael's evidence rules (B1).",
+      "row": "S3-B1",
+      "ruling": "Use Michael's evidence rules (S3-B1).",
+      "ruling_zh": "采用 Michael 的证据规则（S3-B1）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/principle-test-behavior-not-implementation/SKILL.md": {
@@ -370,8 +403,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "B6",
-      "ruling": "Use Michael's evidence rules (B6).",
+      "row": "S3-B6",
+      "ruling": "Use Michael's evidence rules (S3-B6).",
+      "ruling_zh": "采用 Michael 的证据规则（S3-B6）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/recall/SKILL.md": {
@@ -381,8 +415,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "D6, D7",
-      "ruling": "Use Michael's swept locations and human-rulings priority; the owner's personal layer adds its own notes to those locations (D6, D7).",
+      "row": "S3-D6, S3-D7",
+      "ruling": "Use Michael's swept locations and human-rulings priority; the owner's personal layer adds its own notes to those locations (S3-D6, S3-D7).",
+      "ruling_zh": "采用 Michael 扫描的位置和人的裁定优先；项目负责人的个人层把自己的笔记加到这些位置（S3-D6、S3-D7）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/reflect/SKILL.md": {
@@ -392,8 +427,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/setup-pstack/SKILL.md": {
@@ -403,8 +439,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/show-me-your-work/SKILL.md": {
@@ -414,8 +451,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/show-me-your-work/scripts/log.sh": {
@@ -425,8 +463,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/backends/cfg.ts": {
@@ -436,8 +475,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/frontends/config.ts": {
@@ -447,8 +487,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/frontends/messages.ts": {
@@ -458,8 +499,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/frontends/spec.ts": {
@@ -469,8 +511,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/frontends/view.ts": {
@@ -480,8 +523,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/ir.ts": {
@@ -491,8 +535,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/passes/label.ts": {
@@ -502,8 +547,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/kill.ts": {
@@ -513,8 +559,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/passes/regions.ts": {
@@ -524,8 +571,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/run.ts": {
@@ -535,8 +583,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/statechart.ts": {
@@ -546,8 +595,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/test/chart.test.ts": {
@@ -557,8 +607,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/test/cli.test.ts": {
@@ -568,8 +619,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/test/config-fuzz.test.ts": {
@@ -579,8 +631,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/statechart/scripts/test/corpus.test.ts": {
@@ -590,8 +643,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/tdd/SKILL.md": {
@@ -601,8 +655,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "B2",
-      "ruling": "Use Michael's evidence rules (B2).",
+      "row": "S3-B2",
+      "ruling": "Use Michael's evidence rules (S3-B2).",
+      "ruling_zh": "采用 Michael 的证据规则（S3-B2）。",
       "decided": "2026-11-21"
     }
   },
@@ -614,8 +669,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "F5",
-      "ruling": "Use Michael's review and cleanup rules (group F).",
+      "row": "S3-F5",
+      "ruling": "Use Michael's review and cleanup rules (group S3-F).",
+      "ruling_zh": "采用 Michael 的审查和清理规则（S3-F 组）。",
       "decided": "2026-11-21"
     }
   },
@@ -627,8 +683,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "F6",
-      "ruling": "Use Michael's review and cleanup rules (group F).",
+      "row": "S3-F6",
+      "ruling": "Use Michael's review and cleanup rules (group S3-F).",
+      "ruling_zh": "采用 Michael 的审查和清理规则（S3-F 组）。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/thermos/SKILL.md": {
@@ -638,21 +695,23 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "H",
-      "ruling": "Keep every technical adaptation as Michael made it (group H).",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     }
   },
   "constraint-driven-development": {
     "plugins/pstack/skills/constraint-driven-development/references/floor-guard.md": {
-      "kind": "policy",
+      "kind": "borrow",
       "why": "Fixes three faults the first pilot hit: CONSTRAINTS.md gets only its exception and rule checks, so the Floor bullets of the skill's own template no longer read as suppressions or stubs; a bullet's key also ends at a full-width colon; and each removed rule pairs with its own counterpart, same form first, so two rules that share a key cannot both match one surviving line.",
       "since": "0.9.146",
       "upstream": "not-proposed",
       "source": "addy",
       "choice": "compromise",
-      "row": "D5, A8",
+      "row": "S4-D5, S3-A8",
       "ruling": "Fix the three floor-guard faults the first pilot found (the skill's own template refused, full-width colons, shared rule keys) as bugs in one PR; the pilot's other findings go to a design round.",
+      "ruling_zh": "把第一次试点发现的三个底线检查问题（skill 自己的模板过不了、全角冒号、共用规则名）当作 bug 在一个 PR 里修好；试点的其他发现交给设计讨论。",
       "decided": "2026-11-23"
     }
   }

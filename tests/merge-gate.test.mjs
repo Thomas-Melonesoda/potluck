@@ -1,4 +1,4 @@
-// potluck: the deterministic merge gate (A8) in
+// potluck: the deterministic merge gate (S3-A8) in
 // plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs. The decision is a
 // pure function; the CLI runs against a fake `gh` on PATH that answers from a
 // fixture and records every call, so no test touches GitHub.

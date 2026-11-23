@@ -1,4 +1,4 @@
-// potluck: eval layers 1 and 2 (D8) in tools/eval.mjs. The checks run on
+// potluck: eval layers 1 and 2 (S4-D8) in tools/eval.mjs. The checks run on
 // small made-up skill lists here, and once on the real tree.
 import { describe, expect, test } from "bun:test";
 

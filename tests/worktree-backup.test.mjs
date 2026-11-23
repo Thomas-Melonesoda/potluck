@@ -1,4 +1,4 @@
-// potluck: worktree-backup.mjs (C3) saves what `git worktree remove` would
+// potluck: worktree-backup.mjs (S3-C3) saves what `git worktree remove` would
 // lose, so an agent can delete a worktree without asking and still undo it.
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
