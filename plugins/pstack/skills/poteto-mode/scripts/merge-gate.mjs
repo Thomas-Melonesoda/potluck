@@ -71,8 +71,8 @@ import { parseGates, REPO_FILE, strictest, userFile } from "./gates.mjs";
 
 export const CONTEXT = "potluck/verdict";
 export const COSIGN = "potluck/cosign";
-// The only floor finding a co-sign clears. Every other finding refuses outright.
-const COSIGNABLE = /^\[assertion-changed\] /;
+// The only floor findings a co-sign clears. Every other finding refuses outright.
+const COSIGNABLE = /^\[assertion-(changed|moved)\] /;
 const fingerprint = (findings) => createHash("sha256").update([...findings].sort().join("\n")).digest("hex").slice(0, 16);
 export const LOG = join(dirname(fileURLToPath(import.meta.url)), "../../show-me-your-work/scripts/log.sh");
 const GREEN = new Set(["success", "neutral", "skipped"]);
@@ -203,8 +203,9 @@ export function floor({ repo, pr, sha, view, cosigned = null, cwd = process.cwd(
   // The guard runs in a throwaway clone that shares the checkout's objects but
   // none of its config, hooks, or worktrees, with global and system config off.
   // Attributes come from the base commit, so a PR's own .gitattributes cannot
-  // mark files -diff or binary; renames are off, so a renamed test file shows
-  // as deleted; colour and path quoting are off, so the guard reads plain names.
+  // mark files -diff or binary; renames are off by default, and the guard asks
+  // for them only where a test file kept a name its runner reads; colour and
+  // path quoting are off, so the guard reads plain names.
   // Variables that would point git elsewhere or swap its diff are dropped.
   const inherited = Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|EXTERNAL_DIFF|DIFF_OPTS|ATTR_SOURCE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|CONFIG.*|NAMESPACE|CEILING_DIRECTORIES|COMMON_DIR)$/.test(k)),
@@ -396,7 +397,7 @@ function run(argv) {
     }
     const guard = floor({ repo, pr, sha, view: facts.view });
     if (guard.ok) return out({ kind: "refused", repo, pr, sha, reasons: ["the floor passes on this head, so there is nothing to co-sign"] });
-    if (!guard.cosign) return out({ kind: "refused", repo, pr, sha, reasons: ["a co-sign clears only changed assertions, and these findings refuse on their own", ...guard.reasons] });
+    if (!guard.cosign) return out({ kind: "refused", repo, pr, sha, reasons: ["a co-sign clears only changed assertions, moved ones included, and these findings refuse on their own", ...guard.reasons] });
     const n = guard.reasons.length;
     const what = `${n} changed assertion${n === 1 ? "" : "s"}`;
     const row = [LOG, values.log, "cosign", `co-signed ${what} on ${repo}#${pr} at ${sha}`, values.why ?? "the verifier's evidence shows the behavior changed", values.evidence, `${COSIGN} ${guard.cosign}`];
@@ -414,7 +415,7 @@ function run(argv) {
     if (reasons.length) return out({ kind: "refused", repo, pr, sha, reasons });
     const guard = floor({ repo, pr, sha, view: facts.view, cosigned: cosignOf(facts.statuses) });
     if (guard.cosign) {
-      const hint = `a changed assertion needs the root agent's co-sign: it checks the verifier's evidence that the behavior changed, then runs merge-gate.mjs cosign --repo ${repo} --pr ${pr} --sha ${sha} --log <its decision log> --evidence <where the evidence is>`;
+      const hint = `a changed or moved assertion needs the root agent's co-sign: it checks the verifier's evidence that the behavior changed and that the new form is no weaker, then runs merge-gate.mjs cosign --repo ${repo} --pr ${pr} --sha ${sha} --log <its decision log> --evidence <where the evidence is>`;
       return out({ kind: "refused", repo, pr, sha, reasons: [...guard.reasons, hint] });
     }
     if (!guard.ok) return out({ kind: "refused", repo, pr, sha, reasons: guard.reasons });
