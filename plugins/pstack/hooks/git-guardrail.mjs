@@ -1,20 +1,26 @@
 #!/usr/bin/env node
-// potluck: a narrow git guardrail (design row M11), run before each shell
-// command the agent sends. A clean repository passes everything. With work at
-// risk it blocks only the git commands that would lose it, and its message
-// names the safe way to go on, so the agent can continue on its own:
+// potluck: a narrow git guardrail (design row S4-M11), run before each shell
+// command the agent sends. With work at risk it blocks only the git commands
+// that would lose it, and its message names the safe way to go on, so the
+// agent can continue on its own:
 //   - `reset --hard`, `clean -f`, `checkout` or `switch` that discards changes,
 //     `restore` of the working tree, and a force push without a lease, when the
 //     repository has uncommitted changes (untracked files included) or commits
 //     on HEAD that no remote branch, other branch, or tag holds
 //   - deleting a branch (`branch -D`, `branch -d --force`) that has commits no
 //     other branch, tag, or remote holds
-// A plain push, a push with --force-with-lease (without --force beside it), and
-// every other command pass. During a merge, rebase, cherry-pick, or revert,
-// taking one side of a conflict (`--ours`, `--theirs`) passes, and a blocked
-// call is told to finish or abort the operation rather than commit, which would
-// record conflict markers. Commands inside `sh -c`, `eval`, subshells, braces,
-// and if or loop bodies are read too; heredoc bodies are not commands.
+// Two push rules hold even in a clean repository (stage 5 issue 5), because
+// others build on shared branches:
+//   - a force push to the default branch (the remote's HEAD, main, or master),
+//     with a lease or not
+//   - deleting a remote branch (`:branch`, `--delete`, `--prune`, `--mirror`)
+// A plain push, a push with --force-with-lease (without --force beside it) to
+// any other branch, and every other command pass. During a merge, rebase,
+// cherry-pick, or revert, taking one side of a conflict (`--ours`,
+// `--theirs`) passes, and a blocked call is told to finish or abort the
+// operation rather than commit, which would record conflict markers. Commands
+// inside `sh -c`, `eval`, subshells, braces, and if or loop bodies are read
+// too; heredoc bodies are not commands.
 // It reads the hook's JSON on stdin ({ tool_input: { command }, cwd }). Exit 2
 // with the reason on stderr blocks the call; exit 0 lets it run. Anything it
 // cannot read (no JSON, not a repository, git missing) lets the call run, since
@@ -187,6 +193,89 @@ export function risk({ sub, args }) {
   }
 }
 
+// What a push asks the remote to do: the refspecs after the remote, each with
+// the branch it writes (`dst`, or "" for the current branch), whether it is
+// forced (a lease counts), and whether it deletes; `every` for --all, --mirror,
+// or `:`; `prune` for options that delete branches they do not name. A dry run
+// asks nothing.
+function pushPlan(args) {
+  const flags = { force: false, delete: false, every: false, prune: false, dry: false };
+  const words = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--") {
+      words.push(...args.slice(i + 1));
+      break;
+    }
+    if (a === "-o" || a === "--push-option") i++;
+    else if (a === "--force" || a.startsWith("--force-with-lease")) flags.force = true;
+    else if (a === "--delete") flags.delete = true;
+    else if (a === "--all" || a === "--branches") flags.every = true;
+    else if (a === "--mirror") Object.assign(flags, { every: true, prune: true, force: true });
+    else if (a === "--prune") flags.prune = true;
+    else if (a === "--dry-run") flags.dry = true;
+    else if (/^-[^-]/.test(a)) {
+      if (a.includes("f")) flags.force = true;
+      if (a.includes("d")) flags.delete = true;
+      if (a.includes("n")) flags.dry = true;
+      if (a.endsWith("o")) i++;
+    } else if (!a.startsWith("-")) words.push(a);
+  }
+  if (flags.dry) return null;
+  const specs = [];
+  for (const word of words.slice(1)) {
+    const plus = word.startsWith("+");
+    const spec = plus ? word.slice(1) : word;
+    // `:` alone pushes every branch both sides have.
+    if (spec === ":") Object.assign(flags, { every: true, force: flags.force || plus });
+    else {
+      const colon = spec.indexOf(":");
+      const dst = spec.slice(colon + 1);
+      specs.push({ dst: ["HEAD", "@"].includes(dst) ? "" : dst, force: plus || flags.force, delete: flags.delete || colon === 0 });
+    }
+  }
+  if (!specs.length && !flags.every) specs.push({ dst: "", force: flags.force, delete: false });
+  return { remote: words[0], specs, every: flags.every, prune: flags.prune, force: flags.force };
+}
+
+// A refspec's destination as a branch name, or null for a tag or other ref.
+const branchName = (dst) => (dst.startsWith("refs/heads/") ? dst.slice(11) : dst.startsWith("refs/") ? null : dst);
+
+// The push rules that hold in a clean repository: no force push to the default
+// branch and no deleted remote branch.
+function sharedPush(dir, args) {
+  const plan = pushPlan(args);
+  if (!plan || (!plan.force && !plan.prune && !plan.specs.some((s) => s.force || s.delete))) return null;
+  if (plan.prune) {
+    return "potluck git guardrail: blocked a push with --prune or --mirror, which deletes every remote branch that has no local copy. Deleting remote branches is the user's call: ask the user, or push the branches you mean by name without those options.";
+  }
+  const read = (args) => {
+    try {
+      return git(dir, args).trim();
+    } catch {
+      return "";
+    }
+  };
+  const current = read(["symbolic-ref", "-q", "--short", "HEAD"]);
+  for (const spec of plan.specs.filter((s) => s.delete)) {
+    const branch = spec.dst === "" ? current : branchName(spec.dst);
+    if (branch) {
+      return `potluck git guardrail: blocked deleting the remote branch ${branch}. Deleting a remote branch is the user's call: ask the user, or let the forge delete it when its pull request merges. To delete a tag, name it in full (\`refs/tags/<name>\`).`;
+    }
+  }
+  const upstream = current ? read(["config", `branch.${current}.merge`]) : "";
+  const remote = plan.remote || (current && read(["config", `branch.${current}.remote`])) || "origin";
+  const shared = new Set(["main", "master"]);
+  const head = read(["symbolic-ref", "-q", `refs/remotes/${remote}/HEAD`]);
+  if (head) shared.add(head.slice(`refs/remotes/${remote}/`.length));
+  const forced = plan.every && plan.force
+    ? read(["for-each-ref", "--format=%(refname:short)", "refs/heads"]).split("\n")
+    : plan.specs.filter((s) => s.force).flatMap((s) => (s.dst === "" ? [current, upstream && branchName(upstream)] : [branchName(s.dst)]));
+  const hit = forced.find((branch) => branch && shared.has(branch));
+  if (!hit) return null;
+  return `potluck git guardrail: blocked a force push to ${hit}, a default branch (the remote's default, main, or master). Others build on it, so rewriting it breaks their copies, and a lease does not change that: a lease only checks that you have seen the remote's commits. Push the change to a new branch and open a pull request; if the history must be rewritten, ask the user to do it.`;
+}
+
 // Commits `ref` reaches that no remote, tag, or branch other than `except` holds.
 function onlyHere(dir, ref, except) {
   const others = git(dir, ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/tags", "refs/remotes"])
@@ -240,11 +329,15 @@ function checkOne(words, dir) {
   const call = gitCall(words, dir);
   if (!call) return null;
   let found = risk(call);
-  if (!found) return null;
+  if (!found && call.sub !== "push") return null;
   try {
     git(call.dir, ["rev-parse", "--git-dir"]);
   } catch {
     return null;
+  }
+  if (call.sub === "push") {
+    const shared = sharedPush(call.dir, call.args);
+    if (shared || !found) return shared;
   }
   const op = inProgress(call.dir);
   if (found.maybePath !== undefined) {

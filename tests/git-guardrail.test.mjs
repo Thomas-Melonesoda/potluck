@@ -14,7 +14,9 @@ const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTE
 const roots = [];
 afterAll(() => roots.forEach((r) => rmSync(r, { recursive: true, force: true })));
 
-function repo() {
+// A clone of a bare remote on `main`; with `branch`, on that feature branch,
+// pushed and tracking its remote copy.
+function repo(branch) {
   const root = mkdtempSync(join(tmpdir(), "potluck-guard-"));
   roots.push(root);
   const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", env }).trim();
@@ -26,7 +28,11 @@ function repo() {
   git(work, "add", "a.txt");
   git(work, "commit", "-q", "-m", "init");
   git(work, "push", "-q", "-u", "origin", "main");
-  const hook = (command, cwd = work, script = "git-guardrail.sh") => {
+  if (branch) {
+    git(work, "switch", "-q", "-c", branch);
+    git(work, "push", "-q", "-u", "origin", branch);
+  }
+  const hook =(command, cwd = work, script = "git-guardrail.sh") => {
     const r = spawnSync("sh", [join(hooks, script)], { input: JSON.stringify({ tool_name: "Bash", tool_input: { command }, cwd }), encoding: "utf8", env });
     return { status: r.status, reason: r.stderr };
   };
@@ -72,8 +78,9 @@ describe("command parsing", () => {
 });
 
 describe("the hook on a real repository", () => {
-  test("a clean, pushed repository passes everything", () => {
-    const { hook } = repo();
+  // On main a force push is blocked even when clean; "shared branches" below.
+  test("a clean, pushed feature branch passes everything", () => {
+    const { hook } = repo("feat");
     for (const c of ["git reset --hard", "git clean -fdx", "git checkout -- .", "git push --force", "git status"]) expect(hook(c).status).toBe(0);
   });
 
@@ -178,7 +185,7 @@ describe("the hook on a real repository", () => {
   });
 
   test("a force push without a lease is blocked while work is at risk, and a lease passes", () => {
-    const { hook, commit } = repo();
+    const { hook, commit } = repo("feat");
     commit("local");
     const r = hook("git push --force");
     expect(r.status).toBe(2);
@@ -216,5 +223,72 @@ describe("the hook on a real repository", () => {
   test("without node on PATH the wrapper lets the call run", () => {
     const r = spawnSync("/bin/sh", [join(hooks, "git-guardrail.sh")], { input: "{}", encoding: "utf8", env: { ...env, PATH: "/nonexistent" } });
     expect(r.status).toBe(0);
+  });
+});
+
+// Stage 5 issue 5: others build on the default branch, so no force push may
+// rewrite it, lease or not, and no agent deletes a remote branch.
+describe("shared branches", () => {
+  test("a force push to the default branch is blocked in a clean repository, lease or not", () => {
+    const { hook } = repo();
+    for (const c of [
+      "git push --force-with-lease",
+      "git push --force",
+      "git push -f origin main",
+      "git push origin +main",
+      "git push origin main --force-with-lease",
+      "git push --force-with-lease=main origin HEAD:main",
+      "git push origin +HEAD:refs/heads/main",
+      "git push --force-with-lease origin other:main",
+      "git push --force-with-lease origin HEAD",
+      "git push --all --force",
+      "git push --mirror",
+      "bash -c 'git push --force-with-lease origin main'",
+    ]) expect(hook(c).status, c).toBe(2);
+    const r = hook("git push --force-with-lease");
+    expect(r.reason).toContain("blocked a force push to main");
+    expect(r.reason).toContain("a lease does not change that");
+    for (const c of ["git push", "git push origin main", "git push -n --force origin main", "git reset --hard", "git clean -fdx", "git checkout -- .", "git status"]) {
+      expect(hook(c).status, c).toBe(0);
+    }
+  });
+
+  test("the remote's default branch is protected whatever its name, and so are main and master", () => {
+    const { root, git, work, hook } = repo("feat");
+    git(work, "push", "-q", "origin", "main:trunk");
+    git(join(root, "remote.git"), "symbolic-ref", "HEAD", "refs/heads/trunk");
+    git(work, "remote", "set-head", "origin", "-a");
+    expect(hook("git push --force-with-lease origin feat:trunk").status).toBe(2);
+    expect(hook("git push --force-with-lease origin HEAD:master").status).toBe(2);
+    expect(hook("git push --force-with-lease origin feat").status).toBe(0);
+  });
+
+  test("on a feature branch a force push with a lease passes, unless it lands on main", () => {
+    const { git, work, hook, commit } = repo("feat");
+    commit("rewrite");
+    for (const c of ["git push --force-with-lease", "git push --force-with-lease origin feat", "git push -u --force-with-lease origin HEAD"]) {
+      expect(hook(c).status, c).toBe(0);
+    }
+    expect(hook("git push --force-with-lease origin feat:main").status).toBe(2);
+    git(work, "branch", "-q", "--set-upstream-to=origin/main");
+    expect(hook("git push --force-with-lease").status).toBe(2);
+  });
+
+  test("deleting a remote branch is blocked in every spelling, and deleting a tag passes", () => {
+    const { hook } = repo("feat");
+    for (const c of [
+      "git push origin :main",
+      "git push origin :feat",
+      "git push origin --delete feat",
+      "git push -d origin feat",
+      "git push origin :refs/heads/feat",
+      "git push --prune origin",
+      "git push https://example.invalid/r.git :feat",
+    ]) expect(hook(c).status, c).toBe(2);
+    const r = hook("git push origin --delete feat");
+    expect(r.reason).toContain("blocked deleting the remote branch feat");
+    expect(r.reason).toContain("ask the user");
+    expect(hook("git push origin :refs/tags/v1").status).toBe(0);
+    expect(hook("git push origin --delete refs/tags/v1").status).toBe(0);
   });
 });
