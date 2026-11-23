@@ -1,8 +1,9 @@
 // potluck: the operator's gates hook (stage 5 issue 8) in
 // plugins/pstack/hooks/operator-gates.mjs. With "foreignRepos": "ask", a gh
-// write aimed at a repository the gh account and its organizations do not own
-// gets Claude Code's "ask" decision. A fake gh on PATH answers for the account
-// and for the repository the checkout resolves to, and records every call.
+// call passes only when it is a read, or one plain gh command that names a
+// repository the gh account or its organizations own; every other gh call gets
+// Claude Code's "ask" decision. A fake gh on PATH answers for the account and
+// records every call.
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -14,8 +15,11 @@ const dirs = [];
 afterAll(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
 // A home with the user's gates file, a git checkout to run in, and a fake gh
-// that answers `api user`, `api ... user/orgs`, and `repo view` from `account`.
-function setup({ gates = { foreignRepos: "ask" }, login = "me", orgs = ["our-org"], here = "me", fail = false } = {}) {
+// that answers `api user`, `api ... user/orgs`, and `repo view` (the checkout
+// resolves to the account's own repository, foreign/ to stranger's), so a hook
+// that predicted the destination from the checkout would let an unnamed write
+// through.
+function setup({ gates = { foreignRepos: "ask" }, login = "me", orgs = ["our-org"], fail = false } = {}) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "potluck-gates-hook-")));
   dirs.push(dir);
   const home = join(dir, "home");
@@ -36,7 +40,7 @@ if (${fail}) { process.stderr.write("HTTP 401: Bad credentials\\n"); process.exi
 const line = args.join(" ");
 if (line === "api user") process.stdout.write(JSON.stringify({ login: ${JSON.stringify(login)} }));
 else if (line === "api --paginate --slurp user/orgs") process.stdout.write(JSON.stringify([${JSON.stringify(orgs.map((o) => ({ login: o })))}]));
-else if (line === "repo view --json owner") process.stdout.write(JSON.stringify({ owner: { login: process.cwd().endsWith("/foreign") ? "stranger" : ${JSON.stringify(here)} } }));
+else if (line === "repo view --json owner") process.stdout.write(JSON.stringify({ owner: { login: process.cwd().endsWith("/foreign") ? "stranger" : ${JSON.stringify(login)} } }));
 else process.exit(1);
 `,
     { mode: 0o755 },
@@ -55,55 +59,73 @@ else process.exit(1);
 }
 
 describe("with foreignRepos: ask", () => {
+  // One plain gh call, every word literal, naming an owned repository.
   test.each([
     ["gh pr comment 5 --repo me/app --body done", "the account's own repository"],
     ["gh issue create -R our-org/site --title t --body b", "an organization it belongs to"],
     ["gh pr review 5 --repo Our-Org/site --approve", "an organization, in another case"],
-    ["gh pr comment 5 --body done", "the checkout's own repository, as gh resolves it"],
     ["gh api repos/me/app/issues/1/comments -f body=done", "a gh api write to its own repository"],
+    ["gh pr comment https://github.com/me/app/pull/5 -b 'done?'", "a pull request URL in the account's own repository"],
+    ["gh pr create --fill -R me/app", "--repo after a flag that takes no value"],
+    ["gh api -iX POST repos/our-org/site/issues/1/comments -f 'body=a [b] c'", "a short-flag run on an organization's repository"],
   ])("%s passes: %s", (command) => {
     const { run } = setup();
     expect(run(command)).toEqual({ status: 0, stderr: "", decision: null, reason: "" });
   });
 
   test.each([
-    ["gh pr comment 5 --repo stranger/app --body hi", "`gh pr comment` may write to a repository owned by stranger"],
-    ["gh issue comment 9 -R stranger/app -b hi", "`gh issue comment` may write to a repository owned by stranger"],
-    ["gh issue create --repo=stranger/app --title t --body b", "`gh issue create` may write to a repository owned by stranger"],
-    ["gh pr review https://github.com/stranger/app/pull/3 --approve", "`gh pr review` may write to a repository owned by stranger"],
-    ["gh pr create --repo stranger/app --fill", "`gh pr create` may write to a repository owned by stranger"],
-    ["gh api repos/stranger/app/issues/1/comments -f body=hi", "`gh api POST repos/stranger/app/issues/1/comments` may write to a repository owned by stranger"],
-    ["gh api --method PATCH /repos/stranger/app/issues/1 -f state=closed", "`gh api PATCH repos/stranger/app/issues/1` may write"],
-    ["gh api graphql -f query='mutation { addComment(input: {subjectId: \"X\", body: \"hi\"}) { clientMutationId } }'", "a GraphQL mutation, or a GraphQL query this check cannot read, does not show which repository"],
-    ["cd sub && sh -c 'gh pr comment 1 -R stranger/app -b x'", "owned by stranger"],
-    ["GH_REPO=stranger/app gh issue comment 1 -b x", "owned by stranger"],
-    ["gh pr comment 5 --repo ghe.example.com/team/app -b x", "on ghe.example.com, which this check cannot read"],
-    ['R=stranger/app; gh issue comment 1 -R "$R" -b x', "names its repository as $R, which this check cannot read"],
-    ["GH_REPO=$T gh issue comment 1 -b x", "names its repository as $T, which this check cannot read"],
-    ['PR=https://github.com/stranger/app/pull/1; gh pr comment "$PR" -b x', "names its pull request or issue as $PR, which this check cannot read"],
-    ["gh pr comment $(cat pr.txt) -b x", "which this check cannot read"],
-    ['gh api "$URL" -f body=x', "names its endpoint as $URL, which this check cannot read"],
+    ["gh pr comment 5 --repo stranger/app --body hi", "`gh pr comment` writes to a repository owned by stranger"],
+    ["gh issue comment 9 -R stranger/app -b hi", "`gh issue comment` writes to a repository owned by stranger"],
+    ["gh issue create --repo=stranger/app --title t --body b", "`gh issue create` writes to a repository owned by stranger"],
+    ["gh pr review https://github.com/stranger/app/pull/3 --approve", "`gh pr review` writes to a repository owned by stranger"],
+    ["gh pr create --repo stranger/app --fill", "`gh pr create` writes to a repository owned by stranger"],
+    ["gh api repos/stranger/app/issues/1/comments -f body=hi", "`gh api` writes to a repository owned by stranger"],
+    ["gh api --method PATCH /repos/stranger/app/issues/1 -f state=closed", "`gh api` writes to a repository owned by stranger"],
+    ["gh api graphql -f query='mutation { addComment(input: {subjectId: \"X\", body: \"hi\"}) { clientMutationId } }'", "not a repos/<owner>/<name>/... path"],
+    ["cd sub && sh -c 'gh pr comment 1 -R stranger/app -b x'", "is not one plain gh call"],
+    ["GH_REPO=stranger/app gh issue comment 1 -b x", "is not one plain gh call"],
+    ["gh pr comment 5 --repo ghe.example.com/team/app -b x", "names ghe.example.com/team/app"],
+    ['R=stranger/app; gh issue comment 1 -R "$R" -b x', "is not one plain gh call"],
+    ["GH_REPO=$T gh issue comment 1 -b x", "is not one plain gh call"],
+    ['PR=https://github.com/stranger/app/pull/1; gh pr comment "$PR" -b x', "is not one plain gh call"],
+    ["gh pr comment $(cat pr.txt) -b x", "is not one plain gh call"],
+    ['gh api "$URL" -f body=x', "is not one plain gh call"],
     ["gh pr comment https://github.com/stranger/app/pull/1 -R me/app -b x", "owned by stranger"],
-    ["GH_REPO=me/app gh pr review https://github.com/stranger/app/pull/1 --approve", "owned by stranger"],
+    ["GH_REPO=me/app gh pr review https://github.com/stranger/app/pull/1 --approve", "is not one plain gh call"],
     ["gh pr comment 1 -Rstranger/app -b x", "owned by stranger"],
     ["gh pr comment 1 -R=stranger/app -b x", "owned by stranger"],
-    ["gh pr revert 3 --repo stranger/app", "`gh pr revert` may write to a repository owned by stranger"],
-    ["gh pr update-branch 3 -R stranger/app", "`gh pr update-branch` may write to a repository owned by stranger"],
-    ["nice gh issue comment 1 -R stranger/app -b x", "owned by stranger"],
-    ["pushd foreign && gh pr comment 1 -b x", "owned by stranger"],
-    ["GH=gh; $GH issue comment 9 --repo stranger/app -b hi", "owned by stranger"],
+    ["gh pr revert 3 --repo stranger/app", "`gh pr revert` writes to a repository owned by stranger"],
+    ["gh pr update-branch 3 -R stranger/app", "`gh pr update-branch` writes to a repository owned by stranger"],
+    ["nice gh issue comment 1 -R stranger/app -b x", "is not one plain gh call"],
+    ["pushd foreign && gh pr comment 1 -b x", "is not one plain gh call"],
+    ["GH=gh; $GH issue comment 9 --repo stranger/app -b hi", "which the shell fills in at run time"],
     ['gh issue comment 1 -R stranger/app --body "https://github.com/me/app/pull/44 fixes this"', "owned by stranger"],
     ["gh pr create -R stranger/app --title t --body https://github.com/me/app/issues/1", "owned by stranger"],
-    ["cd foreign && gh pr comment 1 --body https://github.com/me/app/pull/44", "owned by stranger"],
-    ["gh pr merge -sR stranger/app 1", "owned by stranger"],
-    ["gh pr review 1 -aR stranger/app", "owned by stranger"],
-    ["gh pr create -fR stranger/app", "owned by stranger"],
-    ["gh pr close 1 -dR stranger/app", "owned by stranger"],
-    ['gh api graphql -f query="$(cat m.graphql)"', "does not show which repository it writes to"],
-    ['gh api graphql -f query="$Q"', "does not show which repository it writes to"],
-    ["bash -c 'cd foreign && gh pr comment 1 -b hi'", "owned by stranger"],
-    ["{ cd foreign; gh pr comment 1 -b hi; }", "owned by stranger"],
-    ["if true; then cd foreign; fi; gh pr comment 1 -b hi", "owned by stranger"],
+    ["cd foreign && gh pr comment 1 --body https://github.com/me/app/pull/44", "is not one plain gh call"],
+    ["gh pr merge -sR stranger/app 1", "in a run of short flags"],
+    ["gh pr review 1 -aR stranger/app", "in a run of short flags"],
+    ["gh pr create -fR stranger/app", "in a run of short flags"],
+    ["gh pr close 1 -dR stranger/app", "in a run of short flags"],
+    ['gh api graphql -f query="$(cat m.graphql)"', "is not one plain gh call"],
+    ['gh api graphql -f query="$Q"', "is not one plain gh call"],
+    ["bash -c 'cd foreign && gh pr comment 1 -b hi'", "is not one plain gh call"],
+    ["{ cd foreign; gh pr comment 1 -b hi; }", "is not one plain gh call"],
+    ["if true; then cd foreign; fi; gh pr comment 1 -b hi", "is not one plain gh call"],
+    // Owned, but gh picks the repository from the checkout: the accepted cost.
+    ["gh pr comment 5 --body done", "names no repository with --repo or a URL"],
+    ["gh pr comment 44 -b --repo me/app", "gives --repo right after -b, which may take it as its value"],
+    ["gh pr comment 44 -b see -R me/app https://github.com/stranger/app/pull/1", "owned by stranger"],
+    // Not proven reads: fields, a GraphQL query, a gh api write elsewhere.
+    ["gh api -X GET repos/stranger/app/issues -f state=open", "owned by stranger"],
+    ["gh api graphql -f query='query { viewer { login } }'", "not a repos/<owner>/<name>/... path"],
+    ["gh api --hostname ghe.example.com repos/me/app/issues -f title=t", "a flag or form this check does not read"],
+    ["gh release create v1 -R me/app", "`gh release create` is neither a read nor a write this check can place"],
+    ["gh pr view 1 && gh pr comment 1 -R me/app -b hi", "is not one plain gh call"],
+    ["echo issue comment 1 -R stranger/app | xargs gh", "is not one plain gh call"],
+    ["eval \"$CMD\"", "which the shell fills in at run time"],
+    ["sh -c \"$CMD\"", "which the shell fills in at run time"],
+    ["/usr/local/bin/g? pr comment 1 -R me/app -b hi", "a pattern the shell may expand to gh"],
+    ["gh pr comment 1 -R me/app -b hi 2>&1", "is not one plain gh call"],
   ])("%s asks", (command, reason) => {
     const { run, user } = setup();
     const r = run(command);
@@ -112,22 +134,41 @@ describe("with foreignRepos: ask", () => {
     expect(r.reason).toContain(reason);
   });
 
-  test("a cd that a subshell undoes still counts, so a write from someone else's checkout asks", () => {
+  test("a cd that a subshell undoes still asks, since the write names no repository", () => {
     const s = setup();
     const r = s.run("(cd ..); gh pr comment 1 -b hi", { cwd: join(s.work, "foreign") });
     expect(r.decision).toBe("ask");
-    expect(r.reason).toContain("owned by stranger");
+    expect(r.reason).toContain("is not one plain gh call");
   });
 
-  test("a write in a checkout gh resolves to someone else's repository asks", () => {
-    const r = setup({ here: "upstream-owner" }).run("gh pr comment 5 --body hi");
+  test("a write that names no repository asks without asking gh where it goes", () => {
+    const s = setup();
+    const r = s.run("gh pr comment 5 --body hi");
     expect(r.decision).toBe("ask");
-    expect(r.reason).toContain("owned by upstream-owner");
+    expect(r.reason).toContain("names no repository with --repo or a URL");
+    expect(s.calls()).toEqual([]);
   });
 
   test("reads pass without asking gh anything", () => {
     const { run, calls } = setup();
-    for (const command of ['gh pr view "$PR"', "gh issue list -R \"$R\"", "gh pr view 5 --repo stranger/app", "gh issue list -R stranger/app", "gh api repos/stranger/app/pulls/5", "gh api -X GET repos/stranger/app/issues -f state=open", "gh api graphql -f query='query { viewer { login } }'", "gh api graphql -F owner=me -f query='query($owner: String!) { repository(owner: $owner, name: \"app\") { id } }'", "gh pr comment --help", "git commit -m 'gh pr comment 5 --repo stranger/app'"]) {
+    for (const command of [
+      'gh pr view "$PR"',
+      'gh issue list -R "$R"',
+      "gh pr view 5 --repo stranger/app",
+      "gh issue list -R stranger/app",
+      "gh api repos/stranger/app/pulls/5",
+      "gh api -i repos/stranger/app/pulls/5 --jq .title",
+      "gh pr comment --help",
+      "gh pr checks 44 && gh pr diff 44 | head",
+      "cd sub && gh pr list --state open",
+      "git commit -m 'gh pr comment 5 --repo stranger/app'",
+      'git commit -m "$(echo gh pr view)"',
+      "echo gh pr comment 1 -R stranger/app",
+      "brew upgrade gh",
+      "ls *.md && cat a?.txt",
+      'echo "$HOME"',
+      'cat "$(git rev-parse --show-toplevel)/README.md"',
+    ]) {
       expect([command, run(command).decision]).toEqual([command, null]);
     }
     expect(calls()).toEqual([]);
@@ -181,6 +222,28 @@ describe("Claude Code's Bash hook, git-guardrail.sh", () => {
 
   test("reads a gh spelled with quotes, which never names gh outright", () => {
     const r = viaWrapper(setup(), "g''h issue comment 9 --repo stranger/app -b hi");
+    expect(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision).toBe("ask");
+  });
+
+  // Every form the verdict on a4fbf6d found passing, fed through the wrapper so
+  // its prefilter is covered too.
+  test.each([
+    "gh api -iX POST repos/cli/cli/issues/1/comments -f body=hi",
+    "gh api -if body=hi repos/cli/cli/issues/1/comments",
+    "gh api 'graphql?x=1' -f query='mutation { addComment(input: {subjectId: \"X\", body: \"hi\"}) { clientMutationId } }'",
+    "gh api 'https://api.github.com:443/graphql' -f query='mutation { addComment(input: {subjectId: \"X\", body: \"hi\"}) { clientMutationId } }'",
+    "gh api -X POST https://api.github.com:443/repos/cli/cli/issues/1/comments -f body=hi",
+    "gh api -X POST repositories/212613049/issues/1/comments -f body=hi",
+    "gh pr comment https://www.github.com/cli/cli/pull/1 -b hi",
+    "git remote add upstream https://github.com/cli/cli.git && gh pr create --fill",
+    "git remote set-url origin https://github.com/cli/cli.git && gh pr comment 1 -b hi",
+    "GIT_DIR=../foreign/.git gh pr comment 1 -b hi",
+    "/opt/homebrew/bin/g[h] issue comment 1 -R cli/cli -b hi",
+    "nice sh -c 'gh issue comment 1 -R cli/cli -b hi'",
+    "gh issue transfer 1 cli/cli",
+  ])("asks for %s", (command) => {
+    const r = viaWrapper(setup(), command);
+    expect(r.status).toBe(0);
     expect(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision).toBe("ask");
   });
 

@@ -34,25 +34,21 @@ A repository's file that cannot be parsed refuses every merge, including the PR 
 ## Who reads it
 
 - **The merge gate.** `merge-gate.mjs merge` reads both files after every other check passes. With `noCI` set to `"wait"`, a PR with no CI result comes back `{"kind": "held", ...}` with exit 1 and is not merged. A gates file that cannot be parsed refuses the merge.
-- **A hook before each shell command, on Claude Code.** With `foreignRepos` set to `"ask"`, `hooks/operator-gates.mjs`, which the Bash hook `hooks/git-guardrail.sh` runs after the git guardrail, reads each Bash call, inside `sh -c`, `eval`, and subshells too. A `gh` write aimed at a repository that the `gh` account does not own, and that none of its organizations owns, gets Claude Code's permission prompt with the reason, and runs only if the user approves. The writes are:
+- **A hook before each shell command, on Claude Code.** With `foreignRepos` set to `"ask"`, `hooks/operator-gates.mjs`, which the Bash hook `hooks/git-guardrail.sh` runs after the git guardrail, reads each Bash call. It does not try to work out where a `gh` write goes. A call runs without a prompt only when its text alone proves it cannot write to someone else's repository, and every other `gh` call gets Claude Code's permission prompt with the reason. It runs only if the user approves. Two kinds pass:
 
-  - `gh pr`: comment, review, create, edit, close, reopen, ready, merge, revert, update-branch, lock, and unlock;
-  - `gh issue`: comment, create, edit, close, reopen, lock, unlock, pin, unpin, transfer, delete, and develop;
-  - `gh api` calls that write to a `repos/<owner>/<repo>` path.
+  - **A read.** `gh pr` view, list, status, diff, checks, or checkout; `gh issue` view, list, or status; `gh repo` view, list, or clone; `gh run` and `gh workflow` view and list, `gh run watch`, `gh release` view and list, `gh search`, `gh auth status`, `gh status`, and `--help`. `gh api` counts as a read only with no method other than `GET` or `HEAD`, no `-f`, `-F`, `--field`, `--raw-field`, or `--input` in any spelling (`-if` included), and an endpoint that is not GraphQL. A list of reads, not of writes: a subcommand it does not know asks.
+  - **One plain write to a repository you own.** The whole command is a single `gh` call with every word literal: no `&&`, `;`, pipe, redirect, `$`, backtick, glob, `VAR=` prefix, or wrapper such as `sh -c`, `eval`, `nice`, or `xargs`. It is a `gh pr` comment, review, create, edit, close, reopen, ready, merge, revert, update-branch, lock, or unlock, a `gh issue` comment, create, edit, close, reopen, lock, unlock, pin, unpin, or delete, or a `gh api` call on a `repos/<owner>/<name>/...` path on github.com. It names its repository with `--repo owner/name` (`-R owner/name`, `-Rowner/name`, `--repo=owner/name`) or with a `github.com` URL right after the subcommand, and the `gh` account or one of its organizations owns every repository and URL among its words.
 
-  Rather than predict which repository `gh` picks, the check asks when any repository the write could reach is not owned:
+  For example, `gh pr comment 44 --repo you/app --body done` passes, and these ask:
 
-  - each `github.com` URL among the arguments, a link in a comment's body included;
-  - each `--repo` value, in any of `gh`'s spellings (`-R <repo>`, `-R<repo>`, `-sR <repo>`, `--repo=<repo>`);
-  - without `--repo`, each `GH_REPO` value, and the repository `gh` resolves in each directory the command starts in or changes to, a `cd` inside a subshell, brace group, or `sh -c` included.
+  - `gh pr comment 44 --body done`, which leaves `gh` to pick the repository from the checkout. That is the price of the rule: the hook does not predict that choice, so name the repository to skip the prompt.
+  - anything chained or wrapped, such as `git remote add upstream <url> && gh pr create --fill`, `GIT_DIR=... gh ...`, or `sh -c '...'`, even when every `gh` call in it writes to your own repository;
+  - a write the shell fills in or expands, such as `-R "$R"`, `$(cat pr.txt)`, `$GH`, or `/opt/homebrew/bin/g[h]`;
+  - `gh api` on GraphQL, on a full URL, or on any path other than `repos/<owner>/<name>/...`, such as `repositories/<id>/...`;
+  - `--repo` inside a run of short flags (`-sR`) or right after a flag that may take it as its value (`-b --repo me/app`), and a link to someone else's repository anywhere among the words;
+  - a write this check cannot place, such as `gh issue transfer`, `gh release create`, or `gh repo set-default`, and a call whose account cannot be read, or any `gh` call that may write while a gates file cannot be parsed.
 
-  This can ask more often than needed, for example for a comment on your own pull request that links someone else's. It also asks when it cannot read where a write goes:
-
-  - a repository, selector, endpoint, or GraphQL query the shell fills in at run time, such as `"$R"` or `$(cat pr.txt)`, or a directory it cannot follow (`cd "$DIR"`, `cd -`);
-  - a GraphQL mutation, which names no repository;
-  - a write when the account cannot be read, or when a gates file cannot be parsed.
-
-  Your own repositories pass without a prompt. Other harnesses have no such hook yet, so there poteto-mode asks before running these commands.
+  The hook reads the command line, so it stops an agent's shortcut, not a deliberate evasion, the same line the merge gate draws. A script file that runs `gh`, a heredoc or pipe fed to `sh`, brace expansion that spells `gh`, `gh alias`, and a `gh` call sent through another language are out of its reach. It reads the gates file of the directory the command starts in. Other harnesses have no such hook yet, so there poteto-mode asks before running a write to a repository the account does not own.
 - **poteto-mode, when a run starts.** It runs `node <plugin>/skills/poteto-mode/scripts/gates.mjs` in the repository and follows each line it prints, `askFirst` items included. Run it yourself to see the gates in force:
 
   ```text

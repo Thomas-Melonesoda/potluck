@@ -3,15 +3,15 @@
 # reads the call on stdin and exits 2 to block a git command that would lose
 # uncommitted or unpushed work. A call it lets through goes on to
 # operator-gates.mjs, which prints an "ask" decision when the operator's gates
-# set foreignRepos to "ask" and the call writes with gh to a repository the
-# user does not own. That check starts node only for a call that names gh or
-# holds a quote, backslash, $, or backtick, the ways a command can spell gh
-# without writing it out. Without node on PATH both are off and every call
-# runs, as it did before.
+# set foreignRepos to "ask" and the call runs gh in a way not proven to be a
+# read or a write to the user's own repository. That check starts node only
+# for a call that names gh or holds a quote, backslash, $, backtick, or glob
+# character ([, *, ?), the ways a command can spell gh without writing it out.
+# Without node on PATH both are off and every call runs, as it did before.
 command -v node >/dev/null 2>&1 || exit 0
 input=$(cat)
 here=$(dirname "$0")
 printf '%s' "$input" | node "$here/git-guardrail.mjs" || exit $?
 case $input in
-  *gh* | *\'* | *\\* | *'$'* | *'`'*) printf '%s' "$input" | node "$here/operator-gates.mjs" ;;
+  *gh* | *\'* | *\\* | *'$'* | *'`'* | *'['* | *'*'* | *'?'*) printf '%s' "$input" | node "$here/operator-gates.mjs" ;;
 esac

@@ -18,7 +18,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh\"",
+            "timeout": 60
           }
         ]
       }
