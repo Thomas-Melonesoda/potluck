@@ -45,40 +45,43 @@ process.chdir(top);
 const mergeBase = git(['merge-base', base, 'HEAD'])?.trim();
 if (!mergeBase) bail('no merge base against ' + base);
 
-// Unified diff plus untracked files (git diff alone cannot see new files). A test file that was
-// only renamed (git's rename detection finds the same content under the new name) is left out of
-// the diff, so it reads as neither deleted nor added. Every other path is diffed without rename
-// detection, so a file renamed with edits, or out of what the guard checks (a test, CI
-// configuration, CONSTRAINTS.md, plain Markdown into code), still reads as deleted and added.
+// Unified diff plus untracked files (git diff alone cannot see new files), without rename
+// detection, so a renamed file reads as deleted and added. The two paths of a test file that was
+// only renamed (below) are dropped from it by name.
 const isCI = (f) => /^\.github\/(workflows|actions)\/.*\.ya?ml$|^\.(circleci|buildkite|woodpecker)\/.*\.ya?ml$|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|\.woodpecker|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
-// A test is only renamed when its content is unchanged, it stays in its folder, keeps its extension
-// and exactly the naming forms it had (*.test.js stays *.test.js, test_*.py stays test_*.py), and
-// it is not CI configuration. The folder,
-// the form, and for Go a leading _ or . or a build-constraint suffix (_windows_test.go) decide what
-// runs it, so any other rename reads as a deletion, as before.
-const FORMS = [/_test\.go$/, /(^|\/)test_[^/]*\.py$/, /_test\.py$/, /\.test\.[cm]?[jt]sx?$/, /\.spec\.[cm]?[jt]sx?$/, /Tests\.swift$/, /_spec\.rb$/, /(^|\/)test_[^/]*\.rb$/, /_test\.rb$/];
-const GO_SKIPPED = /(^|\/)[._][^/]*\.go$|_(aix|android|darwin|dragonfly|freebsd|hurd|illumos|ios|js|linux|nacl|netbsd|openbsd|plan9|solaris|wasip1|windows|zos|386|amd64|amd64p32|arm|armbe|arm64|arm64be|loong64|mips|mipsle|mips64|mips64le|mips64p32|mips64p32le|ppc|ppc64|ppc64le|riscv|riscv64|s390|s390x|sparc|sparc64|wasm)_test\.go$/;
+// A test is only renamed when its blob is unchanged (git's similarity score alone is not enough: it
+// rates reordered lines 100%), it stays in its folder with its extension and a plain name, it is not
+// CI configuration, and the new name changes no listed runner's default discovery: every pattern
+// below reads both names or neither. For Go, a name go test skips also fails.
+const DISCOVERY = [
+  /\.test\.[cm]?[jt]sx?$/, /\.spec\.[cm]?[jt]sx?$/, /_test\.[cm]?[jt]sx?$/, /-test\.[cm]?[jt]sx?$/, /_spec\.[cm]?[jt]sx?$/,
+  /^test-.*\.[cm]?[jt]sx?$/, /^test\.[cm]?[jt]sx?$/, // Jest, Vitest, node --test, Bun, Deno, AVA
+  /^test_.*\.py$/, /_test\.py$/, /^test.*\.py$/, // pytest, unittest
+  /_test\.go$/, /Tests\.swift$/, /^test.*\.rb$/, /_test\.rb$/, /_spec\.rb$/, // go test, XCTest, rake, rails, RSpec
+];
+const GO_SKIPPED = /^[._].*\.go$|_(aix|android|darwin|dragonfly|freebsd|hurd|illumos|ios|js|linux|nacl|netbsd|openbsd|plan9|solaris|wasip1|windows|zos|386|amd64|amd64p32|arm|armbe|arm64|arm64be|loong64|mips|mipsle|mips64|mips64le|mips64p32|mips64p32le|ppc|ppc64|ppc64le|riscv|riscv64|s390|s390x|sparc|sparc64|wasm)_test\.go$/;
 const folderOf = (f) => f.slice(0, f.lastIndexOf('/') + 1);
+const nameOf = (f) => f.slice(f.lastIndexOf('/') + 1);
 const extOf = (f) => f.match(/\.[^./]+$/)?.[0] ?? '';
-// The new name must be a plain one every runner's discovery reads: a letter or digit first, then
-// letters, digits, _ and - (no - for Python, whose module names cannot hold one), and no dot
-// beyond its form's own. Any other name falls back to reading as a deletion.
+// A plain name: a letter or digit first, then letters, digits, _ and - (no - for Python, whose module
+// names cannot hold one), and no dot beyond .test or .spec and the extension.
 const plainName = (f) => {
-  const stem = f.slice(f.lastIndexOf('/') + 1, f.length - extOf(f).length).replace(/\.(test|spec)$/, '');
+  const stem = nameOf(f).slice(0, nameOf(f).length - extOf(f).length).replace(/\.(test|spec)$/, '');
   return extOf(f) === '.py' ? /^[A-Za-z_]\w*$/.test(stem) : /^[A-Za-z0-9][\w-]*$/.test(stem);
 };
 const keepsTest = (from, to) => !isCI(from) && !isCI(to) && folderOf(from) === folderOf(to) && extOf(from) === extOf(to)
-  && plainName(to) && !GO_SKIPPED.test(to) && FORMS.some((r) => r.test(from)) && FORMS.every((r) => r.test(from) === r.test(to));
-const names = git(['diff', '-M', '--name-status', '-z', mergeBase, '--']);
-if (names === null) bail('could not diff against ' + mergeBase);
-const kept = [];
-for (let i = 0, t = names.split('\0'); i < t.length - 1;) {
-  const status = t[i++];
+  && plainName(to) && !GO_SKIPPED.test(nameOf(to))
+  && DISCOVERY.some((r) => r.test(nameOf(from))) && DISCOVERY.every((r) => r.test(nameOf(from)) === r.test(nameOf(to)));
+const raw = git(['diff', '--raw', '-M', '-z', '--no-abbrev', mergeBase, '--']);
+if (raw === null) bail('could not diff against ' + mergeBase);
+const kept = new Set();
+for (let i = 0, t = raw.split('\0'); i < t.length - 1;) {
+  const [, , blobFrom, blobTo, status] = t[i++].split(' ');
   if (!/^[RC]/.test(status)) { i++; continue; }
   const from = t[i++], to = t[i++];
-  if (status === 'R100' && keepsTest(from, to)) kept.push(from, to);
+  if (status[0] === 'R' && blobFrom === blobTo && !/^0+$/.test(blobTo) && keepsTest(from, to)) kept.add(from).add(to);
 }
-const tracked = git(['diff', '--unified=0', '--no-renames', mergeBase, '--', '.', ...kept.map((f) => ':(exclude,literal)' + f)]);
+const tracked = git(['diff', '--unified=0', '--no-renames', mergeBase, '--']);
 if (tracked === null) bail('could not diff against ' + mergeBase);
 const untrackedFiles = git(['ls-files', '--others', '--exclude-standard']);
 if (untrackedFiles === null) bail('could not list untracked files');
@@ -104,9 +107,10 @@ for (const line of diff.split('\n')) {
     else if (line.startsWith('+++ ')) {
       const newFile = pathOf(line.slice(4));
       file = newFile === '/dev/null' ? oldFile : newFile;
-      if (newFile === '/dev/null') deleted.push(file);
+      if (newFile === '/dev/null' && !kept.has(file)) deleted.push(file);
     }
   }
+  else if (kept.has(file)) continue;
   else if (line.startsWith('+')) added.push({ file, text: line.slice(1) });
   else if (line.startsWith('-')) removed.push({ file, text: line.slice(1) });
 }
