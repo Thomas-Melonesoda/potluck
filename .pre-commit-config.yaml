@@ -27,7 +27,9 @@ repos:
         always_run: true
       - id: tests
         name: test suite before push
-        entry: bun test tests/
+        # The script, not a bare `bun test`: prek keeps GIT_DIR for hooks, and the
+        # script unsets it before the suite's scratch repositories can inherit it.
+        entry: .githooks/pre-push
         language: system
         pass_filenames: false
         always_run: true

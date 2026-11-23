@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# potluck pre-push hook: run the test suite before a push leaves the machine,
-# so a branch never goes public with failing tests. Enabled by the same
+# potluck pre-push hook: run the test suite on the checked-out tree before a
+# push leaves the machine, so a push does not go out while that tree fails its
+# tests. It does not test each pushed commit. Enabled by the same
 # `git config core.hooksPath .githooks` as the pre-commit hook. CI runs the
 # suite again; this hook only stops the push from going out first.
 set -euo pipefail
