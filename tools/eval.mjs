@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// potluck: eval layers 1 and 2 (design row D8). Free and deterministic, so CI runs both.
+// potluck: eval layers 1 and 2 (design row S4-D8). Free and deterministic, so CI runs both.
 //
-//   node tools/eval.mjs            both layers
-//   node tools/eval.mjs --layer 1  structure
-//   node tools/eval.mjs --layer 2  triggers and collisions
-//   node tools/eval.mjs --report   also print each trigger case's rank
+//   node tools/eval.mjs              both layers
+//   node tools/eval.mjs --layer 1    structure
+//   node tools/eval.mjs --layer 2    triggers and collisions
+//   node tools/eval.mjs --report     also print each trigger case's rank
+//   node tools/eval.mjs --base <ref> hold the bar against evals/triggers.json at <ref>
 //
 // Layer 1, structure: every skill has a name that matches its folder and a
 // description within the length runtimes accept; poteto-mode's playbook list
@@ -31,9 +32,17 @@
 // lacks the words users say and two descriptions that read alike. A failure
 // here usually means fix the description, not the case.
 //
+// The bar layer 2 holds only rises (stage 5 issue 15). Against the same file
+// at a base revision (--base, or by default the merge base with origin/main),
+// minRank1 may not fall, topK, minScore, and collision may not rise, and no
+// pair may join allowCollisions and no case may gain a `known` mark: a new
+// skill brings cases that pass, and a collision is fixed in the descriptions.
+// Lowering the bar waits for the owner's approval.
+//
 // Cases live in evals/triggers.json. Exit 0 when every check passes, 1 when one
 // fails, 2 on a usage error.
 
+import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -178,6 +187,9 @@ export function layer2(skills, config) {
   const { cases, topK = 3, minRank1 = 0, minScore = 0, collision = 1, allowCollisions = [] } = config;
   const idx = index(skills);
   const problems = [];
+  // A setting that is not a number would compare false everywhere and turn its check off.
+  for (const [key] of BAR) if (key in config && !Number.isFinite(config[key])) problems.push(`evals/triggers.json: ${key} must be a number`);
+  if (problems.length) return { problems, report: [], rate: 0 };
   const report = [];
   let positives = 0;
   let first = 0;
@@ -222,6 +234,61 @@ export function layer2(skills, config) {
     if (found && found.score < collision) problems.push(`collision: ${found.a} and ${found.b} are ${found.score.toFixed(2)} alike now, under ${collision}; remove the pair from allowCollisions`);
   }
   return { problems, report, rate };
+}
+
+// Each setting with its default and the direction that makes the bar stricter.
+const BAR = [
+  ["minRank1", 0, "up"],
+  ["topK", 3, "down"],
+  ["minScore", 0, "down"],
+  ["collision", 1, "down"],
+];
+
+// The ways `head` lowers the bar `base` held; empty when it holds or rises.
+export function loosened(base, head) {
+  const problems = [];
+  for (const [key, fallback, stricter] of BAR) {
+    const was = base[key] ?? fallback;
+    const now = head[key] ?? fallback;
+    if (stricter === "up" ? now < was : now > was) problems.push(`bar: ${key} ${stricter === "up" ? "falls" : "rises"} from ${was} to ${now}`);
+  }
+  const pairKey = (entry) => (Array.isArray(entry?.pair) ? [...entry.pair].sort().join(" and ") : "");
+  const allowed = new Set((base.allowCollisions ?? []).map(pairKey));
+  for (const entry of head.allowCollisions ?? []) {
+    if (!allowed.has(pairKey(entry))) problems.push(`bar: allowCollisions adds ${pairKey(entry)}; make the two descriptions distinct instead`);
+  }
+  // A case is its skill, its list of skills that must not fire, and its prompt.
+  const caseKey = (c) => JSON.stringify([c.skill ?? null, [...(c.not ?? [])].sort(), c.prompt]);
+  const known = new Set((base.cases ?? []).filter((c) => c.known !== undefined).map(caseKey));
+  for (const c of head.cases ?? []) {
+    if (c.known !== undefined && !known.has(caseKey(c))) problems.push(`bar: case ${JSON.stringify(c.prompt)} gains a "known" mark; fix the description so the case passes instead`);
+  }
+  return problems;
+}
+
+// evals/triggers.json at the revision the bar is held against: `ref` when
+// given, else the merge base with origin/main. Returns { config, at } (no
+// config when the file is not there) with `at` the commit's SHA, { unheld }
+// when no default base exists, or { error } for a ref that is not a commit or
+// a file that does not parse.
+export function baseTriggers(root, ref) {
+  const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  let at;
+  if (ref === undefined) {
+    const found = git("merge-base", "origin/main", "HEAD");
+    if (found.status !== 0) return { unheld: "no origin/main to hold the bar against; pass --base <ref>" };
+    at = found.stdout.trim();
+  } else {
+    const found = git("rev-parse", "--verify", "--quiet", `${ref}^{commit}`);
+    if (found.status !== 0) return { error: `--base ${ref} is not a commit` };
+    at = found.stdout.trim();
+  }
+  if (!git("ls-tree", "--name-only", at, "--", "evals/triggers.json").stdout.trim()) return { at };
+  try {
+    return { at, config: JSON.parse(git("show", `${at}:evals/triggers.json`).stdout) };
+  } catch (error) {
+    return { error: `evals/triggers.json at ${at} does not parse: ${error.message}` };
+  }
 }
 
 // Layer 3 cases, run on request by `claude plugin eval plugins/pstack`.
@@ -306,7 +373,7 @@ export function readPlaybooks(root = ROOT) {
 export function main(argv, root = ROOT) {
   let values;
   try {
-    ({ values } = parseArgs({ args: argv, options: { layer: { type: "string" }, report: { type: "boolean" } } }));
+    ({ values } = parseArgs({ args: argv, options: { layer: { type: "string" }, report: { type: "boolean" }, base: { type: "string" } } }));
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     return 2;
@@ -317,6 +384,11 @@ export function main(argv, root = ROOT) {
   const problems = [];
   if (values.layer !== "2") problems.push(...layer1(skills, config.cases, readPlaybooks(root)), ...evalCaseProblems(root, new Set(skills.map((s) => s.dir))));
   if (values.layer !== "1") {
+    const held = baseTriggers(root, values.base);
+    if (held.error) return process.stderr.write(`${held.error}\n`), 2;
+    if (held.unheld) process.stderr.write(`note: ${held.unheld}\n`);
+    const lowered = held.config ? loosened(held.config, config) : [];
+    if (lowered.length) problems.push(...lowered.map((p) => `${p} (against ${held.at.slice(0, 12)})`), "bar: lowering it needs the owner's approval first");
     const { problems: found, report, rate } = layer2(skills, config);
     problems.push(...found);
     if (values.report) for (const r of report) process.stdout.write(`${r.rank === 1 ? " " : r.known ? "k" : "*"} ${String(r.rank === Infinity ? "-" : r.rank).padStart(2)} ${r.skill.padEnd(36)} ${r.prompt}${r.rank === 1 ? "" : `  (first: ${r.top})`}\n`);

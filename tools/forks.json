@@ -182,27 +182,27 @@
     },
     "plugins/pstack/skills/poteto-mode/playbooks/pause-safely.md": {
       "kind": "policy",
-      "why": "Writes the resume note to the canonical checkpoint directory and preserves artifacts the user asked to keep across the resume.",
+      "why": "Writes the resume note to a checkpoint directory for the task's folder and task, in Git or not, and preserves artifacts the user asked to keep across the resume.",
       "since": "0.9.34",
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
       "row": "S3-D2",
-      "ruling": "Use Michael's checkpoint location and kept artifacts (S3-D2).",
-      "ruling_zh": "采用 Michael 的检查点位置和保留的产物（S3-D2）。",
-      "decided": "2026-11-21"
+      "ruling": "Use Michael's checkpoint location and kept artifacts (S3-D2). Stage 5 issue 11: one checkpoint pointer per folder and task, so projects in one repository or vault stop overwriting each other, and folders outside Git get checkpoints too.",
+      "ruling_zh": "采用 Michael 的检查点位置和保留的产物（S3-D2）。阶段 5 第 11 条：每个文件夹加任务各有一个检查点指针，一个仓库或 vault 里的几个项目不会再覆盖彼此的指针；Git 之外的文件夹也能存检查点。",
+      "decided": "2026-11-23"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/session-pickup.md": {
       "kind": "policy",
-      "why": "Reads the project checkpoint first and applies the human-rulings epistemics when reconstructing state, and verifies inherited claims before it routes and ends.",
+      "why": "Reads the checkpoint for the task's folder and task first, lists the store before any transcript fallback, rechecks the note against commits that landed after the recorded head, applies the human-rulings epistemics when reconstructing state, and verifies inherited claims before it routes and ends.",
       "since": "0.9.34",
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
       "row": "S3-D3, S3-D4, S3-D5",
-      "ruling": "Use Michael's checkpoint-first pickup and human-rulings priority (S3-D3, S3-D4, S3-D5).",
-      "ruling_zh": "采用 Michael 先读检查点的接手方式，以及人的裁定优先（S3-D3、S3-D4、S3-D5）。",
-      "decided": "2026-11-21"
+      "ruling": "Use Michael's checkpoint-first pickup and human-rulings priority (S3-D3, S3-D4, S3-D5). Stage 5 issue 11: a pause records HEAD, and pickup compares it first and rechecks the note when it moved, which is Lauren's verify-inherited-claims step.",
+      "ruling_zh": "采用 Michael 先读检查点的接手方式，以及人的裁定优先（S3-D3、S3-D4、S3-D5）。阶段 5 第 11 条：暂停时记录 HEAD；接手时先比较，HEAD 变了就先重新核对说明里的结论，这就是 Lauren 核对继承结论的那一步。",
+      "decided": "2026-11-23"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/shipping.md": {
       "kind": "policy",
@@ -218,15 +218,15 @@
     },
     "plugins/pstack/skills/poteto-mode/playbooks/worktree-cleanup.md": {
       "kind": "policy",
-      "why": "Holds a worktree with untracked files or a git lock instead of calling untracked files safe to drop, names the untracked count and the lock reason the audit prints, says that a worktree with both tracked edits and untracked files prints both counts, names the status call the audit counts from and a diff command that covers submodules, says that an empty diff never means nothing is at stake because a diff leaves untracked files out and a plain one can leave a submodule out, says that a wip line can stand for work inside a submodule, limits the prune step's kept-commits claim to commits on the worktree's branch and says a submodule's commits go with the worktree, holds ignored files outside the audit's disposable build and cache directories and commits only the worktree's HEAD reflog reaches, naming the ignored and reflog counts and the commands that list them, including ignored paths in initialized submodules, and forbids rm -rf around a locked tree; then, instead of pausing for a decision (the list-it step now ends by backing it up), runs potluck's worktree-backup.mjs on every worktree before removal, clean ones included (a local backup branch, a trash tarball kept 30 days that also holds the raw copy of each changed or filtered tracked file, and branches for HEAD-only commits), and deletes it without asking only on a recorded backed-up or nothing-to-back-up result, skipping and reporting a hold (locked trees; any initialized submodule, files in an uninitialized one's folder, or a submodule repository in the worktree's git dir; an operation in progress; skip-worktree or assume-unchanged files on disk; unmerged paths or no commit yet), a failed run, and in-use trees.",
+      "why": "Holds a worktree with untracked files or a git lock instead of calling untracked files safe to drop, names the untracked count and the lock reason the audit prints, says that a worktree with both tracked edits and untracked files prints both counts, names the status call the audit counts from and a diff command that covers submodules, says that an empty diff never means nothing is at stake because a diff leaves untracked files out and a plain one can leave a submodule out, says that a wip line can stand for work inside a submodule, limits the prune step's kept-commits claim to commits on the worktree's branch and says a submodule's commits go with the worktree, holds ignored files outside the audit's disposable build and cache directories and commits only the worktree's HEAD reflog reaches, naming the ignored and reflog counts and the commands that list them, including ignored paths in initialized submodules, and forbids rm -rf around a locked tree; then, instead of pausing for a decision (the list-it step now ends by backing it up), runs potluck's worktree-backup.mjs on every worktree before removal, clean ones included (a local backup branch, a trash tarball kept 30 days that also holds the raw copy of each changed or filtered tracked file, and branches for HEAD-only commits), and deletes it without asking only through potluck's worktree-remove.mjs, which refuses any path but the top level of a linked worktree git lists, checks the backup branches and the tarball against the worktree, and moves the worktree to the trash instead of deleting it (the prune step forbids rm -rf and git worktree remove --force), skipping and reporting a hold (a backup that does not match the worktree; locked trees; any initialized submodule, files in an uninitialized one's folder, or a submodule repository in the worktree's git dir; an operation in progress; skip-worktree or assume-unchanged files on disk; unmerged paths or no commit yet), a failed run, and in-use trees.",
       "since": "0.9.74",
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
       "row": "S3-C3",
-      "ruling": "Use Michael's risk checks, then back up automatically and let the agent delete without asking: uncommitted work to a wip commit on a backup branch, untracked and ignored files to a trash directory kept 30 days, HEAD-only commits to a branch; skip and report worktrees another agent holds (S3-C3).",
-      "ruling_zh": "采用 Michael 的风险检查，然后自动备份并让 agent 不问就删除：未提交的改动做成备份分支上的 wip 提交，未跟踪和被忽略的文件放进保留 30 天的回收目录，只在 HEAD 上的提交存成分支；别的 agent 占用的 worktree 跳过并报告（S3-C3）。",
-      "decided": "2026-11-21"
+      "ruling": "Use Michael's risk checks, then back up automatically and let the agent delete without asking: uncommitted work to a wip commit on a backup branch, untracked and ignored files to a trash directory kept 30 days, HEAD-only commits to a branch; skip and report worktrees another agent holds (S3-C3). Stage 5 issue 6 keeps that and adds three safeguards: the backup is checked before anything is deleted, and a mismatch holds the worktree and is reported; the worktree moves to the trash and is cleared after the retention period, never rm -rf; only the top level of a linked worktree may be touched, and any other path is an error (S3-C3).",
+      "ruling_zh": "采用 Michael 的风险检查，然后自动备份并让 agent 不问就删除：未提交的改动做成备份分支上的 wip 提交，未跟踪和被忽略的文件放进保留 30 天的回收目录，只在 HEAD 上的提交存成分支；别的 agent 占用的 worktree 跳过并报告（S3-C3）。阶段 5 第 6 条保留这一做法，再加三道保险：删之前核对备份，核对不过就不删，并写进汇报；worktree 移到回收目录，过了保留期再清，不直接 rm -rf；只允许操作已登记的 worktree 根目录，别的路径一律报错（S3-C3）。",
+      "decided": "2026-11-23"
     },
     "plugins/pstack/skills/poteto-mode/scripts/bootstrap.ts": {
       "kind": "policy",

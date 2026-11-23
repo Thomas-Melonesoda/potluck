@@ -2,11 +2,12 @@
 // small made-up skill lists here, and once on the real tree.
 import { describe, expect, test } from "bun:test";
 
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { frontmatter, index, layer1, layer2, main, readPlaybooks, stem, tokens } from "../tools/eval.mjs";
+import { baseTriggers, frontmatter, index, layer1, layer2, loosened, main, readPlaybooks, stem, tokens } from "../tools/eval.mjs";
 
 const skill = (dir, description, extra = {}) => ({ dir, name: dir, description, userInvocable: true, ...extra });
 const SKILLS = [
@@ -91,6 +92,10 @@ describe("layer 2", () => {
     expect(layer2(SKILLS, { ...base, cases: [{ prompt: "deploy to production", not: ["deploy"] }] }).problems[0]).toContain("ranks deploy first");
     expect(layer2(SKILLS, { ...base, cases: [{ prompt: "rename a variable", not: ["review", "deploy", "explain"] }] }).problems).toEqual([]);
   });
+  test("a setting that is not a number fails instead of turning its check off", () => {
+    const r = layer2(SKILLS, { ...base, minRank1: "off", collision: null, cases: [] });
+    expect(r.problems).toEqual(["evals/triggers.json: minRank1 must be a number", "evals/triggers.json: collision must be a number"]);
+  });
   test("the rank-1 share has a floor", () => {
     const r = layer2(SKILLS, { ...base, topK: 3, minRank1: 100, cases: [{ prompt: "review this pull request", skill: "review" }, { prompt: "watch the deploy rollout and explain it", skill: "explain" }] });
     expect(r.rate).toBe(50);
@@ -104,6 +109,82 @@ describe("layer 2", () => {
     expect(layer2(twins, { ...base, collision: 0.5, cases: [], allowCollisions: [{ pair: ["ship", "deploy"] }] }).problems[0]).toContain("needs two existing skills and a reason");
     expect(layer2(twins, { ...base, collision: 0.5, cases: [], allowCollisions: [{ why: "w" }] }).problems[0]).toContain("needs two existing skills and a reason");
     expect(layer2(SKILLS, { ...base, collision: 0.5, cases: [], allowCollisions: [{ pair: ["review", "deploy"], why: "w" }] }).problems[0]).toContain("remove the pair from allowCollisions");
+  });
+});
+
+describe("the bar only rises", () => {
+  const base = {
+    minRank1: 55,
+    topK: 3,
+    minScore: 0.1,
+    collision: 0.45,
+    allowCollisions: [{ pair: ["a", "b"], why: "w" }],
+    cases: [{ prompt: "p", skill: "a", known: "gap" }, { prompt: "q", skill: "b" }],
+  };
+  test("the same bar, or a stricter one, passes", () => {
+    expect(loosened(base, base)).toEqual([]);
+    expect(loosened(base, { minRank1: 60, topK: 2, minScore: 0.05, collision: 0.4, allowCollisions: [], cases: [{ prompt: "q", skill: "b" }, { prompt: "r", skill: "c" }] })).toEqual([]);
+  });
+  test("names each way the bar falls", () => {
+    const head = {
+      minRank1: 50,
+      topK: 5,
+      minScore: 0.2,
+      collision: 0.6,
+      allowCollisions: [{ pair: ["b", "a"], why: "w" }, { pair: ["c", "b"], why: "w" }],
+      cases: [{ prompt: "p", skill: "a", known: "gap" }, { prompt: "q", skill: "b", known: "gap" }, { prompt: "r", skill: "c", known: "new" }],
+    };
+    expect(loosened(base, head)).toEqual([
+      "bar: minRank1 falls from 55 to 50",
+      "bar: topK rises from 3 to 5",
+      "bar: minScore rises from 0.1 to 0.2",
+      "bar: collision rises from 0.45 to 0.6",
+      "bar: allowCollisions adds b and c; make the two descriptions distinct instead",
+      'bar: case "q" gains a "known" mark; fix the description so the case passes instead',
+      'bar: case "r" gains a "known" mark; fix the description so the case passes instead',
+    ]);
+  });
+  test("a copied prompt under another skill, or a changed list of skills, is a new mark", () => {
+    const copied = { ...base, cases: [...base.cases, { prompt: "p", skill: "b", known: "gap" }] };
+    expect(loosened(base, copied)).toEqual(['bar: case "p" gains a "known" mark; fix the description so the case passes instead']);
+    const negative = { cases: [{ prompt: "n", not: ["a"], known: "gap" }] };
+    expect(loosened(negative, { cases: [{ prompt: "n", not: ["a", "b"], known: "gap" }] })).toHaveLength(1);
+    expect(loosened(negative, { cases: [{ prompt: "n", not: ["a"], known: "reworded" }] })).toEqual([]);
+  });
+  test("a setting left out reads as its default", () => {
+    const { minRank1, ...rest } = base;
+    expect(loosened(base, rest)).toEqual(["bar: minRank1 falls from 55 to 0"]);
+    expect(loosened({ cases: [] }, { topK: 3, minScore: 0, collision: 1, cases: [] })).toEqual([]);
+  });
+});
+
+describe("--base reads the bar from git", () => {
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" };
+  for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]) delete env[key];
+  const repo = () => {
+    const root = mkdtempSync(join(tmpdir(), "potluck-eval-bar-"));
+    mkdirSync(join(root, "plugins/pstack/skills"), { recursive: true });
+    mkdirSync(join(root, "evals"));
+    writeFileSync(join(root, "evals/triggers.json"), JSON.stringify({ minRank1: 55, cases: [] }));
+    const git = (...args) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8", env });
+    git("init", "-q");
+    git("add", ".");
+    git("-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "base");
+    return root;
+  };
+  test("a lower floor than the base fails, the same floor passes, and an unknown ref is a usage error", () => {
+    const root = repo();
+    expect(main(["--layer", "2", "--base", "HEAD"], root)).toBe(0);
+    expect(baseTriggers(root, "HEAD").at).toMatch(/^[0-9a-f]{40}$/);
+    writeFileSync(join(root, "evals/triggers.json"), JSON.stringify({ minRank1: 50, cases: [] }));
+    expect(main(["--layer", "2", "--base", "HEAD"], root)).toBe(1);
+    expect(main(["--layer", "2", "--base", "no-such-ref"], root)).toBe(2);
+    rmSync(join(root, "evals/triggers.json"));
+    execFileSync("git", ["-C", root, "rm", "-q", "--cached", "evals/triggers.json"], { env });
+    execFileSync("git", ["-C", root, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "no triggers"], { env });
+    writeFileSync(join(root, "evals/triggers.json"), JSON.stringify({ minRank1: 50, cases: [] }));
+    expect(main(["--layer", "2", "--base", "HEAD"], root)).toBe(0);
+    rmSync(root, { recursive: true, force: true });
   });
 });
 
