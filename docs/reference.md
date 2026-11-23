@@ -89,6 +89,7 @@ The Claude Code, Codex, and GitHub Copilot plugins load the same short [routing 
 - It touches more than one file or changes a signature other files call.
 - It involves a design or architecture choice.
 - It concerns a bug with an unknown cause or a performance issue.
+- It asks to pause, hand off, save progress, or pick up earlier work, in any language (暂停一下, 交接, 存一下进度, 接着做).
 
 Smaller tasks proceed directly. The full skill loads when invoked, and explicit user instructions take precedence.
 
