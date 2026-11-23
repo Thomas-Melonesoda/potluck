@@ -3,6 +3,7 @@
 //
 //   node merge-gate.mjs verdict --repo <owner/repo> --sha <head> --state pass|fail [--description <text>]
 //   node merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--author-email <email>] [--dry-run]
+//   node merge-gate.mjs cosign --repo <owner/repo> --pr <number> --sha <head> --log <decision log> --evidence <pointer> [--why <text>]
 //
 // `verdict` records a verifier's result as the `potluck/verdict` commit status
 // on that exact head, so the result is a fact GitHub holds, not a comment.
@@ -12,38 +13,68 @@
 //     verified SHA
 //   - that head carries a `potluck/verdict` status of success
 //   - every other check run and commit status on that head finished green
-//     (a head with no CI passes this one)
 //   - the quality floor passes on that head (design rows D5 and A8): Addy
-//     Osmani's floor guard, taken unchanged from the synced
-//     constraint-driven-development skill, runs in a throwaway clone of the
+//     Osmani's floor guard, taken from the synced constraint-driven-development
+//     skill with potluck's declared fork, runs in a throwaway clone of the
 //     verified head (sharing the checkout's objects, none of its config)
 //     against the PR's base. It refuses a change that lowers the
 //     bar: a weakened CONSTRAINTS.md, a test made easier, a new suppression
-//     comment, a stub or empty catch, a new exception row. Findings in Markdown
-//     other than CONSTRAINTS.md are dropped, since docs only describe these
-//     moves. A guard that cannot run refuses too. Run the gate from a checkout
-//     whose origin is the repo.
+//     comment, a stub or empty catch, a new exception row. It reads every file
+//     that runs and leaves only plain .md unchecked, and CONSTRAINTS.md's own
+//     rule checks always run. A guard that cannot run refuses too. Run the gate
+//     from a checkout whose origin is the repo. A changed assertion passes
+//     only with the root agent's co-sign on that head for those findings.
 //   - the project's docs/overview.md is current with its sources and every
 //     ticked Done when item names its proof (grill/scripts/overview.mjs
 //     --check), when the project has those sources
+//   - no CI result at all ("no checks": the repository has no CI, or its CI
+//     does not run on pull requests) is not a failure: potluck's default
+//     merges on the verdict alone (stage 5 issues 4 and 16). It is refused
+//     while a check suite says CI is coming: an unfinished GitHub Actions
+//     suite, or one waiting for a maintainer's approval, as on a fork PR. In a
+//     repository with workflows it is also refused until GitHub has held the
+//     head for a minute (its oldest status is that old), and when the head
+//     commit asks GitHub to skip CI.
+//   - a PR with no checks is "held", merge-ready and left for a person to
+//     merge, when it changes .github/workflows/ (so silence may be its own
+//     doing), and when the operator's gates (gates.mjs) set noCI "wait" in the
+//     user's ~/.potluck/gates.json or in .potluck/gates.json at the PR's base
+//     or head.
 // It merges with `gh pr merge --squash --match-head-commit <sha>`, never
 // `--auto`, so GitHub itself refuses if the head moves after the checks, and
 // it reads the PR back to confirm the merge.
 //
-// Output is one JSON line: { kind: "merged" | "would-merge" | "refused" |
-// "unconfirmed" | "recorded", ... }. "unconfirmed" means the merge was
-// requested but not read back as merged, so it may have landed. Exit 0 on
-// merged, would-merge, or recorded; 1 on refused or unconfirmed; 2 on a usage
+// `cosign` is the root agent's step for a changed assertion (stage 5 issue
+// 17), taken once it has checked the verifier's evidence that the behavior
+// really changed. It needs a passing verdict on the head and a floor whose
+// only findings are changed assertions. It appends a row to the root agent's
+// decision log (show-me-your-work's log.sh) and records a `potluck/cosign`
+// status on the head whose description ends in a fingerprint of those
+// findings, so a new head or different findings need a new co-sign.
+//
+// Output is one JSON line: { kind: "merged" | "would-merge" | "held" |
+// "refused" | "unconfirmed" | "recorded", ... }; a PR with no checks carries
+// checks: "none". "unconfirmed" means the merge was requested
+// but not read back as merged, so it may have landed. Exit 0 on merged,
+// would-merge, or recorded; 1 on held, refused, or unconfirmed; 2 on a usage
 // error.
 
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
+import { parseGates, REPO_FILE, strictest, userFile } from "./gates.mjs";
+
 export const CONTEXT = "potluck/verdict";
+export const COSIGN = "potluck/cosign";
+// The only floor findings a co-sign clears. Every other finding refuses outright.
+const COSIGNABLE = /^\[assertion-(changed|moved)\] /;
+const fingerprint = (findings) => createHash("sha256").update([...findings].sort().join("\n")).digest("hex").slice(0, 16);
+export const LOG = join(dirname(fileURLToPath(import.meta.url)), "../../show-me-your-work/scripts/log.sh");
 const GREEN = new Set(["success", "neutral", "skipped"]);
 const SHA = /^[0-9a-f]{40}$/;
 
@@ -90,7 +121,7 @@ export function refusals({ view, statuses, runs }, sha) {
   else if (verdict.state !== "success") reasons.push(`${CONTEXT} is ${verdict.state} on ${sha}`);
 
   for (const [context, s] of latest) {
-    if (context === CONTEXT) continue;
+    if (context === CONTEXT || context === COSIGN) continue;
     if (s.state === "pending") reasons.push(`status ${context} is still pending`);
     else if (s.state !== "success") reasons.push(`status ${context} is ${s.state}`);
   }
@@ -122,16 +153,27 @@ export const OVERVIEW = join(dirname(fileURLToPath(import.meta.url)), "../../gri
 // The project overview (design rows R2 and R4) must match the sources grill
 // writes, and no Done when item may be ticked without its proof. A project
 // with none of those sources needs no overview and passes.
-function overviewCheck(tree, env, workflows) {
+function overviewCheck(tree, env, head) {
   const run = spawnSync(process.execPath, [OVERVIEW, "--root", tree, "--check"], { cwd: tree, env, encoding: "utf8", timeout: 120_000 });
-  if (run.status === 0) return { ok: true, reasons: [], workflows };
+  if (run.status === 0) return { ok: true, reasons: [], ...head };
   const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trim()).filter(Boolean);
   if (run.status === 1) return { ok: false, reasons: lines.map((l) => `overview: ${l}`) };
   return { ok: false, reasons: [`overview check could not run: ${lines[0] ?? `exit ${run.status ?? run.signal}`}`] };
 }
 
-// Runs the floor guard on the verified head. Returns { ok, reasons }.
-export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
+// GitHub skips push and pull_request workflows for a head commit whose message says so.
+const SKIP_CI = /\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]|^skip-checks: ?true$/im;
+
+// The fingerprint a passing co-sign on the head names, or null.
+function cosignOf(statuses) {
+  const s = latestByContext(statuses).get(COSIGN);
+  return s?.state === "success" ? (s.description?.match(/\b([0-9a-f]{16})$/)?.[1] ?? null) : null;
+}
+
+// Runs the floor guard on the verified head. Returns { ok, reasons } and, when
+// ok, what the head says about its CI and the repository's gates files; plus
+// `cosign`, the findings' fingerprint, when a co-sign could clear them all.
+export function floor({ repo, pr, sha, view, cosigned = null, cwd = process.cwd() }) {
   let top;
   try {
     top = gitIn(cwd, ["rev-parse", "--show-toplevel"]).trim();
@@ -161,8 +203,9 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
   // The guard runs in a throwaway clone that shares the checkout's objects but
   // none of its config, hooks, or worktrees, with global and system config off.
   // Attributes come from the base commit, so a PR's own .gitattributes cannot
-  // mark files -diff or binary; renames are off, so a renamed test file shows
-  // as deleted; colour and path quoting are off, so the guard reads plain names.
+  // mark files -diff or binary; renames are off by default, and the guard asks
+  // for them only where a test file kept a name its runner reads; colour and
+  // path quoting are off, so the guard reads plain names.
   // Variables that would point git elsewhere or swap its diff are dropped.
   const inherited = Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|EXTERNAL_DIFF|DIFF_OPTS|ATTR_SOURCE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|CONFIG.*|NAMESPACE|CEILING_DIRECTORIES|COMMON_DIR)$/.test(k)),
@@ -216,29 +259,32 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
       }
     };
     const workflows = hasWorkflows(base) || hasWorkflows("HEAD");
+    // A PR that changes the workflows, or whose head skips CI, may be why it
+    // has no checks. The repository's gates count from the base and the head,
+    // so a PR cannot loosen the gates it is judged by.
+    const repoGates = [[base, "base"], ["HEAD", "head"]].flatMap(([rev, at]) => {
+      try {
+        return [{ source: `${REPO_FILE} at the PR's ${at}`, text: isolated(["cat-file", "blob", `${rev}:${REPO_FILE}`]) }];
+      } catch {
+        return [];
+      }
+    });
+    const head = {
+      workflows,
+      workflowsChanged: changed.some((f) => f.startsWith(".github/workflows/")),
+      skipsCI: SKIP_CI.test(isolated(["log", "-1", "--format=%B", "HEAD"])),
+      repoGates,
+    };
     const script = join(scratch, "floor-guard.mjs");
     writeFileSync(script, source);
     const run = spawnSync(process.execPath, [script, "--base", base], { cwd: tree, env: { ...env, ...attrs }, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
     const lines = `${run.stdout ?? ""}${run.stderr ?? ""}`.split("\n").map((l) => l.trimEnd()).filter(Boolean);
-    if (run.status === 0) return overviewCheck(tree, env, workflows);
+    if (run.status === 0) return overviewCheck(tree, env, head);
     if (run.status === 1) {
-      // The guard reads every file. Markdown other than CONSTRAINTS.md only
-      // describes these moves and cannot silence a checker, so its findings
-      // are dropped (the owner's ruling, 2026-11-22); a change to
-      // CONSTRAINTS.md still counts. A finding names its file before ": ";
-      // it is matched against the changed paths, longest first, so a colon
-      // or space in a name cannot shift the cut, and a finding whose file is
-      // not a changed path is kept.
-      const findings = lines.filter((l) => /^\[[a-z-]+\] /.test(l.trim()));
-      const byLength = [...changed].sort((a, b) => b.length - a.length);
-      const kept = findings.filter((l) => {
-        const rest = l.trim().replace(/^\[[a-z-]+\] /, "");
-        const file = byLength.find((p) => rest.startsWith(`${p}: `) || rest.startsWith(`${p}\t: `));
-        if (file === undefined) return true;
-        return !/\.(md|markdown)$/i.test(file) || /(^|\/)CONSTRAINTS\.md$/.test(file);
-      });
-      if (findings.length && !kept.length) return overviewCheck(tree, env, workflows);
-      return { ok: false, reasons: (kept.length ? kept : lines).map((l) => `floor: ${l.trim()}`) };
+      const findings = lines.map((l) => l.trim()).filter((l) => /^\[[a-z-]+\] /.test(l));
+      const cosign = findings.length && findings.every((f) => COSIGNABLE.test(f)) ? fingerprint(findings) : null;
+      if (cosign && cosign === cosigned) return overviewCheck(tree, env, head);
+      return { ok: false, cosign, reasons: (findings.length ? findings : lines).map((l) => `floor: ${l.trim()}`) };
     }
     return { ok: false, reasons: [`floor guard could not run: ${lines[0] ?? `exit ${run.status ?? run.signal}`}`] };
   } catch (error) {
@@ -249,13 +295,51 @@ export function floor({ repo, pr, sha, view, cwd = process.cwd() }) {
   }
 }
 
+// CI that has not reported a minute after GitHub first held the head is not coming.
+export const CI_START_MS = 60_000;
+
+// Why a head with no CI result, in a repository with workflows, may not count
+// as having no checks yet; null when it does.
+export function noChecksBlocker({ statuses, skipsCI }, now) {
+  const first = Math.min(...statuses.map((s) => Date.parse(s.created_at)).filter(Number.isFinite));
+  if (!(now - first >= CI_START_MS)) return "the repository has workflows, and CI may not have started yet; rerun in a minute";
+  return skipsCI ? "its head commit's message asks GitHub to skip CI; push a head without it" : null;
+}
+
+// A head with no check run or status can still have CI on its way. GitHub
+// Actions creates its suite before any run, and a fork PR's suite waits for a
+// maintainer's approval with no runs at all. Another app may queue a suite on
+// every push and never run it, so its queued suite with no runs does not count,
+// as in watch-pr/check-suites.ts.
+export function suiteBlocker(suites) {
+  for (const s of suites) {
+    const actions = s.app?.slug === "github-actions";
+    const name = actions ? "GitHub Actions" : (s.app?.name ?? s.app?.slug ?? "an app's");
+    if (s.status !== "completed") {
+      if (!actions && s.status === "queued" && !s.latest_check_runs_count) continue;
+      return `the ${name} check suite has not finished; wait for it`;
+    }
+    if (GREEN.has(s.conclusion)) continue;
+    if (s.conclusion === "action_required" && actions) return "GitHub Actions waits for a maintainer's approval to run; approve the workflows on the pull request";
+    return `the ${name} check suite concluded ${s.conclusion}`;
+  }
+  return null;
+}
+
+// The gates in force for this PR: the user's file, then the repository's at the base and the head.
+function operatorGates(repoGates) {
+  const user = userFile();
+  const layers = existsSync(user) ? [{ source: user, text: readFileSync(user, "utf8") }] : [];
+  return strictest([...layers, ...repoGates].map(({ source, text }) => ({ source, gates: parseGates(text, source) })));
+}
+
 function out(result) {
   process.stdout.write(`${JSON.stringify(result)}\n`);
-  return result.kind === "refused" || result.kind === "unconfirmed" ? 1 : 0;
+  return ["held", "refused", "unconfirmed"].includes(result.kind) ? 1 : 0;
 }
 
 function usage(message) {
-  process.stderr.write(`${message}\nusage: merge-gate.mjs verdict --repo <owner/repo> --sha <head> --state pass|fail [--description <text>]\n       merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--author-email <email>] [--dry-run]\n`);
+  process.stderr.write(`${message}\nusage: merge-gate.mjs verdict --repo <owner/repo> --sha <head> --state pass|fail [--description <text>]\n       merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head> [--author-email <email>] [--dry-run]\n       merge-gate.mjs cosign --repo <owner/repo> --pr <number> --sha <head> --log <decision log> --evidence <pointer> [--why <text>]\n`);
   return 2;
 }
 
@@ -283,6 +367,9 @@ function run(argv) {
         description: { type: "string" },
         "author-email": { type: "string" },
         "dry-run": { type: "boolean" },
+        log: { type: "string" },
+        evidence: { type: "string" },
+        why: { type: "string" },
       },
     }));
   } catch (error) {
@@ -300,20 +387,60 @@ function run(argv) {
     return out({ kind: "recorded", repo, sha, state });
   }
 
+  if (command === "cosign") {
+    if (!/^\d+$/.test(values.pr ?? "")) return usage("--pr must be a number");
+    if (!values.log || !values.evidence) return usage("--log and --evidence are required");
+    const pr = Number(values.pr);
+    const facts = readFacts(repo, pr, sha);
+    if (latestByContext(facts.statuses).get(CONTEXT)?.state !== "success") {
+      return out({ kind: "refused", repo, pr, sha, reasons: [`no passing ${CONTEXT} on ${sha}: a co-sign checks the verifier's evidence, so the verifier comes first`] });
+    }
+    const guard = floor({ repo, pr, sha, view: facts.view });
+    if (guard.ok) return out({ kind: "refused", repo, pr, sha, reasons: ["the floor passes on this head, so there is nothing to co-sign"] });
+    if (!guard.cosign) return out({ kind: "refused", repo, pr, sha, reasons: ["a co-sign clears only changed assertions, moved ones included, and these findings refuse on their own", ...guard.reasons] });
+    const n = guard.reasons.length;
+    const what = `${n} changed assertion${n === 1 ? "" : "s"}`;
+    const row = [LOG, values.log, "cosign", `co-signed ${what} on ${repo}#${pr} at ${sha}`, values.why ?? "the verifier's evidence shows the behavior changed", values.evidence, `${COSIGN} ${guard.cosign}`];
+    const logged = spawnSync("bash", row, { encoding: "utf8", timeout: 60_000 });
+    if (logged.status !== 0) return out({ kind: "refused", repo, pr, sha, reasons: [`could not write the decision log: ${String(logged.stderr || logged.error || "").trim().split("\n")[0]}`] });
+    gh(["api", "--method", "POST", `repos/${repo}/statuses/${sha}`, "-f", "state=success", "-f", `context=${COSIGN}`, "-f", `description=co-signed ${what} ${guard.cosign}`]);
+    return out({ kind: "recorded", repo, pr, sha, cosign: guard.cosign });
+  }
+
   if (command === "merge") {
     if (!/^\d+$/.test(values.pr ?? "")) return usage("--pr must be a number");
     const pr = Number(values.pr);
     const facts = readFacts(repo, pr, sha);
     const reasons = refusals(facts, sha);
     if (reasons.length) return out({ kind: "refused", repo, pr, sha, reasons });
-    const guard = floor({ repo, pr, sha, view: facts.view });
+    const guard = floor({ repo, pr, sha, view: facts.view, cosigned: cosignOf(facts.statuses) });
+    if (guard.cosign) {
+      const hint = `a changed or moved assertion needs the root agent's co-sign: it checks the verifier's evidence that the behavior changed and that the new form is no weaker, then runs merge-gate.mjs cosign --repo ${repo} --pr ${pr} --sha ${sha} --log <its decision log> --evidence <where the evidence is>`;
+      return out({ kind: "refused", repo, pr, sha, reasons: [...guard.reasons, hint] });
+    }
     if (!guard.ok) return out({ kind: "refused", repo, pr, sha, reasons: guard.reasons });
-    // A head whose repository has CI workflows but shows no CI result yet has
-    // not been tested: CI may not have started, or may never fire. Only a
-    // repository with no workflows merges on the verdict alone.
-    const ciResults = facts.runs.length + facts.statuses.filter((s) => s.context !== CONTEXT).length;
-    if (guard.workflows && ciResults === 0) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha} yet, though the repository has workflows; wait for CI, or push again if it never started`] });
-    if (values["dry-run"]) return out({ kind: "would-merge", repo, pr, sha });
+    let gates;
+    try {
+      gates = operatorGates(guard.repoGates);
+    } catch (error) {
+      return out({ kind: "refused", repo, pr, sha, reasons: [`operator's gates could not be read: ${error.message}`] });
+    }
+    // Failed or pending checks were refused above, so a head here either has
+    // green checks or none at all.
+    const none = facts.runs.length + facts.statuses.filter((s) => s.context !== CONTEXT && s.context !== COSIGN).length === 0;
+    if (none) {
+      const suites = pages(`repos/${repo}/commits/${sha}/check-suites?per_page=100`, "check_suites");
+      const blocker = suiteBlocker(suites) ?? (guard.workflows ? noChecksBlocker({ statuses: facts.statuses, skipsCI: guard.skipsCI }, Date.now()) : null);
+      if (blocker) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha}: ${blocker}`] });
+      const hold = guard.workflowsChanged
+        ? "the PR changes .github/workflows/, so the gate cannot tell whether CI was meant to run on it"
+        : gates.noCI === "wait"
+          ? `the operator's gates hold such a PR for a person (noCI: wait, from ${gates.from.noCI})`
+          : null;
+      if (hold) return out({ kind: "held", repo, pr, sha, checks: "none", reasons: [`no CI result on ${sha}, and ${hold}; it is merge-ready, so report it and leave the merge to a person`] });
+    }
+    const checks = none ? { checks: "none" } : {};
+    if (values["dry-run"]) return out({ kind: "would-merge", repo, pr, sha, ...checks });
     const author = values["author-email"] ? ["--author-email", values["author-email"]] : [];
     // From here the merge request may have reached GitHub, so a failure is
     // "unconfirmed", never "refused": the PR may already be merged.
@@ -328,7 +455,7 @@ function run(argv) {
     if (after.state !== "MERGED" || !after.mergeCommit?.oid || after.headRefOid !== sha) {
       return out({ kind: "unconfirmed", repo, pr, sha, reasons: [`merge not confirmed: state ${after.state}, head ${after.headRefOid}`] });
     }
-    return out({ kind: "merged", repo, pr, sha, mergeCommit: after.mergeCommit.oid });
+    return out({ kind: "merged", repo, pr, sha, ...checks, mergeCommit: after.mergeCommit.oid });
   }
 
   return usage(`unknown command ${JSON.stringify(command ?? "")}`);

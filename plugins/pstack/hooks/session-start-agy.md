@@ -6,6 +6,7 @@ Read the `poteto-mode` skill's `SKILL.md` in full with `read_file` and follow it
 - it touches more than one file, or changes a signature other files call
 - it involves a design or architecture choice
 - it is a bug whose cause is not yet known, or a performance issue
+- it asks to pause, hand off, save progress, or pick up earlier work, in any language (暂停一下, 交接, 存一下进度, 接着做)
 
 It routes to the right pstack skill from there. For smaller tasks, such as a contained change to one file with an obvious test, a question, or a one-line edit, work directly and verify on the real artifact.
 

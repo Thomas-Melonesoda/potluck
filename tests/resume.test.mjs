@@ -300,6 +300,14 @@ test('a single-pointer checkpoint written after a folder pointer wins, as from a
   assert.equal(existsSync(join(storeOf(git), 'latest.json')), false);
 }));
 
+test('publishing another folder or a task leaves an older plugin\'s checkpoint readable', () => fixture(({ project, git }) => {
+  legacyPointer(project, git, 'Older plugin paused.\n');
+  mkdirSync(join(project, 'notes-a'));
+  save(join(project, 'notes-a'), 'Folder a.\n');
+  save(project, 'Task beta.\n', '--task', 'beta');
+  assert.equal(savedText(resume('read', '--project', project)), 'Older plugin paused.\n');
+}));
+
 test('the head comparison follows the saved branch, not the checkout that reads it', () => fixture(({ project, git }) => {
   const worktree = join(project, 'feature-worktree');
   git('worktree', 'add', '-q', '-b', 'feature', worktree);

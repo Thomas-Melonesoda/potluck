@@ -26,7 +26,7 @@
 // Prints one JSON line. Exit 0 backed-up (or nothing to back up), 3 hold, 2 usage.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -39,14 +39,12 @@ const git = (cwd, args, env) =>
 const lines = (text) => text.split("\n").filter(Boolean);
 const z = (text) => text.split("\0").filter(Boolean);
 
+// The lock git keeps for this worktree, read from its own lock file rather
+// than `git worktree list`, whose text a path with a newline can forge.
 function lockedReason(worktree) {
-  const real = git(worktree, ["rev-parse", "--path-format=absolute", "--show-toplevel"]).trim();
-  let current = null;
-  for (const line of git(worktree, ["worktree", "list", "--porcelain"]).split("\n")) {
-    if (line.startsWith("worktree ")) current = line.slice(9);
-    else if (current === real && line.startsWith("locked")) return line.slice(7).trim() || "locked";
-  }
-  return null;
+  const lock = git(worktree, ["rev-parse", "--path-format=absolute", "--git-path", "locked"]).replace(/\n$/, "");
+  if (!existsSync(lock)) return null;
+  return readFileSync(lock, "utf8").trim() || "locked";
 }
 
 // Submodules removal could lose work in. A submodule keeps its own objects,
@@ -98,7 +96,25 @@ function freeBranch(worktree, base) {
   }
 }
 
-function pruneTrash(trash, keepDays, now) {
+// Deletes a trash entry. A worktree moved there can hold read-only folders (a
+// Go module cache), which rm refuses to empty, so those become writable first.
+function clear(path) {
+  const writable = (dir) => {
+    chmodSync(dir, 0o700);
+    for (const entry of readdirSync(dir, { withFileTypes: true })) if (entry.isDirectory()) writable(join(dir, entry.name));
+  };
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch {
+    writable(path);
+    rmSync(path, { recursive: true, force: true });
+  }
+}
+
+// Clears expired date folders, each on its own: one that cannot be cleared (a
+// locked or root-owned file in a moved worktree) is listed in `failed`, and the
+// run goes on.
+function pruneTrash(trash, keepDays, now, failed) {
   const removed = [];
   let entries = [];
   try {
@@ -111,8 +127,12 @@ function pruneTrash(trash, keepDays, now) {
     const day = /^\d{4}-\d{2}-\d{2}$/.test(entry) ? Date.parse(`${entry}T00:00:00`) : NaN;
     if (Number.isNaN(day)) continue;
     if (now - day > keepDays * 86_400_000) {
-      rmSync(join(trash, entry), { recursive: true, force: true });
-      removed.push(entry);
+      try {
+        clear(join(trash, entry));
+        removed.push(entry);
+      } catch (error) {
+        failed.push({ entry, error: error.code ?? error.message });
+      }
     }
   }
   return removed;
@@ -154,7 +174,9 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
     .filter((path) => onDisk(join(worktree, path)));
   if (skipped.length) return { kind: "hold", worktree, reason: `skip-worktree or assume-unchanged files whose edits git does not track: ${skipped.slice(0, 5).join(", ")}${skipped.length > 5 ? ", ..." : ""}` };
 
-  const result = { kind: "backed-up", worktree, branches: [], tarball: null, prunedTrash: pruneTrash(trash, keepDays, now) };
+  const notCleared = [];
+  const result = { kind: "backed-up", worktree, branches: [], tarball: null, prunedTrash: pruneTrash(trash, keepDays, now, notCleared) };
+  if (notCleared.length) result.trashNotCleared = notCleared;
   const head = git(worktree, ["rev-parse", "HEAD"]).trim();
 
   // Tracked changes, staged or not, as a commit on top of HEAD.
@@ -195,23 +217,7 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
     result.branches.push({ branch, commit: sha, holds: "commits only the HEAD reflog reached" });
   }
 
-  // Untracked and ignored files outside build and cache directories.
-  // Every untracked file is kept. Only ignored files under the audit's
-  // DISPOSABLE build and cache directories are left, as the audit counts them.
-  const others = z(git(worktree, ["ls-files", "-z", "--others", "--exclude-standard"]));
-  const ignored = z(git(worktree, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard"]))
-    .filter((path) => !path.split("/").some((part) => DISPOSABLE.has(part)));
-  // Changed tracked files as they are on disk too: the wip commit stores what
-  // git's clean filters make of them, which can drop content (a redacting or
-  // output-stripping filter), so the raw copy goes in the tarball as well.
-  // `ls-files -m` goes by file stat, so it lists an edit the filter hides from
-  // `git diff`; the staged list adds files changed only in the index.
-  const changed = [
-    ...z(git(worktree, ["ls-files", "-z", "--modified"])),
-    ...z(git(worktree, ["diff", "-z", "--cached", "--name-only", "--no-renames", "--ignore-submodules=all", "HEAD", "--"])),
-    ...filtered(worktree),
-  ].filter((path) => onDisk(join(worktree, path)) && !hasFiles(join(worktree, path)));
-  const keep = [...new Set([...others, ...ignored, ...changed])];
+  const keep = keptFiles(worktree);
   if (keep.length) {
     const dir = join(trash, date);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -227,6 +233,29 @@ export function backup(worktree, { trash, keepDays = 30, date, now = Date.now() 
   }
   if (!result.branches.length && !result.tarball) result.kind = "nothing-to-back-up";
   return result;
+}
+
+// What the tarball keeps: every untracked file, ignored files outside the
+// audit's DISPOSABLE build and cache directories, and the on-disk copy of each
+// changed or filtered tracked file. worktree-remove.mjs checks the tarball
+// against this list again before it moves the worktree.
+export function keptFiles(worktree) {
+  // Only ignored files under the audit's DISPOSABLE build and cache
+  // directories are left, as the audit counts them.
+  const others = z(git(worktree, ["ls-files", "-z", "--others", "--exclude-standard"]));
+  const ignored = z(git(worktree, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard"]))
+    .filter((path) => !path.split("/").some((part) => DISPOSABLE.has(part)));
+  // Changed tracked files as they are on disk too: the wip commit stores what
+  // git's clean filters make of them, which can drop content (a redacting or
+  // output-stripping filter), so the raw copy goes in the tarball as well.
+  // `ls-files -m` goes by file stat, so it lists an edit the filter hides from
+  // `git diff`; the staged list adds files changed only in the index.
+  const changed = [
+    ...z(git(worktree, ["ls-files", "-z", "--modified"])),
+    ...z(git(worktree, ["diff", "-z", "--cached", "--name-only", "--no-renames", "--ignore-submodules=all", "HEAD", "--"])),
+    ...filtered(worktree),
+  ].filter((path) => onDisk(join(worktree, path)) && !hasFiles(join(worktree, path)));
+  return [...new Set([...others, ...ignored, ...changed])];
 }
 
 // Tracked files with a clean filter, whatever their status: once the filtered
@@ -255,7 +284,9 @@ function isAncestor(worktree, a, b) {
   }
 }
 
-export function main(argv) {
+// The command line this script and worktree-remove.mjs share: one path and
+// the trash options. Returns them, or an exit code after saying why.
+export function parseCli(argv, usage) {
   let parsed;
   try {
     parsed = parseArgs({
@@ -268,7 +299,6 @@ export function main(argv) {
     return 2;
   }
   const { positionals, values } = parsed;
-  const usage = "usage: worktree-backup.mjs <worktree-path> [--trash <dir>] [--keep-days <n>] [--date <YYYY-MM-DD>]\n";
   if (positionals.length !== 1) return process.stderr.write(usage), 2;
   const keepDays = Number(values["keep-days"] ?? process.env.POTLUCK_TRASH_DAYS ?? 30);
   if (!Number.isInteger(keepDays) || keepDays < 1) return process.stderr.write(`--keep-days must be a whole number of days\n${usage}`), 2;
@@ -278,17 +308,23 @@ export function main(argv) {
   const date = values.date ?? local;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return process.stderr.write(`--date must be YYYY-MM-DD\n${usage}`), 2;
   const trash = resolve(values.trash ?? join(homedir(), ".potluck", "trash"));
+  return { path: positionals[0], trash, keepDays, date };
+}
+
+export function main(argv) {
+  const cli = parseCli(argv, "usage: worktree-backup.mjs <worktree-path> [--trash <dir>] [--keep-days <n>] [--date <YYYY-MM-DD>]\n");
+  if (typeof cli === "number") return cli;
   try {
-    statSync(positionals[0]);
-    const top = git(positionals[0], ["rev-parse", "--show-toplevel"]).trim();
-    if (realpathSync(top) !== realpathSync(positionals[0])) {
-      return process.stderr.write(`${positionals[0]} is inside a worktree, not its top level (${top}); pass the top level\n`), 2;
+    statSync(cli.path);
+    const top = git(cli.path, ["rev-parse", "--show-toplevel"]).trim();
+    if (realpathSync(top) !== realpathSync(cli.path)) {
+      return process.stderr.write(`${cli.path} is inside a worktree, not its top level (${top}); pass the top level\n`), 2;
     }
   } catch (error) {
-    if (error?.code === "ENOENT" || error?.status) return process.stderr.write(`not a git worktree: ${positionals[0]}\n`), 2;
+    if (error?.code === "ENOENT" || error?.status) return process.stderr.write(`not a git worktree: ${cli.path}\n`), 2;
     throw error;
   }
-  const result = backup(positionals[0], { trash, keepDays, date });
+  const result = backup(cli.path, cli);
   process.stdout.write(`${JSON.stringify(result)}\n`);
   return result.kind === "hold" ? 3 : 0;
 }

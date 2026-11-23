@@ -231,7 +231,7 @@ Run `setup-pstack` to turn automatic routing on or off, change model defaults, o
 
 ## Git guardrail
 
-On Claude Code, potluck checks each shell command the agent runs before it runs. In a repository with uncommitted changes, untracked files, or commits nothing else holds, it blocks the git commands that would lose them: `reset --hard`, `clean -f`, a `checkout`, `switch`, or `restore` that discards changes, a force push without `--force-with-lease`, and deleting a branch whose commits exist nowhere else. The message tells the agent how to save the work first, so it carries on without you. A clean repository, a plain push, and a push with a lease always pass. The check needs `node` on your PATH; without it, commands run as before.
+On Claude Code, potluck checks each shell command the agent runs before it runs. In a repository with uncommitted changes, untracked files, or commits nothing else holds, it blocks the git commands that would lose them: `reset --hard`, `clean -f`, a `checkout`, `switch`, or `restore` that discards changes, a force push without `--force-with-lease`, and deleting a branch whose commits exist nowhere else. The message tells the agent how to save the work first, so it carries on without you. Two push rules hold even in a clean repository, because others build on shared branches: no force push to the default branch (the remote's default, `main`, or `master`), with a lease or without, and no deleting a remote branch (`git push origin :<branch>`, `--delete`, `--prune`, `--mirror`). A plain push, and a push with a lease to any other branch, pass. The check needs `node` on your PATH; without it, commands run as before.
 
 ## Getting started
 

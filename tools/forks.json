@@ -86,15 +86,15 @@
     },
     "plugins/pstack/skills/poteto-mode/SKILL.md": {
       "kind": "policy",
-      "why": "Adds the Platform Adaptation section, whose runtime sentence the generator stamps from RUNTIMES, with its task-tool and todo.md fallback (per task slug when sessions share a checkout, and beside the desktop app's short update_plan list), keeps a skipped playbook step in the todolist as a skip line, the deploy-platform and defect-severity triggers, the focused-fix exception to the architect trigger, the port's principle summaries, the project playbooks paragraph, and the closed-review-gate rule that the Codex and Pi mappings point to, and it uses the namespaced pstack:poteto-agent name, requires stopping an abandoned agent before replacing it, renders every reply item as prose, layers technical-writing on top of unslop, points the bot-review trigger at the triage rubric, and lets a level above xhigh that the sheet sets for a role stand, since the port's setup offers max where upstream's budget step capped at xhigh, and routes a new project or an unclear large feature to potluck's grill skill while the user is present, or to the floor and a ketchup list of questions when nobody is, and attaches a statechart to the reply when a change touches a feature's state logic, and ticks a feature's Done when item with its proof, regenerating the overview, when a change meets it.",
+      "why": "Adds the Platform Adaptation section, whose runtime sentence the generator stamps from RUNTIMES, with its task-tool and todo.md fallback (per task slug when sessions share a checkout, and beside the desktop app's short update_plan list), keeps a skipped playbook step in the todolist as a skip line, the deploy-platform and defect-severity triggers, the focused-fix exception to the architect trigger, the port's principle summaries, the project playbooks paragraph, and the closed-review-gate rule that the Codex and Pi mappings point to, and it uses the namespaced pstack:poteto-agent name, requires stopping an abandoned agent before replacing it, renders every reply item as prose, layers technical-writing on top of unslop, points the bot-review trigger at the triage rubric, and lets a level above xhigh that the sheet sets for a role stand, since the port's setup offers max where upstream's budget step capped at xhigh, and routes a new project or an unclear large feature to potluck's grill skill while the user is present, or to the floor and a ketchup list of questions when nobody is, and attaches a statechart to the reply when a change touches a feature's state logic, ticks a feature's Done when item with its proof, regenerating the overview, when a change meets it, routes handoff requests in any language to Pause safely, its checkpoint mode, or Session pickup, and names what routes to domain-modeling and constraint-driven-development and what skips grill.",
       "since": "0.9.2",
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
-      "row": "S3-B4, S3-E1, S3-E2, S3-E3, S3-E5, S3-E6, S3-E7, S3-E8, S3-E9, S3-E10, S3-E11, S4-G1, S4-G8, S4-R2, S4-R5",
-      "ruling": "Use all of Michael's front-door additions (group S3-E), including the focused-fix exception (S3-B4). Route new projects and unclear large features to grill, and skip it when nobody is present (S4-G1, S4-G8). Attach a statechart unasked when a change touches a feature's state logic, and give one whenever asked (S4-R5). Progress is a Done when checkbox ticked only with its proof, and the overview is regenerated with it (S4-R2).",
-      "ruling_zh": "采用 Michael 加在前台的全部规则（S3-E 组），包括聚焦修复的例外（S3-B4）。新项目和意图不清的大功能先走 grill，没人在场时跳过（S4-G1、S4-G8）。改动涉及功能的状态逻辑时主动附上状态图，用户要时随时给（S4-R5）。进度以带证据勾选的完成条件为准，同时重新生成总览（S4-R2）。",
-      "decided": "2026-11-22"
+      "row": "S3-B4, S3-D2, S3-D3, S3-E1, S3-E2, S3-E3, S3-E5, S3-E6, S3-E7, S3-E8, S3-E9, S3-E10, S3-E11, S4-G1, S4-G8, S4-R2, S4-R5",
+      "ruling": "Use all of Michael's front-door additions (group S3-E), including the focused-fix exception (S3-B4). Route new projects and unclear large features to grill, and skip it when nobody is present (S4-G1, S4-G8). Attach a statechart unasked when a change touches a feature's state logic, and give one whenever asked (S4-R5). Progress is a Done when checkbox ticked only with its proof, and the overview is regenerated with it (S4-R2). Stage 5 issue 11: handoff requests route in Chinese as well as English, and a request to save progress that does not ask to stop goes to the checkpoint-and-keep-going mode (S3-D2, S3-D3). Name in poteto-mode what routes to domain-modeling, constraint-driven-development, and grill, then measure with eval layer 2 (S4-G1, stage 5 issue 14).",
+      "ruling_zh": "采用 Michael 加在前台的全部规则（S3-E 组），包括聚焦修复的例外（S3-B4）。新项目和意图不清的大功能先走 grill，没人在场时跳过（S4-G1、S4-G8）。改动涉及功能的状态逻辑时主动附上状态图，用户要时随时给（S4-R5）。进度以带证据勾选的完成条件为准，同时重新生成总览（S4-R2）。阶段 5 第 11 条：交接相关的请求用中文说也能分派，要求存档但没说停下的，走存完接着做的模式（S3-D2、S3-D3）。在 poteto-mode 里写明什么情况走 domain-modeling、constraint-driven-development 和 grill，再用 eval 第 2 层量（S4-G1，阶段 5 第 14 条）。",
+      "decided": "2026-11-23"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/autopilot-full.md": {
       "kind": "policy",
@@ -182,14 +182,14 @@
     },
     "plugins/pstack/skills/poteto-mode/playbooks/pause-safely.md": {
       "kind": "policy",
-      "why": "Writes the resume note to a checkpoint directory for the task's folder and task, in Git or not, and preserves artifacts the user asked to keep across the resume.",
+      "why": "Writes the resume note to a checkpoint directory for the task's folder and task, in Git or not, preserves artifacts the user asked to keep across the resume, and adds a checkpoint-and-keep-going mode for a handoff request that does not ask to stop.",
       "since": "0.9.34",
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
       "row": "S3-D2",
-      "ruling": "Use Michael's checkpoint location and kept artifacts (S3-D2). Stage 5 issue 11: one checkpoint pointer per folder and task, so projects in one repository or vault stop overwriting each other, and folders outside Git get checkpoints too.",
-      "ruling_zh": "采用 Michael 的检查点位置和保留的产物（S3-D2）。阶段 5 第 11 条：每个文件夹加任务各有一个检查点指针，一个仓库或 vault 里的几个项目不会再覆盖彼此的指针；Git 之外的文件夹也能存检查点。",
+      "ruling": "Use Michael's checkpoint location and kept artifacts (S3-D2). Stage 5 issue 11: one checkpoint pointer per folder and task, so projects in one repository or vault stop overwriting each other, and folders outside Git get checkpoints too. A checkpoint the user asks for without asking to stop is not a pause, and the session keeps going.",
+      "ruling_zh": "采用 Michael 的检查点位置和保留的产物（S3-D2）。阶段 5 第 11 条：每个文件夹加任务各有一个检查点指针，一个仓库或 vault 里的几个项目不会再覆盖彼此的指针；Git 之外的文件夹也能存检查点。用户要求存档但没说停下时，存完检查点继续做，这不算暂停。",
       "decided": "2026-11-23"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/session-pickup.md": {
@@ -218,15 +218,15 @@
     },
     "plugins/pstack/skills/poteto-mode/playbooks/worktree-cleanup.md": {
       "kind": "policy",
-      "why": "Holds a worktree with untracked files or a git lock instead of calling untracked files safe to drop, names the untracked count and the lock reason the audit prints, says that a worktree with both tracked edits and untracked files prints both counts, names the status call the audit counts from and a diff command that covers submodules, says that an empty diff never means nothing is at stake because a diff leaves untracked files out and a plain one can leave a submodule out, says that a wip line can stand for work inside a submodule, limits the prune step's kept-commits claim to commits on the worktree's branch and says a submodule's commits go with the worktree, holds ignored files outside the audit's disposable build and cache directories and commits only the worktree's HEAD reflog reaches, naming the ignored and reflog counts and the commands that list them, including ignored paths in initialized submodules, and forbids rm -rf around a locked tree; then, instead of pausing for a decision (the list-it step now ends by backing it up), runs potluck's worktree-backup.mjs on every worktree before removal, clean ones included (a local backup branch, a trash tarball kept 30 days that also holds the raw copy of each changed or filtered tracked file, and branches for HEAD-only commits), and deletes it without asking only on a recorded backed-up or nothing-to-back-up result, skipping and reporting a hold (locked trees; any initialized submodule, files in an uninitialized one's folder, or a submodule repository in the worktree's git dir; an operation in progress; skip-worktree or assume-unchanged files on disk; unmerged paths or no commit yet), a failed run, and in-use trees.",
+      "why": "Holds a worktree with untracked files or a git lock instead of calling untracked files safe to drop, names the untracked count and the lock reason the audit prints, says that a worktree with both tracked edits and untracked files prints both counts, names the status call the audit counts from and a diff command that covers submodules, says that an empty diff never means nothing is at stake because a diff leaves untracked files out and a plain one can leave a submodule out, says that a wip line can stand for work inside a submodule, limits the prune step's kept-commits claim to commits on the worktree's branch and says a submodule's commits go with the worktree, holds ignored files outside the audit's disposable build and cache directories and commits only the worktree's HEAD reflog reaches, naming the ignored and reflog counts and the commands that list them, including ignored paths in initialized submodules, and forbids rm -rf around a locked tree; then, instead of pausing for a decision (the list-it step now ends by backing it up), runs potluck's worktree-backup.mjs on every worktree before removal, clean ones included (a local backup branch, a trash tarball kept 30 days that also holds the raw copy of each changed or filtered tracked file, and branches for HEAD-only commits), and deletes it without asking only through potluck's worktree-remove.mjs, which refuses any path but the top level of a linked worktree git lists, checks the backup branches and the tarball against the worktree, and moves the worktree to the trash instead of deleting it (the prune step forbids rm -rf and git worktree remove --force), skipping and reporting a hold (a backup that does not match the worktree; locked trees; any initialized submodule, files in an uninitialized one's folder, or a submodule repository in the worktree's git dir; an operation in progress; skip-worktree or assume-unchanged files on disk; unmerged paths or no commit yet), a failed run, and in-use trees.",
       "since": "0.9.74",
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "compromise",
       "row": "S3-C3",
-      "ruling": "Use Michael's risk checks, then back up automatically and let the agent delete without asking: uncommitted work to a wip commit on a backup branch, untracked and ignored files to a trash directory kept 30 days, HEAD-only commits to a branch; skip and report worktrees another agent holds (S3-C3).",
-      "ruling_zh": "采用 Michael 的风险检查，然后自动备份并让 agent 不问就删除：未提交的改动做成备份分支上的 wip 提交，未跟踪和被忽略的文件放进保留 30 天的回收目录，只在 HEAD 上的提交存成分支；别的 agent 占用的 worktree 跳过并报告（S3-C3）。",
-      "decided": "2026-11-21"
+      "ruling": "Use Michael's risk checks, then back up automatically and let the agent delete without asking: uncommitted work to a wip commit on a backup branch, untracked and ignored files to a trash directory kept 30 days, HEAD-only commits to a branch; skip and report worktrees another agent holds (S3-C3). Stage 5 issue 6 keeps that and adds three safeguards: the backup is checked before anything is deleted, and a mismatch holds the worktree and is reported; the worktree moves to the trash and is cleared after the retention period, never rm -rf; only the top level of a linked worktree may be touched, and any other path is an error (S3-C3).",
+      "ruling_zh": "采用 Michael 的风险检查，然后自动备份并让 agent 不问就删除：未提交的改动做成备份分支上的 wip 提交，未跟踪和被忽略的文件放进保留 30 天的回收目录，只在 HEAD 上的提交存成分支；别的 agent 占用的 worktree 跳过并报告（S3-C3）。阶段 5 第 6 条保留这一做法，再加三道保险：删之前核对备份，核对不过就不删，并写进汇报；worktree 移到回收目录，过了保留期再清，不直接 rm -rf；只允许操作已登记的 worktree 根目录，别的路径一律报错（S3-C3）。",
+      "decided": "2026-11-23"
     },
     "plugins/pstack/skills/poteto-mode/scripts/bootstrap.ts": {
       "kind": "policy",
@@ -704,14 +704,28 @@
   "constraint-driven-development": {
     "plugins/pstack/skills/constraint-driven-development/references/floor-guard.md": {
       "kind": "borrow",
-      "why": "Fixes three faults the first pilot hit: CONSTRAINTS.md gets only its exception and rule checks, so the Floor bullets of the skill's own template no longer read as suppressions or stubs; a bullet's key also ends at a full-width colon; and each removed rule pairs with its own counterpart, same form first, so two rules that share a key cannot both match one surviving line.",
+      "why": "Fixes three faults the first pilot hit, then follows stage 5 issues 1, 2, 3, 7 and 17. The suppression, stub, skip, and test checks read every file that runs and leave only plain `.md` unchecked, while CONSTRAINTS.md's exception and rule checks always run; a repository's first CONSTRAINTS.md may carry exception rows, so the skill's own template passes as written. A bullet's key ends at either colon, unambiguous Chinese bar words can only add threshold findings to main's English reading (a 至少 flipped to 至多, or a bar stripped of its word), rule names in a CONSTRAINTS.md the change touches must be unique, and each removed rule pairs with its own counterpart, same form first. Swift `*Tests.swift` files, XCTSkip, and XCTAssert count as tests, and a test step removed or commented out of CI configuration is reported. A test file renamed with its blob unchanged, within its folder, keeping its extension under a plain name that changes no listed runner's default discovery (and, for Go, a name go test reads), with no snapshot keyed by its old name, is dropped from the diff by name, so it passes when only renamed; every other path is diffed as main's gate diffs it, so a test renamed with edits or moved elsewhere, or any file renamed out of what the guard checks, still reads as removed. An assertion moved within its file, or replaced by a new one, is reported as moved or changed rather than removed, for the merge gate to pass once the root agent co-signs it.",
       "since": "0.9.146",
       "upstream": "not-proposed",
       "source": "addy",
       "choice": "compromise",
-      "row": "S4-D5, S3-A8",
-      "ruling": "Fix the three floor-guard faults the first pilot found (the skill's own template refused, full-width colons, shared rule keys) as bugs in one PR; the pilot's other findings go to a design round.",
-      "ruling_zh": "把第一次试点发现的三个底线检查问题（skill 自己的模板过不了、全角冒号、共用规则名）当作 bug 在一个 PR 里修好；试点的其他发现交给设计讨论。",
+      "row": "S4-D5, S3-A8, S3-B5",
+      "ruling": "Fix the three floor-guard faults the first pilot found (the skill's own template refused, full-width colons, shared rule keys) as bugs. Then, stage 5 issue 1: look for the forbidden forms in every file that runs (code, .mdx, notebook code, CI configuration) and skip only plain .md; always run the bar checks on CONSTRAINTS.md; widening the skip list loosens a check and needs the root agent's co-sign and a register entry; CI carries two canaries that must both hold, the template as written passes and a code file with a deliberate suppression is stopped. Issue 2: rule names split on either colon, with Chinese tests. Issue 3: a duplicate rule name is an error. Issue 7: recognize Swift test files and XCTSkip, and report a test step removed from CI, with canaries. Issue 17: a test file that was only renamed passes, found by git's rename detection; a changed assertion value goes to the root agent, which checks the verifier's evidence that the behavior changed and co-signs without waiting for a person, and the co-sign goes into a decision log.",
+      "ruling_zh": "第一次试点发现的三个底线检查问题（skill 自己的模板过不了、全角冒号、共用规则名）当作 bug 修好。然后是阶段 5 第 1 条：禁用写法对所有会运行的文件都查（代码、.mdx、notebook 代码格子、CI 配置），只有纯 .md 不查；CONSTRAINTS.md 的质量线检查照查；把文件类型加进不查名单算放松检查，要 root agent 会签并登记；CI 里放两个埋雷测试，两个都对才算检查没坏：原样的模板必须通过，故意写了禁用注释的代码文件必须被拦。第 2 条：规则名的分隔认两种冒号，补中文测试。第 3 条：规则名重名直接报错。第 7 条：识别 Swift 测试文件和 XCTSkip，CI 配置里删掉测试步骤要报，补埋雷测试。第 17 条：测试文件只是改名，用 git 的改名识别自动放行；断言值改了交给 root agent，它核对验证者的证据，确认功能确实改了，会签后放行，不等人，会签记进决定日志。",
+      "decided": "2026-11-23"
+    }
+  },
+  "domain-modeling": {
+    "plugins/pstack/skills/domain-modeling/SKILL.md": {
+      "kind": "borrow",
+      "why": "Adds to the description the two cases the skill's body handles, one word used for two different things and several words for one, and naming or defining the project's terms. With poteto-mode naming its route, eval layer 2, which reads descriptions only, still ranked the skill's own case 14th; with this description it ranks first.",
+      "since": "0.9.146",
+      "upstream": "not-proposed",
+      "source": "matt",
+      "choice": "compromise",
+      "row": "S4-M3, S4-D8",
+      "ruling": "Route the three skills with unstable triggers in poteto-mode first and measure with eval layer 2; for one still unstable, fork Matt's or Addy's description as a borrow (stage 5 issue 14).",
+      "ruling_zh": "触发不稳定的三个 skill 先在 poteto-mode 里写明路由，再用 eval 第 2 层量；仍然不稳的，分叉改 Matt 或 Addy 的描述，登记为借用（阶段 5 第 14 条）。",
       "decided": "2026-11-23"
     }
   }
