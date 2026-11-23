@@ -48,7 +48,7 @@ A repository's file that cannot be parsed refuses every merge, including the PR 
   - `--repo` inside a run of short flags (`-sR`) or right after a flag that may take it as its value (`-b --repo me/app`), and a link to someone else's repository anywhere among the words;
   - a write this check cannot place, such as `gh issue transfer`, `gh release create`, or `gh repo set-default`, and a call whose account cannot be read, or any `gh` call that may write while a gates file cannot be parsed.
 
-  The hook reads the command line, so it stops an agent's shortcut, not a deliberate evasion, the same line the merge gate draws. A script file that runs `gh`, a heredoc or pipe fed to `sh`, brace expansion that spells `gh`, `gh alias`, and a `gh` call sent through another language are out of its reach. It reads the gates file of the directory the command starts in. Other harnesses have no such hook yet, so there poteto-mode asks before running a write to a repository the account does not own.
+  The hook reads the command line, so it stops an agent's shortcut, not a deliberate evasion. A script file that runs `gh`, a heredoc or pipe fed to `sh`, brace expansion that spells `gh`, `gh alias`, and a `gh` call sent through another language are out of its reach. It reads the gates file of the directory the command starts in. Other harnesses have no such hook yet, so there poteto-mode asks before running a write to a repository the account does not own.
 - **poteto-mode, when a run starts.** It runs `node <plugin>/skills/poteto-mode/scripts/gates.mjs` in the repository and follows each line it prints, `askFirst` items included. Run it yourself to see the gates in force:
 
   ```text
