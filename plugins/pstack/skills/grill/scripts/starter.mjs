@@ -94,4 +94,5 @@ export function main(argv) {
   return 0;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) process.exitCode = main(process.argv.slice(2));
+// By name, as overview.mjs does: node keeps a symlinked path in argv[1].
+if (process.argv[1]?.endsWith("starter.mjs")) process.exitCode = main(process.argv.slice(2));

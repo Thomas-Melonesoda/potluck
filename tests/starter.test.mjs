@@ -2,7 +2,7 @@
 // plugins/pstack/skills/grill/scripts/starter.mjs, run on scratch repositories.
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -106,30 +106,49 @@ describe("the hook", () => {
     git(root, ["add", file]);
     return git(root, ["commit", "-q", "-m", file], path);
   };
-
-  test("lets a clean commit through, and stops a suppression, a secret, or a missing guard", () => {
+  // A repository whose first commit holds the starter's files; a first commit
+  // has no HEAD to compare against, so only the secret scan runs on it.
+  const guarded = () => {
     const root = repo();
     start(root, { check: "true" });
-    expect(commit(root, "README.md", "# Split bills\n").status).toBe(0);
     git(root, ["add", "."]);
     expect(git(root, ["commit", "-q", "-m", "starter"], path).status).toBe(0);
-    const silenced = commit(root, "a.ts", "// @ts-ignore\nexport const a = 1;\n");
+    return root;
+  };
+  // Each case spawns git, the hook, node, and the stand-in, so it gets more
+  // than bun's 5 s default when the machine is loaded.
+  const SLOW = 30_000;
+
+  test("lets a clean commit through", () => {
+    expect(commit(guarded(), "b.ts", "export const b = 2;\n").status).toBe(0);
+  }, SLOW);
+  test("stops a new suppression", () => {
+    const silenced = commit(guarded(), "a.ts", "// @ts-ignore\nexport const a = 1;\n");
     expect(silenced.status).not.toBe(0);
     expect(silenced.stderr).toContain("[silenced-checker] a.ts");
-    git(root, ["rm", "-q", "--cached", "a.ts"]);
-    rmSync(join(root, "a.ts"));
-    expect(commit(root, "b.ts", "export const b = 2;\n").status).toBe(0);
-    const leaked = commit(root, "c.ts", 'export const key = "LEAKED";\n');
+  }, SLOW);
+  test("stops a staged secret", () => {
+    const leaked = commit(guarded(), "c.ts", 'export const key = "LEAKED";\n');
     expect(leaked.status).not.toBe(0);
     expect(leaked.stderr).toContain("leaks found");
-    git(root, ["rm", "-q", "--cached", "c.ts"]);
-    rmSync(join(root, "c.ts"));
+  }, SLOW);
+  test("stops when the clone has no floor guard", () => {
+    const root = guarded();
     rmSync(join(root, ".git/potluck/floor-guard.mjs"));
     const unguarded = commit(root, "d.ts", "export const d = 4;\n");
     expect(unguarded.status).not.toBe(0);
     expect(unguarded.stderr).toContain("no floor guard");
-  });
+  }, SLOW);
 });
+
+test("runs from a path that crosses a symlink", () => {
+  const root = repo();
+  const linked = join(scratch(), "starter.mjs");
+  symlinkSync(join(import.meta.dir, "../plugins/pstack/skills/grill/scripts/starter.mjs"), linked);
+  const run = spawnSync("node", [linked, "--root", root], { encoding: "utf8", env });
+  expect(run.status).toBe(0);
+  expect(run.stdout).toContain("wrote AGENTS.md");
+}, 30_000);
 
 test("usage errors exit 2", () => {
   expect(main(["--check", ""])).toBe(2);

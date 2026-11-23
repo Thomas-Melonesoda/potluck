@@ -10,7 +10,7 @@ Before a new project or an unclear large feature starts, settle with the user wh
 ## When to run it
 
 - A new project, or a large feature whose intent is unclear, and the user is here to answer. A bug fix, a small change, or a request that is already clear skips this and goes straight to its playbook.
-- Nobody is present (an autonomous run, a loop, an overnight program): do not run it. Start from the floor in **constraint-driven-development** and the defaults below, run the starter (see When it is done) on a new project, and list the questions you would have asked in the **ketchup** reply, for when the user is back.
+- Nobody is present (an autonomous run, a loop, an overnight program): do not run it. Start from the floor in **constraint-driven-development** and the defaults below, and list the questions you would have asked in the **ketchup** reply, for when the user is back.
 
 ## Before the first question
 
@@ -100,8 +100,8 @@ How a user gets to it: the Lists tab, then a list's Share button.
 
 ## When it is done
 
-The frontier is empty: every branch of the tree visited, nothing left silently assumed. Read back the decisions in a few lines and ask whether that is it. Only when the user confirms does grill end.
+The frontier is empty: every branch of the tree visited, nothing left silently assumed. Read back the decisions in a few lines and ask whether that is it. Only when the user confirms does grill end: write `docs/overview.md` with `scripts/overview.mjs --write`, run the starter, commit both with the sources, and show the user the overview.
 
-First run the starter, `scripts/starter.mjs` beside this skill, from the project's root, with `--check '<command>'` once the project has its one check command. It writes what the project lacks and never overwrites a file: CI that runs the check on every pull request and on main (until the check is set, that step fails and says so), a pre-commit hook with the quality floor and a secret scan, which it enables in this clone, and an `AGENTS.md` skeleton with a `CLAUDE.md` that reads it. Fill the skeleton from the decisions, and leave "to confirm" where nothing was settled.
+The starter is `scripts/starter.mjs` beside this skill. Run it from the project's root, with `--check '<command>'` once the project has its one check command. It writes what the project lacks and never overwrites a file: CI that runs the check on every pull request and on main (until the check is set, that step fails and says so), a pre-commit hook with the quality floor and a secret scan, which it enables in this clone, and an `AGENTS.md` skeleton with a `CLAUDE.md` that reads it. Fill the skeleton from the decisions, and leave "to confirm" where nothing was settled.
 
-Then write `docs/overview.md` with `scripts/overview.mjs --write`, commit it with the sources and the starter's files, and show the user the overview. Then hand the work to **poteto-mode**: the Feature playbook for one feature, or **figure-it-out** for a new project or a program of work. The user's confirmation stands in for any checkpoint that playbook would otherwise stop at (an irreversible action, such as a deploy or deleting data, still pauses as poteto-mode says), so it builds to these files and does not ask the user again; questions that come up later are decided from the files, the defaults, and the principles.
+Then hand the work to **poteto-mode**: the Feature playbook for one feature, or **figure-it-out** for a new project or a program of work. The user's confirmation stands in for any checkpoint that playbook would otherwise stop at (an irreversible action, such as a deploy or deleting data, still pauses as poteto-mode says), so it builds to these files and does not ask the user again; questions that come up later are decided from the files, the defaults, and the principles.
