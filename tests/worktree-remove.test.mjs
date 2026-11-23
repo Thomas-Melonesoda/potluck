@@ -250,6 +250,39 @@ describe("worktree-remove", () => {
     expect(JSON.parse(r.stdout).kind).toBe("removed");
   });
 
+  // From the second independent verifier of #42.
+  test("a worktree whose gitdir file holds a relative path is removed", () => {
+    const { root, repo, git, trash, listed } = setup();
+    const rel = join(root, "rel");
+    git(repo, "-c", "worktree.useRelativePaths=true", "worktree", "add", "-q", "-b", "rel", rel);
+    writeFileSync(join(rel, "u.txt"), "mine\n");
+    const r = spawnSync("node", [script, rel, "--trash", trash, "--date", "2026-11-21"], { encoding: "utf8", env });
+    expect(r.stderr).toBe("");
+    expect(JSON.parse(r.stdout).kind).toBe("removed");
+    expect(listed()).not.toContain("rel");
+  });
+
+  test("a folder of the main checkout holding a copy of a worktree's .git file is refused", () => {
+    const { repo, wt, run } = setup();
+    mkdirSync(join(repo, "src"));
+    writeFileSync(join(repo, "src", "main.c"), "int main;\n");
+    writeFileSync(join(repo, "src", ".git"), readFileSync(join(wt, ".git")));
+    const r = run(join(repo, "src"));
+    expect(r.status).toBe(2);
+    expect(existsSync(join(repo, "src", "main.c"))).toBe(true);
+  });
+
+  test("a lock taken after the backup leaves git's record, reported, and the run does not crash", async () => {
+    const { repo, wt, git, trash, backedUp, listed } = setup();
+    writeFileSync(join(wt, "u.txt"), "mine\n");
+    const result = backedUp();
+    git(repo, "worktree", "lock", "--reason", "taken late", wt);
+    const r = await removeBackedUp(wt, result, { trash, date: "2026-11-21" });
+    expect(r.kind).toBe("removed");
+    expect(r.recordKept).toContain("locked");
+    expect(listed()).toContain("locked");
+  });
+
   test("a hold from the backup moves nothing", () => {
     const { repo, wt, git, run } = setup();
     git(repo, "worktree", "lock", "--reason", "agent 7 is using it", wt);

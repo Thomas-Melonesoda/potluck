@@ -82,7 +82,8 @@ function linkedWorktree(path) {
   if (realOf(dirname(gitDir)) !== realOf(join(common, "worktrees"))) return not;
   let recorded;
   try {
-    recorded = dirname(readFileSync(join(gitDir, "gitdir"), "utf8").replace(/\n$/, ""));
+    // With worktree.useRelativePaths the path is relative to git's record.
+    recorded = dirname(resolve(gitDir, readFileSync(join(gitDir, "gitdir"), "utf8").replace(/\n$/, "")));
   } catch {
     return not;
   }
