@@ -30,16 +30,18 @@ function script_contract(script, runner, T, first, n,    kind, count, i) {
 }
 
 # resume.mjs: operation first, then named paths. Only publication accepts
-# note/artifact inputs. Both --option=value and --option value are supported.
+# note/artifact inputs; --task, on read and publication only, takes a plain
+# name rather than a path. Both --option=value and --option value are supported.
 function resume_contract(T, first, n,    op, i, arg, eq, key, value, seen) {
   op = T[first]
-  if (op != "begin" && op != "read" && op != "publish") return 0
+  if (op != "begin" && op != "read" && op != "publish" && op != "list") return 0
   for (i = first + 1; i <= n; i++) {
     arg = T[i]
     eq = index(arg, "=")
     key = eq ? substr(arg, 1, eq - 1) : arg
-    if (key != "--project" && key != "--note" && key != "--artifact") return 0
-    if (op != "publish" && key != "--project") return 0
+    if (key != "--project" && key != "--store" && key != "--task" && key != "--note" && key != "--artifact") return 0
+    if ((key == "--note" || key == "--artifact") && op != "publish") return 0
+    if (key == "--task" && op != "read" && op != "publish") return 0
     if (key != "--artifact" && key in seen) return 0
     seen[key] = 1
     if (eq) value = substr(arg, eq + 1)
@@ -47,7 +49,8 @@ function resume_contract(T, first, n,    op, i, arg, eq, key, value, seen) {
       if (++i > n || T[i] ~ /^--/) return 0
       value = T[i]
     }
-    if (!safe_path(value)) return 0
+    if (key == "--task") { if (value !~ /^[A-Za-z0-9._-]+$/) return 0 }
+    else if (!safe_path(value)) return 0
   }
   return op != "publish" || ("--note" in seen)
 }
