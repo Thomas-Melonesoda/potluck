@@ -107,10 +107,16 @@ function lex(line, start, stop, ids, scope) {
       while (i < line.length && line[i] !== "\n") i++;
       i--;
     } else if (c === "<" && line[i + 1] === "<" && line[i + 2] !== "<") {
+      if (word !== null && /^\d+$/.test(word)) word = null;
       end();
-      const tag = /^<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line.slice(i));
-      if (tag) {
-        heredocs.push(tag[2]);
+      // The tag is a word after quote removal, so <<EOF, <<'END-NOTE', <<\EOF,
+      // and <<E"O"F each close at their bare text. Only a tag that is plainly a
+      // name counts; anything else (<<$'EOF', (( x <<= 2 )), (( 1 << $y ))) is
+      // read as ordinary words, which can over-block but never hides a command.
+      const tag = /^<<-?[ \t]*((?:\\.|'[^']*'|"[^"]*"|[^\s;&|<>()'"\\])+)/.exec(line.slice(i));
+      const name = tag && tag[1].replace(/\\(.)|'([^']*)'|"([^"]*)"/g, (_, escaped, single, double) => escaped ?? single ?? double);
+      if (name && !tag[1].includes("$") && /^[A-Za-z_][\w.-]*$/.test(name)) {
+        heredocs.push(name);
         i += tag[0].length - 1;
       } else i++;
     } else if (c === "\n") {
@@ -133,7 +139,7 @@ function lex(line, start, stop, ids, scope) {
     } else if (c === "(" || c === ")") {
       depth += c === "(" ? 1 : -1;
       split();
-    } else if (";&|".includes(c)) {
+    } else if (";&|".includes(c) && !(c === "&" && line[i + 1] === ">")) {
       split();
     } else if (c === "<" || c === ">" || (c === "&" && line[i + 1] === ">")) {
       // A redirect (`2>&1`, `>>`, `&>`, `<<<`): its fd number and its target
@@ -335,7 +341,8 @@ function sharedPush(dir, args) {
     }
   };
   const current = read(["symbolic-ref", "-q", "--short", "HEAD"]);
-  const remote = plan.remote || (current && read(["config", `branch.${current}.remote`])) || "origin";
+  // The remote a push with none named goes to, in git's order.
+  const remote = plan.remote || (current && read(["config", `branch.${current}.pushRemote`])) || read(["config", "remote.pushDefault"]) || (current && read(["config", `branch.${current}.remote`])) || "origin";
   // A mirror remote makes every push a --mirror push.
   if (read(["config", "--bool", `remote.${remote}.mirror`]) === "true") Object.assign(plan, { every: true, prune: true, force: true });
   if (plan.prune) {
@@ -378,7 +385,7 @@ function sharedPush(dir, args) {
       return mode === "nothing" ? [] : [current, upstreamOf(current)];
     }
     if (computed(spec.dst)) return [null];
-    return [spec.dst, !spec.named && mode === "upstream" && known && upstreamOf(spec.src)];
+    return [spec.dst, !spec.named && mode === "upstream" && known && upstreamOf(branchName(spec.src))];
   };
   const forced = [...(forcesEvery ? local() : []), ...specs.filter((s) => s.force).flatMap(writes)];
   const hit = [...shared].find((name) => forced.some((target) => target && covers(target, name)));
@@ -510,7 +517,7 @@ function checkOne(words, dir) {
   let safe;
   if (found === "force push without a lease") safe = "Push with `--force-with-lease` instead, which refuses when the remote has commits you have not seen.";
   else if (op) safe = `A ${op} is in progress, so do not commit to save the work: that would record conflict markers. Finish it (resolve each file, \`git add\` it, then \`git ${op} --continue\`) or abort it (\`git ${op} --abort\`). To take one side of a conflicted file, use \`git checkout --ours <file>\` or \`--theirs\`, which passes.`;
-  else safe = 'Save the work first, then rerun: `git add -A && git commit -m "wip: before <what you are doing>"` for uncommitted changes, and `git branch backup/<name>` so the commits stay reachable. A clean repository whose commits another ref holds passes.';
+  else safe = 'Save the work first, then rerun: for uncommitted changes, commit the files this task touched, each by name (`git add <file>... && git commit -m "wip: before <what you are doing>"`), and keep commits reachable with `git branch backup/<name>`. Changes this task did not make belong to someone else: leave them, and work in a fresh worktree if they are in the way. A clean repository whose commits another ref holds passes.';
   return `potluck git guardrail: blocked a ${found} while the repository has ${at}. ${safe}`;
 }
 
