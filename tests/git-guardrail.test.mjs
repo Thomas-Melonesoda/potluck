@@ -426,6 +426,15 @@ describe("shared branches", () => {
     expect(hook("cat <<\\EOF\ngit reset --hard\nEOF").status).toBe(0);
   });
 
+  // From the second independent verifier of #45.
+  test("a << that is not plainly a heredoc tag hides no command after it", () => {
+    const { work, hook } = repo();
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    for (const c of ['x=1; (( x <<= 2 ))\ngit reset --hard', 'y=2; (( x = 1 << $y ))\ngit reset --hard', "cat <<$'EOF'\nx\nEOF\ngit reset --hard", 'cat <<"E\\$OF"\nx\nE$OF\ngit reset --hard']) {
+      expect(hook(c).status, c).toBe(2);
+    }
+  });
+
   test("branch.<name>.pushRemote wins over remote.pushDefault", () => {
     const { root, git, work, hook } = repo("feat");
     git(work, "remote", "add", "fork", join(root, "remote.git"));

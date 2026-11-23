@@ -110,11 +110,13 @@ function lex(line, start, stop, ids, scope) {
       if (word !== null && /^\d+$/.test(word)) word = null;
       end();
       // The tag is a word after quote removal, so <<EOF, <<'END-NOTE', <<\EOF,
-      // and <<E"O"F each close at their bare text. An all-digit word is the
-      // shift in an arithmetic (( 1 << 3 )), not a tag.
+      // and <<E"O"F each close at their bare text. Only a tag that is plainly a
+      // name counts; anything else (<<$'EOF', (( x <<= 2 )), (( 1 << $y ))) is
+      // read as ordinary words, which can over-block but never hides a command.
       const tag = /^<<-?[ \t]*((?:\\.|'[^']*'|"[^"]*"|[^\s;&|<>()'"\\])+)/.exec(line.slice(i));
-      if (tag && !/^\d+$/.test(tag[1])) {
-        heredocs.push(tag[1].replace(/\\(.)|'([^']*)'|"([^"]*)"/g, (_, escaped, single, double) => escaped ?? single ?? double));
+      const name = tag && tag[1].replace(/\\(.)|'([^']*)'|"([^"]*)"/g, (_, escaped, single, double) => escaped ?? single ?? double);
+      if (name && !tag[1].includes("$") && /^[A-Za-z_][\w.-]*$/.test(name)) {
+        heredocs.push(name);
         i += tag[0].length - 1;
       } else i++;
     } else if (c === "\n") {
