@@ -239,7 +239,11 @@ export const REGISTER_VALUES = {
   choice: ["lauren", "michael", "compromise"],
 };
 const REGISTER_FIELDS = ["source", "choice", "row", "ruling", "decided"];
-const ROW = /^[A-Z]\d{0,2}(, [A-Z]\d{0,2})*$/;
+// Optional: a Chinese note beside the English ruling, rendered in docs/decisions.md.
+const REGISTER_OPTIONAL = ["ruling_zh"];
+// A row carries the step of the owner's design review it comes from: S3-A1 is
+// row A1 of step 3, S4-G1 row G1 of step 4, so the two reviews never collide.
+const ROW = /^S\d-[A-Z]\d{0,2}(, S\d-[A-Z]\d{0,2})*$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Fails naming the field when a present register field has a wrong value.
@@ -247,8 +251,9 @@ function checkRegister(entry, fail) {
   for (const [field, allowed] of Object.entries(REGISTER_VALUES)) {
     if (field in entry && !allowed.includes(entry[field])) fail(`${field} "${entry[field]}" is not one of ${allowed.join(", ")}`);
   }
-  if ("row" in entry && !(typeof entry.row === "string" && ROW.test(entry.row))) fail(`row "${entry.row}" is not like "A1" or "A1, A11"`);
+  if ("row" in entry && !(typeof entry.row === "string" && ROW.test(entry.row))) fail(`row "${entry.row}" is not like "S3-A1" or "S3-A1, S4-G1"`);
   if ("ruling" in entry && typeof entry.ruling !== "string") fail("ruling must be a string");
+  if ("ruling_zh" in entry && typeof entry.ruling_zh !== "string") fail("ruling_zh must be a string");
   if ("decided" in entry && !(typeof entry.decided === "string" && DATE.test(entry.decided))) fail(`decided "${entry.decided}" is not a YYYY-MM-DD date`);
 }
 const UPSTREAM_LINK = /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/(pull|issues)\/\d+$/;
@@ -277,7 +282,7 @@ export function parseForks(registry, components) {
         };
         if (!path.startsWith(prefix)) fail(`not under ${spec.localPath}`);
         if (!isObject(entry)) fail("must be an object");
-        const unknown = Object.keys(entry).filter((field) => !FORK_FIELDS.includes(field) && !REGISTER_FIELDS.includes(field));
+        const unknown = Object.keys(entry).filter((field) => ![...FORK_FIELDS, ...REGISTER_FIELDS, ...REGISTER_OPTIONAL].includes(field));
         if (unknown.length) fail(`unknown field ${unknown.map((f) => `"${f}"`).join(", ")}`);
         const missing = FORK_FIELDS.filter((field) => entry[field] == null);
         if (missing.length) fail(`missing field ${missing.map((f) => `"${f}"`).join(", ")}`);

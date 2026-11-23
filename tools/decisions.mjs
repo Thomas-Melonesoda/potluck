@@ -51,9 +51,9 @@ export function renderDecisions(registry) {
     "potluck 和各上游不一样的每一处，以及原因和决定。由 [`tools/forks.json`](../tools/forks.json) 生成；要改就改那个文件，再运行 `node tools/decisions.mjs`。",
     "",
     "- **Source / 来源**: the upstream a file comes from, which groups the tables below. / 文件原本来自哪个上游，下面按它分组。",
-    "- **Row / 行号**: the row in the owner's design review (step 3 rows A to H, step 4 rows M, D, G, R). / 设计逐条过时的行号（第 3 步 A 到 H，第 4 步 M、D、G、R）。",
+    "- **Row / 行号**: the row in the owner's design review, prefixed with its step: S3-A1 is row A1 of step 3 (rows A to H), S4-G1 is row G1 of step 4 (rows M, D, G, R). / 设计逐条过时的行号，前面标第几步：S3-A1 是第 3 步的 A1（A 到 H），S4-G1 是第 4 步的 G1（M、D、G、R）。",
     "- **Choice / 选择**: whose way potluck follows. / potluck 跟谁的做法。",
-    "- **Ruling / 裁定**: the owner's ruling, paraphrased in English. / 项目负责人的裁定，英文转述。",
+    "- **Ruling / 裁定**: the owner's ruling, paraphrased in English, with a Chinese note under it where one is recorded. / 项目负责人的裁定，英文转述；有中文说明的写在下面。",
     "",
     "A choice of Lauren's way or a compromise is a decision; the file may still hold pstack-claude's text until the stage that applies it, which [the roadmap](roadmap.md) tracks. / 选了 Lauren 的或折中，表示已经定了；在 [路线图](roadmap.md) 里对应的阶段完成前，文件内容可能还是 pstack-claude 的。",
     "",
@@ -75,7 +75,7 @@ export function renderDecisions(registry) {
     );
     for (const e of rows) {
       lines.push(
-        `| \`${cell(e.path)}\` | ${cell(e.row) || MISSING} | ${CHOICES[e.choice] ?? MISSING} | ${KINDS[e.kind] ?? cell(e.kind)} | ${cell(e.why)} | ${cell(e.ruling)} | ${cell(e.decided) || MISSING} |`,
+        `| \`${cell(e.path)}\` | ${cell(e.row) || MISSING} | ${CHOICES[e.choice] ?? MISSING} | ${KINDS[e.kind] ?? cell(e.kind)} | ${cell(e.why)} | ${cell(e.ruling)}${e.ruling_zh ? `<br>${cell(e.ruling_zh)}` : ""} | ${cell(e.decided) || MISSING} |`,
       );
     }
   }
