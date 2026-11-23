@@ -352,6 +352,14 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons.every((l) => l.startsWith("floor: [threshold-changed] CONSTRAINTS.md:"))).toBe(true);
   });
 
+  test("dropping the words around a number whose words disagree reads as removed, and 甚至少 is not 至少", () => {
+    const before = "# Constraints\n\n- Coverage: never below 80%, must not drop\n- Lighthouse: fails below 90, must not drop\n- Small files: files under 2 KB must not drop\n- 覆盖率：不得下降，甚至少 1% 也不行\n\n| Metric | Bar | Direction |\n|---|---|---|\n| Line coverage | not under 80% | must not drop |\n| Branch coverage | fails if < 80% | must not drop |\n| Statement coverage | never below 80% | must not fall |\n";
+    const after = before.replace("never below 80%, must not drop", "80% target").replace("fails below 90, must not drop", "90 is the goal").replace("files under 2 KB must not drop", "2 KB files may drop").replace("甚至少 1%", "甚至少 5%")
+      .replace("not under 80% | must not drop", "80% | advisory").replace("fails if < 80% | must not drop", "80% | informational").replace("never below 80% | must not fall", "80% | may fall");
+    const r = fake({ change: { path: "CONSTRAINTS.md", text: after }, setup: { base: { "CONSTRAINTS.md": before } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.map((l) => l.match(/^floor: \[([a-z-]+)\]/)?.[1])).toEqual(["threshold-removed", "threshold-removed", "threshold-removed", "threshold-changed", "threshold-removed", "threshold-removed", "threshold-removed"]);
+  });
+
   test("a path with a space keeps its name, so plain .md stays unchecked and a Swift test there is still a test", () => {
     const swift = "My App Tests/AppTests.swift";
     const r = fake({ change: { path: "docs/Meeting notes.md", text: `Leave a ${"TO"}DO here.\n` }, setup: { base: { [swift]: XCTEST }, remove: [swift] } }).run(...merge, "--dry-run");
