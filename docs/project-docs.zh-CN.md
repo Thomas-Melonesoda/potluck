@@ -31,6 +31,16 @@
 | 某个功能的状态图 | 功能状态的模型，由 **statechart** 对照规则检查 | 改动碰到这个功能的状态逻辑时，自动附在回复里 |
 | 长时间运行的决定记录 | 运行本身，经由 **show-me-your-work** | 边运行边写 |
 
+## 起步文件
+
+grill 结束时，`grill/scripts/starter.mjs` 补上项目缺的文件。已有的文件一律不覆盖，所以重复运行也安全。
+
+| 文件 | 作用 |
+| --- | --- |
+| `.github/workflows/ci.yml` | 每个合并请求和 main 上都跑项目那一条检查命令。命令还没定时，这一步失败并说明原因 |
+| `.githooks/pre-commit` | 每次提交前跑 **constraint-driven-development** 的质量底线和 gitleaks 密钥扫描。起步脚本在这份克隆里启用它，并把底线检查放在克隆的 git 文件夹里，不放进代码树 |
+| `AGENTS.md`，以及内容为 `@AGENTS.md` 的 `CLAUDE.md` | 项目给 agent 的说明的骨架。agent 按 grill 定下的决定填写，没定的地方留着"to confirm" |
+
 ## 不再手写的文档
 
 | 旧文档 | 由什么取代 |
