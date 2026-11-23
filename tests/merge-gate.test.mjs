@@ -334,6 +334,17 @@ else if (line.includes("POST")) process.stdout.write("{}");
     ]);
   });
 
+  test("a Chinese bar word before a number outranks a word after it, and 以上 or 以下 after it gives no direction", () => {
+    const bar = (a, b, c, d, e) => `# 约束\n\n- 包大小：不得增长到 ${a}KB 以上\n- 构建时间：不得增长到 ${b} min 以上\n- 产物大小：不得超过 ${c}KB 以上\n- 页面大小：不得增长到 ${d} KB 以上\n\n| 指标 | 门槛 | 说明 |\n|---|---|---|\n| 镜像大小 | ${e} KB | 以上，适用于所有包 |\n`;
+    const r = fake({ change: { path: "CONSTRAINTS.md", text: bar(500, 30, 500, 150, 500) }, setup: { base: { "CONSTRAINTS.md": bar(200, 10, 200, 200, 200) } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons.map((l) => l.split(/：| KB \|/)[0])).toEqual([
+      "floor: [threshold-loosened] CONSTRAINTS.md: - 包大小",
+      "floor: [threshold-loosened] CONSTRAINTS.md: - 构建时间",
+      "floor: [threshold-loosened] CONSTRAINTS.md: - 产物大小",
+      "floor: [threshold-changed] CONSTRAINTS.md: | 镜像大小 | 200",
+    ]);
+  });
+
   test("a path with a space keeps its name, so plain .md stays unchecked and a Swift test there is still a test", () => {
     const swift = "My App Tests/AppTests.swift";
     const r = fake({ change: { path: "docs/Meeting notes.md", text: `Leave a ${"TO"}DO here.\n` }, setup: { base: { [swift]: XCTEST }, remove: [swift] } }).run(...merge, "--dry-run");
