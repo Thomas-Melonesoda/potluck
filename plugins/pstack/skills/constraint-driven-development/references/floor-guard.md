@@ -156,24 +156,24 @@ const ruleKey = (t) => {
   return null; // prose, headings, dates: not a rule
 };
 const isException = (t) => /^\| *(W|E)\d+ *\|/.test(t.trim());
-// Chinese words count too: 至少 and 不低于 read as at least, 至多 and 不超过 as at most. Chinese has no
-// spaces, so a word after the number counts only when it follows the number and its unit directly
-// (or opens the next cell) and ends there, at a cell's edge, punctuation, or the line's end: 以上
-// and 以下 also mean "the above" and "the following". A bare 低于 or 高于, and 最高 or 最低 ("the
-// highest" as often as "at most"), can state a record or a failure as easily as a bar, so they give
-// no direction.
+// Chinese words count too, but only the unambiguous ones before the number: 至少 and 不低于 read as
+// at least, 至多 and 不超过 as at most, 不得下降到 and 不得增长到 as must not fall or grow to. After
+// the number only a whole direction cell counts (| 62.4% | 不得下降 |): 以上, 以下 and 以内 also
+// mean "the above", "the following" and "within", and a bare 低于, 高于, 最高 or 最低 can state a
+// record or a failure as easily as a bar, so a number they sit beside has no direction and any
+// change to it is reported. A word before the number outranks one after it.
 const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not drop|至少|不低于|不少于|不得低于|不得下降到)\s*$/;
 const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed|至多|不超过|不高于|不得超过|不得高于|不得增长到)\s*$/;
-const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop)|^\s*(?:%|[a-z]+)?\s*(?:\|\s*)?(以上|或更多|或更高|不得下降)(?=\s*(?:$|[|，。；、,.;)）]))/;
-const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed)|^\s*(?:%|[a-z]+)?\s*(?:\|\s*)?(以下|以内|或更少|或更低|不得增长|不得增加)(?=\s*(?:$|[|，。；、,.;)）]))/;
+const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop)|^\s*(?:%|[a-z]+)?\s*\|\s*不得下降\s*(?:\||$)/;
+const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed)|^\s*(?:%|[a-z]+)?\s*\|\s*不得增长\s*(?:\||$)/;
 const thresholds = (t) => {
   const out = [], re = /\d+(?:\.\d+)?/g;
   let m;
   while ((m = re.exec(t))) {
     const before = t.slice(Math.max(0, m.index - 24), m.index).toLowerCase();
     const after = t.slice(m.index + m[0].length, m.index + m[0].length + 40).toLowerCase();
-    const dir = MIN_BEFORE.test(before) || MIN_AFTER.test(after) ? 'min'
-      : MAX_BEFORE.test(before) || MAX_AFTER.test(after) ? 'max' : null;
+    const dir = MIN_BEFORE.test(before) ? 'min' : MAX_BEFORE.test(before) ? 'max'
+      : MIN_AFTER.test(after) ? 'min' : MAX_AFTER.test(after) ? 'max' : null;
     out.push({ n: Number(m[0]), dir });
   }
   return out;
