@@ -42,14 +42,13 @@ export function starterFiles({ name, check, branch = "main" }) {
   // A function replacement, so a `$&` or `$$` in a command stays as typed.
   const fill = (text, marker, value) => text.replace(marker, () => value);
   return [
-    { path: ".github/workflows/ci.yml", text: fill(fill(template("ci.yml"), "DEFAULT_BRANCH", branch), "CHECK_COMMAND", check ?? NO_CHECK) },
+    { path: ".github/workflows/ci.yml", text: fill(fill(template("ci.yml"), "DEFAULT_BRANCH", JSON.stringify(branch)), "CHECK_COMMAND", check ?? NO_CHECK) },
     { path: ".githooks/pre-commit", text: template("pre-commit"), mode: 0o755 },
     { path: "AGENTS.md", text: fill(fill(template("AGENTS.template.md"), "PROJECT_NAME", name), "CHECK_COMMAND", check ? `\`${check}\`` : "to confirm") },
     { path: "CLAUDE.md", text: "@AGENTS.md\n" },
   ];
 }
 
-// Writes what is missing under `root` and returns one line per file or setting.
 // The branch CI runs pushes on: origin's default branch, else the branch
 // checked out (a new repository's first branch), else main.
 function defaultBranch(git) {
@@ -58,6 +57,7 @@ function defaultBranch(git) {
   return git("symbolic-ref", "--quiet", "--short", "HEAD").stdout?.trim() || "main";
 }
 
+// Writes what is missing under `root` and returns one line per file or setting.
 export function start(root, { name = basename(root), check } = {}) {
   const lines = [];
   const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
@@ -66,7 +66,7 @@ export function start(root, { name = basename(root), check } = {}) {
     const at = join(root, file.path);
     if (existsSync(at)) {
       lines.push(`kept ${file.path}, which was already there`);
-      if (check && file.path.endsWith("ci.yml") && !readFileSync(at, "utf8").includes(check)) lines.push(`note: kept ${file.path}, so --check was not applied; put \`${check}\` in its Check step`);
+      if (check && file.path.endsWith("ci.yml") && !readFileSync(at, "utf8").split("\n").some((line) => line.trim() === check)) lines.push(`note: kept ${file.path}, so --check was not applied; put \`${check}\` in its Check step`);
       continue;
     }
     mkdirSync(dirname(at), { recursive: true });

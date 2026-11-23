@@ -137,6 +137,24 @@ test("CI runs on the repository's own default branch", () => {
   expect(Bun.YAML.parse(read(root, ".github/workflows/ci.yml")).on.push.branches).toEqual(["master"]);
 });
 
+test("a branch name with YAML's own characters stays one branch", () => {
+  for (const branch of ["a,b", "{x}", "x]y", "yes"]) {
+    const root = scratch();
+    git(root, ["init", "-q", "-b", branch]);
+    start(root, {});
+    expect(Bun.YAML.parse(read(root, ".github/workflows/ci.yml")).on.push.branches).toEqual([branch]);
+  }
+});
+
+test("a check command that is only part of the Check step still gets the note", () => {
+  const root = repo();
+  start(root, { check: "npm test" });
+  expect(start(root, { check: "npm" })).toContain("note: kept .github/workflows/ci.yml, so --check was not applied; put `npm` in its Check step");
+  const bare = repo();
+  start(bare, {});
+  expect(start(bare, { check: "exit 1" }).some((l) => l.includes("--check was not applied"))).toBe(true);
+});
+
 test("a check command already in CI gets no note", () => {
   const root = repo();
   start(root, { check: "npm test" });
