@@ -46,12 +46,14 @@ const mergeBase = git(['merge-base', base, 'HEAD'])?.trim();
 if (!mergeBase) bail('no merge base against ' + base);
 
 // Unified diff plus untracked files (git diff alone cannot see new files). A test file that was
-// only renamed is diffed with rename detection, so it shows only the lines that changed in it.
-// Every other path is diffed without, so a file renamed out of what the guard checks (a test, CI
-// configuration, CONSTRAINTS.md, plain Markdown into code) still reads as deleted and added.
+// only renamed (git's rename detection finds the same content under the new name) is left out of
+// the diff, so it reads as neither deleted nor added. Every other path is diffed without rename
+// detection, so a file renamed with edits, or out of what the guard checks (a test, CI
+// configuration, CONSTRAINTS.md, plain Markdown into code), still reads as deleted and added.
 const isCI = (f) => /^\.github\/(workflows|actions)\/.*\.ya?ml$|^\.(circleci|buildkite|woodpecker)\/.*\.ya?ml$|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|\.woodpecker|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
-// A test is only renamed when it stays in its folder, keeps its extension and its exact naming form
-// (*.test.js stays *.test.js, test_*.py stays test_*.py), and outside CI configuration. The folder,
+// A test is only renamed when its content is unchanged, it stays in its folder, keeps its extension
+// and exactly the naming forms it had (*.test.js stays *.test.js, test_*.py stays test_*.py), and
+// it is not CI configuration. The folder,
 // the form, and for Go a leading _ or . or a build-constraint suffix (_windows_test.go) decide what
 // runs it, so any other rename reads as a deletion, as before.
 const FORMS = [/_test\.go$/, /(^|\/)test_[^/]*\.py$/, /_test\.py$/, /\.test\.[cm]?[jt]sx?$/, /\.spec\.[cm]?[jt]sx?$/, /Tests\.swift$/, /_spec\.rb$/, /(^|\/)test_[^/]*\.rb$/, /_test\.rb$/];
@@ -66,7 +68,7 @@ const plainName = (f) => {
   return extOf(f) === '.py' ? /^[A-Za-z_]\w*$/.test(stem) : /^[A-Za-z0-9][\w-]*$/.test(stem);
 };
 const keepsTest = (from, to) => !isCI(from) && !isCI(to) && folderOf(from) === folderOf(to) && extOf(from) === extOf(to)
-  && plainName(to) && !GO_SKIPPED.test(to) && FORMS.some((r) => r.test(from) && r.test(to));
+  && plainName(to) && !GO_SKIPPED.test(to) && FORMS.some((r) => r.test(from)) && FORMS.every((r) => r.test(from) === r.test(to));
 const names = git(['diff', '-M', '--name-status', '-z', mergeBase, '--']);
 if (names === null) bail('could not diff against ' + mergeBase);
 const kept = [];
@@ -74,11 +76,10 @@ for (let i = 0, t = names.split('\0'); i < t.length - 1;) {
   const status = t[i++];
   if (!/^[RC]/.test(status)) { i++; continue; }
   const from = t[i++], to = t[i++];
-  if (status[0] === 'R' && keepsTest(from, to)) kept.push(from, to);
+  if (status === 'R100' && keepsTest(from, to)) kept.push(from, to);
 }
 const tracked = git(['diff', '--unified=0', '--no-renames', mergeBase, '--', '.', ...kept.map((f) => ':(exclude,literal)' + f)]);
-const renames = kept.length ? git(['diff', '--unified=0', '-M', mergeBase, '--', ...kept.map((f) => ':(literal)' + f)]) : '';
-if (tracked === null || renames === null) bail('could not diff against ' + mergeBase);
+if (tracked === null) bail('could not diff against ' + mergeBase);
 const untrackedFiles = git(['ls-files', '--others', '--exclude-standard']);
 if (untrackedFiles === null) bail('could not list untracked files');
 const untracked = untrackedFiles.split('\n').filter(Boolean).map((f) => {
@@ -86,7 +87,7 @@ const untracked = untrackedFiles.split('\n').filter(Boolean).map((f) => {
   if (d === null) bail('could not diff untracked file ' + f);
   return d;
 }).join('\n');
-const diff = tracked + '\n' + renames + '\n' + untracked;
+const diff = tracked + '\n' + untracked;
 
 // Walk the diff. `---` and `+++` are file headers only between a file's `diff` line and its first
 // `@@` hunk; inside a hunk every line is content, so an added `++i` (shown as `+++i`) or a removed
