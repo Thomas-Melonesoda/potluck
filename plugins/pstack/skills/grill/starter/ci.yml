@@ -1,0 +1,31 @@
+# potluck starter: run the project's check on every pull request and on main.
+# Keep the pull_request trigger. A merge gate reads a pull request's checks,
+# and checks that run only on main leave every pull request with none.
+# When the check needs a toolchain the runner lacks, add its setup step above
+# the check, pinned to a full commit SHA.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check
+        run: |
+          CHECK_COMMAND

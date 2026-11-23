@@ -33,6 +33,8 @@ const RULES = [
   { row: "S4-G6", file: "grill/SKILL.md", phrase: "The prototype goes on a throwaway branch; the decision it settled goes into the outputs" },
   { row: "S4-G7", file: "grill/SKILL.md", phrase: "so it builds to these files and does not ask the user again" },
   { row: "S4-G8", file: "poteto-mode/SKILL.md", phrase: "With nobody present, skip it: start from the floor in **constraint-driven-development** and the defaults" },
+  { row: "S4-G1", file: "poteto-mode/SKILL.md", phrase: "writing or editing a `GLOSSARY.md`, or recording an ADR → **domain-modeling**. No quality bar written down, a request to set one, a threshold to pick, or a check silenced or a test skipped to get to green → **constraint-driven-development**." },
+  { row: "S4-G1", file: "poteto-mode/SKILL.md", phrase: "A bug fix, a small change, or a request that is already clear skips **grill**." },
   { row: "S4-R6", file: "grill/SKILL.md", phrase: "First of all, where this version ends: something to show, something they use themselves, something others try, or something public." },
   { row: "S4-R6", file: "grill/SKILL.md", phrase: "When the project has one of these, the tree grows a branch for it" },
   { row: "S4-R6", file: "grill/SKILL.md", phrase: "| Automatic messages, scheduled jobs, or calls with side effects | Repeats, retries, when to stop, who may approve |" },

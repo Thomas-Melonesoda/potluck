@@ -31,6 +31,16 @@ Optional: keep long raw discussions (exported chats, sketches, screenshots) in `
 | A statechart of a feature's states | A model of the feature's states that **statechart** checks against its rules | Attached to the reply whenever a change touches that feature's states |
 | The decision trail of a long run | The run itself, through **show-me-your-work** | Written as the run goes |
 
+## What the starter adds
+
+When grill is done, `grill/scripts/starter.mjs` writes what the project lacks. It never overwrites a file, so running it again is safe.
+
+| File | What it does |
+| --- | --- |
+| `.github/workflows/ci.yml` | Runs the project's one check command on every pull request and on main. Until that command is set, the step fails and says so |
+| `.githooks/pre-commit` | Before each commit, the quality floor of **constraint-driven-development** and a gitleaks secret scan. The starter enables it in the clone and keeps the floor guard in the clone's git folder, outside the tree |
+| `AGENTS.md`, and `CLAUDE.md` holding `@AGENTS.md` | The skeleton of the project's instructions for agents. The agent fills it from grill's decisions and leaves "to confirm" where nothing was settled |
+
 ## What is retired
 
 | Old document | Replaced by |
