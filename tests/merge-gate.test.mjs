@@ -59,6 +59,17 @@ test("the floor guard's code is the one js block in the synced floor-guard.md", 
   expect(() => guardSource(join(import.meta.dir, "merge-gate.test.mjs"))).toThrow("expected one");
 });
 
+// Stage 5 issue 1: widening what the floor leaves unchecked loosens it, so the
+// list is pinned here and each type on it must be named in the guard's register entry.
+test("only plain .md goes unchecked, and the register entry names each unchecked type", () => {
+  const list = guardSource().match(/^const UNCHECKED = (\[.*\]);$/m);
+  const unchecked = list && JSON.parse(list[1].replaceAll("'", '"'));
+  expect(unchecked).toEqual([".md"]);
+  const forks = JSON.parse(readFileSync(join(import.meta.dir, "../tools/forks.json"), "utf8"));
+  const { why } = forks["constraint-driven-development"]["plugins/pstack/skills/constraint-driven-development/references/floor-guard.md"];
+  for (const type of unchecked) expect(why).toContain(`\`${type}\``);
+});
+
 describe("merge-gate CLI against a fake gh", () => {
   const dirs = [];
   afterAll(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -242,7 +253,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
   test("Markdown that describes the floor's patterns passes, and CONSTRAINTS.md still counts", () => {
     const docs = fake({ change: { path: "notes.md", text: `Never add @ts-${"ignore"} or leave a ${"TO"}DO.\n` } });
     expect(docs.run(...merge, "--dry-run").json.kind).toBe("would-merge");
-    const bar = fake({ change: { path: "CONSTRAINTS.md", text: `# Constraints\n\n## Exceptions\n\n| ID | Rule |\n|---|---|\n| W1 | no-${"explicit"}-any |\n` } });
+    const bar = fake({ change: { path: "CONSTRAINTS.md", text: `# Constraints\n\n## Exceptions\n\n| ID | Rule |\n|---|---|\n| W1 | no-${"explicit"}-any |\n` }, setup: { base: { "CONSTRAINTS.md": "# Constraints\n" } } });
     const r = bar.run(...merge, "--dry-run");
     expect(r.json.kind).toBe("refused");
     expect(r.json.reasons.some((l) => l.includes("[new-exception] CONSTRAINTS.md"))).toBe(true);
@@ -256,8 +267,8 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
   });
 
-  test("the template's example exception row is its only floor finding", () => {
-    const r = fake({ change: { path: "CONSTRAINTS.md", text: TEMPLATE } }).run(...merge, "--dry-run");
+  test("over a CONSTRAINTS.md already in place, the template's example exception row is its only floor finding", () => {
+    const r = fake({ change: { path: "CONSTRAINTS.md", text: TEMPLATE }, setup: { base: { "CONSTRAINTS.md": "# Constraints\n" } } }).run(...merge, "--dry-run");
     expect(r.json.kind).toBe("refused");
     expect(r.json.reasons).toHaveLength(1);
     expect(r.json.reasons[0]).toStartWith("floor: [new-exception] CONSTRAINTS.md: | W1 |");
@@ -284,6 +295,120 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const r = fake({ change: { path: "CONSTRAINTS.md", text: after }, setup: { base: { "CONSTRAINTS.md": before } } }).run(...merge, "--dry-run");
     expect(r.json.kind).toBe("refused");
     expect(r.json.reasons).toEqual([`floor: [rule-removed] CONSTRAINTS.md: ${bullet.trim()}`]);
+  });
+
+  // Stage 5 issue 2: Chinese entries read their direction words as well as their colon.
+  test("a Chinese minimum lowered reads as loosened", () => {
+    expect(editRule("改动的行至少 80%", "改动的行至少 70%").json.reasons).toEqual(["floor: [threshold-loosened] CONSTRAINTS.md: - 测试覆盖率：改动的行至少 80%  ->  - 测试覆盖率：改动的行至少 70%"]);
+  });
+
+  test("a Chinese minimum raised passes, since tightening is silent", () => {
+    expect(editRule("改动的行不低于 80%", "改动的行不低于 90%").json.kind).toBe("would-merge");
+  });
+
+  test("a Chinese minimum turned into a maximum is stopped", () => {
+    const r = editRule("改动的行至少 80%", "改动的行至多 80%");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toStartWith("floor: [threshold-removed] CONSTRAINTS.md:");
+  });
+
+  test("a Chinese ratchet row that falls reads as loosened", () => {
+    const table = (n) => `# 约束\n\n## 已测量\n\n| 指标 | 今天 | 方向 |\n|---|---|---|\n| 项目覆盖率 | ${n}% | 不得下降 |\n`;
+    const r = fake({ change: { path: "CONSTRAINTS.md", text: table("60") }, setup: { base: { "CONSTRAINTS.md": table("62.4") } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual(["floor: [threshold-loosened] CONSTRAINTS.md: | 项目覆盖率 | 62.4% | 不得下降 |  ->  | 项目覆盖率 | 60% | 不得下降 |"]);
+  });
+
+  // Stage 5 issue 3: a rule's name says which line it is, so two rules may not share one.
+  test("two rules with one name are refused, whichever colon each uses", () => {
+    const text = "# 约束\n\n## 底线\n\n- 覆盖率：改动的行至少 80%\n- 覆盖率: 项目覆盖率不得下降\n";
+    const r = fake({ change: { path: "CONSTRAINTS.md", text } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual(['floor: [duplicate-rule] CONSTRAINTS.md: "覆盖率" names 2 rules (lines 5, 6); rule names must be unique']);
+  });
+
+  test("a table row that repeats a bullet's name is refused", () => {
+    const before = "# Constraints\n\n## Floor\n\n- Coverage: changed lines at least 80% covered\n";
+    const after = `${before}\n## Enforced\n\n| Dimension | Rule |\n|---|---|\n| Coverage | Changed lines ≥ 80% covered |\n`;
+    const r = fake({ change: { path: "CONSTRAINTS.md", text: after }, setup: { base: { "CONSTRAINTS.md": before } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual(['floor: [duplicate-rule] CONSTRAINTS.md: "Coverage" names 2 rules (lines 5, 11); rule names must be unique']);
+  });
+
+  test("tables that share a header and a separator do not repeat a rule", () => {
+    const text = "# Constraints\n\n## Fast\n\n| Rule | Why |\n|---|---|\n| Types | zero errors |\n\n## Slow\n\n| Rule | Why |\n|---|---|\n| Audit | nothing high |\n";
+    expect(fake({ change: { path: "CONSTRAINTS.md", text } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a repeated name in a CONSTRAINTS.md the change leaves alone does not block it", () => {
+    const text = "# Constraints\n\n- Coverage: at least 80%\n- Coverage: must not fall\n";
+    expect(fake({ setup: { base: { "CONSTRAINTS.md": text } } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  // Stage 5 issue 7: Swift tests, and the CI step that runs the tests.
+  const SWIFT = "Tests/AppTests/AppTests.swift";
+  const XCTEST = "import XCTest\n\nfinal class AppTests: XCTestCase {\n  func testAnswer() {\n    XCTAssertEqual(answer, 42)\n  }\n}\n";
+
+  test("deleting a Swift test file is stopped", () => {
+    const r = fake({ setup: { base: { [SWIFT]: XCTEST }, remove: [SWIFT] } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [test-deleted] ${SWIFT}: file deleted`]);
+  });
+
+  test("an XCTSkip added to a Swift test is stopped", () => {
+    const skipped = XCTEST.replace("  func testAnswer() {\n", `  func testAnswer() throws {\n    throw XCT${"Skip"}("later")\n`);
+    const r = fake({ setup: { base: { [SWIFT]: XCTEST }, files: { [SWIFT]: skipped } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [test-made-easier] ${SWIFT}: throw XCT${"Skip"}("later")`]);
+  });
+
+  test("an XCTAssert removed from a Swift test that stayed is stopped", () => {
+    const r = fake({ setup: { base: { [SWIFT]: XCTEST }, files: { [SWIFT]: XCTEST.replace("    XCTAssertEqual(answer, 42)\n", "") } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [assertion-removed] ${SWIFT}: XCTAssertEqual(answer, 42)`]);
+  });
+
+  const CI = ".github/workflows/ci.yml";
+  const WORKFLOW = (steps) => `on: pull_request\njobs:\n  test:\n    runs-on: macos-latest\n    steps:\n      - uses: actions/checkout@v4\n${steps}`;
+
+  test("a test step removed from CI configuration is stopped", () => {
+    const r = fake({ change: { path: CI, text: WORKFLOW("") }, setup: { base: { [CI]: WORKFLOW("      - run: swift test\n") } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [ci-test-removed] ${CI}: - run: swift test`]);
+  });
+
+  test("a CI test step commented out is stopped", () => {
+    const r = fake({ change: { path: CI, text: WORKFLOW("      # - run: swift test\n") }, setup: { base: { [CI]: WORKFLOW("      - run: swift test\n") } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [ci-test-removed] ${CI}: - run: swift test`]);
+  });
+
+  test("a CI test step moved to another workflow passes", () => {
+    const moved = { base: { [CI]: WORKFLOW("      - run: swift test --parallel\n") }, files: { ".github/workflows/test.yml": WORKFLOW("      - run: swift test\n") } };
+    expect(fake({ change: { path: CI, text: WORKFLOW("") }, setup: moved }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  // Stage 5 issue 1: every file that runs is read for the forbidden forms; only plain .md is not.
+  const NOTEBOOK = (code) => `${JSON.stringify({ cells: [{ cell_type: "code", execution_count: null, metadata: {}, outputs: [], source: [code] }], metadata: {}, nbformat: 4, nbformat_minor: 5 }, null, 1)}\n`;
+  test.each([
+    ["notes.markdown", `Never write # no${"qa"} here.\n`],
+    ["docs/page.mdx", `{/* @ts-${"ignore"} */}\nexport const meta = {};\n`],
+    ["analysis.ipynb", NOTEBOOK(`import os  # no${"qa"}\n`)],
+    [".github/workflows/lint.yml", `on: pull_request\njobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - run: semgrep scan  # no${"semgrep"}\n`],
+  ])("a forbidden form in %s is stopped", (path, text) => {
+    const r = fake({ change: { path, text } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons.some((l) => l.startsWith(`floor: [silenced-checker] ${path}:`))).toBe(true);
+  });
+
+  test("CONSTRAINTS.md is plain Markdown, yet a lowered number in it is stopped", () => {
+    const before = "# Constraints\n\n- Coverage: changed lines at least 80% covered\n";
+    const r = fake({ change: { path: "CONSTRAINTS.md", text: before.replace("80%", "70%") }, setup: { base: { "CONSTRAINTS.md": before } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual(["floor: [threshold-loosened] CONSTRAINTS.md: - Coverage: changed lines at least 80% covered  ->  - Coverage: changed lines at least 70% covered"]);
+  });
+
+  // Build the lever (S3-B5): the floor counts as working only while both canaries hold.
+  describe("floor canaries", () => {
+    test("the skill's CONSTRAINTS.md template passes as written", () => {
+      expect(fake({ change: { path: "CONSTRAINTS.md", text: TEMPLATE } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+    });
+
+    test("a code file with a deliberate suppression is stopped", () => {
+      const r = fake({ change: { path: "src/app.ts", text: `// @ts-${"ignore"}\nexport const answer: number = "42";\n` } }).run(...merge, "--dry-run");
+      expect(r.json.reasons).toEqual([`floor: [silenced-checker] src/app.ts: // @ts-${"ignore"}`]);
+    });
   });
 
   const TEST = "src/app.test.js";
