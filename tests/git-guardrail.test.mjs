@@ -1,4 +1,4 @@
-// potluck: the narrow git guardrail (M11) in plugins/pstack/hooks/. Each test
+// potluck: the narrow git guardrail (S4-M11) in plugins/pstack/hooks/. Each test
 // builds a real repository with a bare remote and feeds the hook the JSON
 // Claude Code sends before a Bash call.
 import { afterAll, describe, expect, test } from "bun:test";

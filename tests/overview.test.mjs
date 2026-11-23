@@ -1,4 +1,4 @@
-// potluck: the generated project overview (R2, R4) in
+// potluck: the generated project overview (S4-R2, S4-R4) in
 // plugins/pstack/skills/grill/scripts/overview.mjs, on made-up projects.
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

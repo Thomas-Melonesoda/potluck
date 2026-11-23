@@ -242,8 +242,10 @@ const REGISTER_FIELDS = ["source", "choice", "row", "ruling", "decided"];
 // Optional: a Chinese note beside the English ruling, rendered in docs/decisions.md.
 const REGISTER_OPTIONAL = ["ruling_zh"];
 // A row carries the step of the owner's design review it comes from: S3-A1 is
-// row A1 of step 3, S4-G1 row G1 of step 4, so the two reviews never collide.
-const ROW = /^S\d-[A-Z]\d{0,2}(, S\d-[A-Z]\d{0,2})*$/;
+// row A1 of step 3 (groups A to H), S4-G1 row G1 of step 4 (groups M, D, G, R,
+// X), so the two reviews never collide and a row cannot name a group its step lacks.
+const ROW_ONE = "(?:S3-[A-H]|S4-[MDGRX])\\d{0,2}";
+const ROW = new RegExp(`^${ROW_ONE}(, ${ROW_ONE})*$`);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Fails naming the field when a present register field has a wrong value.

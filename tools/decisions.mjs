@@ -51,7 +51,7 @@ export function renderDecisions(registry) {
     "potluck 和各上游不一样的每一处，以及原因和决定。由 [`tools/forks.json`](../tools/forks.json) 生成；要改就改那个文件，再运行 `node tools/decisions.mjs`。",
     "",
     "- **Source / 来源**: the upstream a file comes from, which groups the tables below. / 文件原本来自哪个上游，下面按它分组。",
-    "- **Row / 行号**: the row in the owner's design review, prefixed with its step: S3-A1 is row A1 of step 3 (rows A to H), S4-G1 is row G1 of step 4 (rows M, D, G, R). / 设计逐条过时的行号，前面标第几步：S3-A1 是第 3 步的 A1（A 到 H），S4-G1 是第 4 步的 G1（M、D、G、R）。",
+    "- **Row / 行号**: the row in the owner's design review, prefixed with its step: S3-A1 is row A1 of step 3 (rows A to H), S4-G1 is row G1 of step 4 (rows M, D, G, R, X). / 设计逐条过时的行号，前面标第几步：S3-A1 是第 3 步的 A1（A 到 H），S4-G1 是第 4 步的 G1（M、D、G、R、X）。",
     "- **Choice / 选择**: whose way potluck follows. / potluck 跟谁的做法。",
     "- **Ruling / 裁定**: the owner's ruling, paraphrased in English, with a Chinese note under it where one is recorded. / 项目负责人的裁定，英文转述；有中文说明的写在下面。",
     "",

@@ -31,6 +31,8 @@ describe("register fields in parseForks", () => {
     [{ row: "A1" }, 'row "A1" is not like "S3-A1" or "S3-A1, S4-G1"'],
     [{ row: "s3-a1" }, 'row "s3-a1" is not like'],
     [{ row: "S3-A1,S3-A2" }, 'row "S3-A1,S3-A2" is not like'],
+    [{ row: "S3-R5" }, 'row "S3-R5" is not like'],
+    [{ row: "S4-A1" }, 'row "S4-A1" is not like'],
     [{ ruling_zh: 3 }, "ruling_zh must be a string"],
     [{ ruling: 3 }, "ruling must be a string"],
     [{ decided: "11/21/2026" }, 'decided "11/21/2026" is not a YYYY-MM-DD date'],
@@ -43,13 +45,23 @@ describe("register fields in parseForks", () => {
   });
 });
 
+// A row cited without its step: "A8" anywhere, "group H", "H 组", or a lone
+// group letter in ASCII or full-width parentheses. "S3-A8" and "S3-H" pass.
+export const bareRow = /(?<![\w-])[A-HMRX]\d{1,2}(?!\w)|group [A-HMRX]\b|(?<![\w-])[A-HMRX] 组|[(（][A-HMRX][)）]/;
+
+test.each([
+  ["(B5)", true], ["(S3-A2, A4, S3-A5)", true], ["see A8 for the gate", true], ["(group H)", true],
+  ["（S3-B3、B4）", true], ["（H）", true], ["H 组", true],
+  ["(S3-A8)", false], ["(group S3-H)", false], ["（S3-B3、S3-B4）", false], ["S3-H 组", false], ["A conflict-free rebase", false],
+])("bareRow on %s is %p", (text, bare) => {
+  expect(bareRow.test(text)).toBe(bare);
+});
+
 test("no ruling in potluck's tools/forks.json cites a row without its step prefix", () => {
   const registry = JSON.parse(readFileSync(join(repo, "tools/forks.json"), "utf8"));
-  // A row cited in parentheses, like "(A8)", "(B3, B4)", or "(group H)", must read "(S3-A8)".
-  const bare = /\((?:group )?(?:[A-HMR]\d{0,2})(?:, [A-HMR]\d{0,2})*\)/;
   const stale = Object.values(registry)
     .flatMap((entries) => Object.entries(entries))
-    .filter(([, entry]) => [entry.ruling, entry.ruling_zh].some((text) => text && bare.test(text)))
+    .filter(([, entry]) => [entry.ruling, entry.ruling_zh].some((text) => text && bareRow.test(text)))
     .map(([path]) => path);
   expect(stale).toEqual([]);
 });
