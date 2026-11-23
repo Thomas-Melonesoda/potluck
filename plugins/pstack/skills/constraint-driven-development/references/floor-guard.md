@@ -19,6 +19,7 @@ This is the reference. Adapt the patterns to your stack; keep the contract ident
 // floor-guard.mjs — diff-scoped enforcement of the CONSTRAINTS.md floor.
 // Usage: node floor-guard.mjs [--base <ref>]   (default base: origin/main)
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 const base = (() => {
   const i = process.argv.indexOf('--base');
@@ -28,7 +29,7 @@ const base = (() => {
 // `git diff --no-index` exits 1 whenever the two sides differ, which is the normal case for a
 // new file, so that output is kept. Any other failure is null, and null never reads as clean.
 const git = (args, { diffExit = false } = {}) => {
-  try { return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
+  try { return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 30, stdio: ['ignore', 'pipe', 'pipe'] }); }
   catch (e) { return diffExit && e.status === 1 && typeof e.stdout === 'string' ? e.stdout : null; }
 };
 const bail = (msg) => { console.error('floor-guard: ' + msg); process.exit(2); };
@@ -59,9 +60,9 @@ const diff = tracked + '\n' + untracked;
 // Walk the diff. `---` and `+++` are file headers only between a file's `diff` line and its first
 // `@@` hunk; inside a hunk every line is content, so an added `++i` (shown as `+++i`) or a removed
 // `-- comment` is a change, not a header. Both headers name the file, so a deletion
-// (`+++ /dev/null`) keeps its name.
+// (`+++ /dev/null`) keeps its name. git ends a name that holds a space with a tab.
 const added = [], removed = [], deleted = [];
-const pathOf = (s) => s.replace(/^[ab]\//, '');
+const pathOf = (s) => s.replace(/^[ab]\//, '').replace(/\t$/, '');
 let file = '', oldFile = '', inHeader = false;
 for (const line of diff.split('\n')) {
   if (line.startsWith('diff ')) inHeader = true;
@@ -80,29 +81,66 @@ for (const line of diff.split('\n')) {
 
 const findings = [];
 const flag = (rule, f, text) => findings.push({ rule, file: f, text: text.trim().slice(0, 120) });
-const isTest = (f) => /\.(test|spec)\.|_test\.|test_/.test(f);
+const isTest = (f) => /\.(test|spec)\.|_test\.|test_|Tests\.swift$/.test(f);
 const isConstraints = (f) => /CONSTRAINTS\.md$/.test(f);
+// Only plain Markdown goes unchecked: it describes these moves and runs none of them. Every other
+// file runs somewhere (code, .mdx, notebooks, CI configuration), so the checks below read it.
+// Widening this list loosens the floor. CONSTRAINTS.md is Markdown too, and its own checks
+// (exceptions, rules, thresholds) never consult the list.
+const UNCHECKED = ['.md'];
+const checked = (f) => !UNCHECKED.some((x) => f.toLowerCase().endsWith(x));
 
 // 1. Silenced checker — extend this list for your ecosystem.
 const SUPPRESSIONS = /@ts-ignore|@ts-nocheck|eslint-disable|biome-ignore|# *noqa|# *type: *ignore|istanbul ignore|nosemgrep|gitleaks:allow|Stryker disable/;
 // 4. Unfinished work.
 const STUBS = /throw new (Error|NotImplemented).*[Nn]ot implemented|catch\s*\(\w*\)\s*\{\s*\}|catch\s*\{\s*\}|\bTODO\b|\bpass\s*# *stub/;
 // 2. A test made easier (added skips).
-const SKIPS = /\.(skip|todo)\b|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(/;
+const SKIPS = /\.(skip|todo)\b|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(|\bXCTSkip(?:If|Unless)?\s*\(/;
 
-for (const { file, text } of added.filter((l) => !isConstraints(l.file))) {
+for (const { file, text } of added.filter((l) => checked(l.file))) {
   if (SUPPRESSIONS.test(text)) flag('silenced-checker', file, text);
   if (STUBS.test(text)) flag('unfinished-work', file, text);
   if (SKIPS.test(text)) flag('test-made-easier', file, text);
 }
-for (const { file, text } of added) if (isConstraints(file) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', file, text);
+// 5. A new exception lowers a bar that already exists. The first CONSTRAINTS.md in a repository
+// sets the bar, so its rows, exceptions included, are the bar itself. The bar exists if the branch
+// point or the base it merges into has one, so a branch cut before main gained its first is not.
+const hadBar = [mergeBase, base].some((rev) => {
+  const files = git(['ls-tree', '-r', '-z', '--name-only', rev]);
+  if (files === null) bail('could not list the files at ' + rev);
+  return files.split('\0').some(isConstraints);
+});
+for (const { file, text } of added) if (hadBar && isConstraints(file) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', file, text);
 
 // 2b. A test file deleted, or an assertion removed from a test file that still exists.
-for (const f of deleted) if (isTest(f)) flag('test-deleted', f, 'file deleted');
+const ASSERTION = /\b(expect|assert|should)\b|\bXCTAssert|\bXCTFail\b|#require\b/;
+for (const f of deleted) if (isTest(f) && checked(f)) flag('test-deleted', f, 'file deleted');
 for (const { file, text } of removed) {
-  if (isTest(file) && !deleted.includes(file) && /\b(expect|assert|should)\b/.test(text)) {
+  if (isTest(file) && checked(file) && !deleted.includes(file) && ASSERTION.test(text)) {
     flag('assertion-removed', file, text);
   }
+}
+
+// 2d. A test step removed from CI configuration: a removed line that runs the tests, with no
+// line running the same kind of test added back in any CI file, so a step that moved still pairs
+// and one commented out does not. A step's name is not a step.
+const isCI = (f) => /^\.github\/(workflows|actions)\/.*\.ya?ml$|^\.(circleci|buildkite|woodpecker)\/.*\.ya?ml$|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|\.woodpecker|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
+const TEST_RUN = /\b(?:(?:npm|pnpm|yarn|bun)(?: -\S+)*(?: run)?|swift|go|cargo|mvn|gradlew?|make|dotnet|mix|rake) test[\w:-]*|\bxcodebuild\b.*\btest(?:-without-building)?(?![\w-])|\b(?:python3? -m (?:pytest|unittest)|pytest|vitest|jest|rspec|phpunit|ctest|fastlane scan)(?![\w.-])/g;
+const testRun = (t) => {
+  if (/^\s*(#|\/\/)|^\s*(-\s+)?name:/.test(t)) return null;
+  for (const m of t.matchAll(TEST_RUN)) {
+    if (/\binstall\b/.test(t.slice(0, m.index).split(/&&|\|\||[;|]/).pop())) continue;
+    return m[0].replace(/^(?:(?:npm|pnpm|yarn|bun)\b.*|vitest|jest)$/, 'js test').replace(/^xcodebuild\b.*/, 'xcodebuild test').replace(/ test[\w:-]*$/, ' test').replace(/\s+/g, ' ');
+  }
+  return null;
+};
+const runsAdded = added.filter((l) => isCI(l.file) && checked(l.file)).map((l) => testRun(l.text)).filter(Boolean);
+for (const { file, text } of removed.filter((l) => isCI(l.file) && checked(l.file))) {
+  const run = testRun(text);
+  if (!run) continue;
+  const i = runsAdded.indexOf(run);
+  if (i < 0) flag('ci-test-removed', file, text);
+  else runsAdded.splice(i, 1);
 }
 
 // 1b/2c. A rule in CONSTRAINTS.md weakened or removed. A rule is a floor bullet or a table row,
@@ -125,18 +163,61 @@ const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not
 const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed)\s*$/;
 const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop)/;
 const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed)/;
-const thresholds = (t) => {
+// The Chinese pass only adds findings: it gives a direction to a number the English words leave
+// without one, from an unambiguous bar word before it (至少 or 不低于 for at least, 至多 or 不超过 for at
+// most) or a whole direction cell after it (| 62.4% | 不得下降 |), so a bar flipped from 至少 to 至多,
+// or stripped of its word, is reported. Words that disagree, and 以上, 以下 or 低于, which also mean
+// "the above", "the following" or a failure condition, give none.
+const ZH_MIN = /((?<!甚)至少|不低于|不少于|不得低于|不得下降到)\s*$/, ZH_MIN_CELL = /^\s*(?:%|[a-z]+)?\s*\|\s*不得下降\s*(?:\||$)/;
+const ZH_MAX = /((?<!甚)至多|不超过|不高于|不得超过|不得高于|不得增长到)\s*$/, ZH_MAX_CELL = /^\s*(?:%|[a-z]+)?\s*\|\s*不得增长\s*(?:\||$)/;
+const thresholds = (t, zh = false) => {
   const out = [], re = /\d+(?:\.\d+)?/g;
   let m;
   while ((m = re.exec(t))) {
     const before = t.slice(Math.max(0, m.index - 24), m.index).toLowerCase();
     const after = t.slice(m.index + m[0].length, m.index + m[0].length + 40).toLowerCase();
+    const zhMin = zh && (ZH_MIN.test(before) || ZH_MIN_CELL.test(after)), zhMax = zh && (ZH_MAX.test(before) || ZH_MAX_CELL.test(after));
     const dir = MIN_BEFORE.test(before) || MIN_AFTER.test(after) ? 'min'
-      : MAX_BEFORE.test(before) || MAX_AFTER.test(after) ? 'max' : null;
+      : MAX_BEFORE.test(before) || MAX_AFTER.test(after) ? 'max'
+      : zhMin && !zhMax ? 'min' : zhMax && !zhMin ? 'max' : null;
     out.push({ n: Number(m[0]), dir });
   }
   return out;
 };
+const compare = (r, a, zh) => {
+  const before = thresholds(r, zh), after = thresholds(a, zh);
+  let verdict = null;
+  for (const dir of ['min', 'max', null]) {
+    const was = before.filter((x) => x.dir === dir), now = after.filter((x) => x.dir === dir);
+    was.forEach((b, i) => {
+      const n = now[i];
+      if (verdict) return;
+      if (!n) verdict = 'threshold-removed';
+      else if (n.n === b.n) return;
+      else if (dir === 'min' ? n.n < b.n : dir === 'max' ? n.n > b.n : true) {
+        verdict = dir ? 'threshold-loosened' : 'threshold-changed';
+      }
+    });
+  }
+  return verdict;
+};
+// 1c. Rule names are unique within each CONSTRAINTS.md this change touches, so a rule pairs with
+// one line. Only top-level bullets and table rows count: a nested bullet, a fenced example, and a
+// table's header and separator rows are not rules of their own.
+const isSeparator = (t) => t.includes('|') && /^[\s|:-]*-[\s|:-]*$/.test(t);
+for (const f of new Set([...added, ...removed].map((l) => l.file).filter(isConstraints))) {
+  if (deleted.includes(f)) continue;
+  let lines;
+  try { lines = readFileSync(f, 'utf8').split('\n'); } catch { bail('could not read ' + f); }
+  const at = new Map();
+  let fenced = false;
+  lines.forEach((t, i) => {
+    if (/^\s*(```|~~~)/.test(t)) fenced = !fenced;
+    const key = fenced || /^\s/.test(t) ? null : ruleKey(t);
+    if (key && !isSeparator(t) && !(t.startsWith('|') && isSeparator(lines[i + 1] ?? ''))) at.set(key, [...(at.get(key) ?? []), i + 1]);
+  });
+  for (const [key, n] of at) if (n.length > 1) flag('duplicate-rule', f, `"${key}" names ${n.length} rules (lines ${n.join(', ')}); rule names must be unique`);
+}
 const removedRules = removed.filter((l) => isConstraints(l.file) && ruleKey(l.text) !== null);
 const addedRules = added.filter((l) => isConstraints(l.file) && ruleKey(l.text) !== null);
 const isRow = (t) => t.trim().startsWith('|');
@@ -151,20 +232,8 @@ for (const { r, a } of pairs) {
     if (!isException(r.text)) flag('rule-removed', r.file, r.text); // dropping an exception tightens: silent
     continue;
   }
-  const before = thresholds(r.text), after = thresholds(a.text);
-  let verdict = null;
-  for (const dir of ['min', 'max', null]) {
-    const was = before.filter((x) => x.dir === dir), now = after.filter((x) => x.dir === dir);
-    was.forEach((b, i) => {
-      const n = now[i];
-      if (verdict) return;
-      if (!n) verdict = 'threshold-removed';
-      else if (n.n === b.n) return;
-      else if (dir === 'min' ? n.n < b.n : dir === 'max' ? n.n > b.n : true) {
-        verdict = dir ? 'threshold-loosened' : 'threshold-changed';
-      }
-    });
-  }
+  // Every change the English reading reports is reported; the Chinese reading may add one.
+  const verdict = compare(r.text, a.text, true) ?? compare(r.text, a.text, false);
   if (verdict) flag(verdict, r.file, r.text + '  ->  ' + a.text);
 }
 
