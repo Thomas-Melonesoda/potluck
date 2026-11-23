@@ -642,5 +642,18 @@
       "ruling": "Keep every technical adaptation as Michael made it (group H).",
       "decided": "2026-11-21"
     }
+  },
+  "constraint-driven-development": {
+    "plugins/pstack/skills/constraint-driven-development/references/floor-guard.md": {
+      "kind": "policy",
+      "why": "Fixes three faults the first pilot hit: CONSTRAINTS.md gets only its exception and rule checks, so the Floor bullets of the skill's own template no longer read as suppressions or stubs; a bullet's key also ends at a full-width colon; and each removed rule pairs with its own counterpart, same form first, so two rules that share a key cannot both match one surviving line.",
+      "since": "0.9.146",
+      "upstream": "not-proposed",
+      "source": "addy",
+      "choice": "compromise",
+      "row": "D5, A8",
+      "ruling": "Fix the three floor-guard faults the first pilot found (the skill's own template refused, full-width colons, shared rule keys) as bugs in one PR; the pilot's other findings go to a design round.",
+      "decided": "2026-11-23"
+    }
   }
 }
