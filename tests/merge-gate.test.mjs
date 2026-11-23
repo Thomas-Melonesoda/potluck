@@ -603,7 +603,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const base = { [js]: TWO, [swift]: "import XCTest\nfinal class BTests: XCTestCase {}\n", [rb]: "require 'minitest/autorun'\n", [py]: pyText, [py2]: pyText.replace("add", "sub") };
     const files = { "src/.a.test.mjs": base[js], "Tests/AppTests/.BTests.swift": base[swift], "test/.a_test.rb": base[rb], "pkg/test_math-old.py": base[py], "pkg/test_calc.old.py": base[py2] };
     const r = fake({ setup: { base, files, remove: Object.keys(base) } }).run(...merge, "--dry-run");
-    expect(r.json.reasons.sort()).toEqual([swift, js, rb, py2, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+    expect(r.json.reasons.sort()).toEqual([swift, js, rb, py2, py].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
   });
 
   test("a CI file with a test-like name moved out of the CI paths still reads as its test step removed", () => {

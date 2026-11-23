@@ -58,8 +58,15 @@ const FORMS = [/_test\.go$/, /(^|\/)test_[^/]*\.py$/, /_test\.py$/, /\.test\.[cm
 const GO_SKIPPED = /(^|\/)[._][^/]*\.go$|_(aix|android|darwin|dragonfly|freebsd|hurd|illumos|ios|js|linux|nacl|netbsd|openbsd|plan9|solaris|wasip1|windows|zos|386|amd64|amd64p32|arm|armbe|arm64|arm64be|loong64|mips|mipsle|mips64|mips64le|mips64p32|mips64p32le|ppc|ppc64|ppc64le|riscv|riscv64|s390|s390x|sparc|sparc64|wasm)_test\.go$/;
 const folderOf = (f) => f.slice(0, f.lastIndexOf('/') + 1);
 const extOf = (f) => f.match(/\.[^./]+$/)?.[0] ?? '';
+// The new name must be a plain one every runner's discovery reads: a letter or digit first, then
+// letters, digits, _ and - (no - for Python, whose module names cannot hold one), and no dot
+// beyond its form's own. Any other name falls back to reading as a deletion.
+const plainName = (f) => {
+  const stem = f.slice(f.lastIndexOf('/') + 1, f.length - extOf(f).length).replace(/\.(test|spec)$/, '');
+  return extOf(f) === '.py' ? /^[A-Za-z_]\w*$/.test(stem) : /^[A-Za-z0-9][\w-]*$/.test(stem);
+};
 const keepsTest = (from, to) => !isCI(from) && !isCI(to) && folderOf(from) === folderOf(to) && extOf(from) === extOf(to)
-  && !GO_SKIPPED.test(to) && FORMS.some((r) => r.test(from) && r.test(to));
+  && plainName(to) && !GO_SKIPPED.test(to) && FORMS.some((r) => r.test(from) && r.test(to));
 const names = git(['diff', '-M', '--name-status', '-z', mergeBase, '--']);
 if (names === null) bail('could not diff against ' + mergeBase);
 const kept = [];
