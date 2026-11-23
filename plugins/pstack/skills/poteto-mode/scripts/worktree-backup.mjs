@@ -26,7 +26,7 @@
 // Prints one JSON line. Exit 0 backed-up (or nothing to back up), 3 hold, 2 usage.
 
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -39,14 +39,12 @@ const git = (cwd, args, env) =>
 const lines = (text) => text.split("\n").filter(Boolean);
 const z = (text) => text.split("\0").filter(Boolean);
 
+// The lock git keeps for this worktree, read from its own lock file rather
+// than `git worktree list`, whose text a path with a newline can forge.
 function lockedReason(worktree) {
-  const real = git(worktree, ["rev-parse", "--path-format=absolute", "--show-toplevel"]).trim();
-  let current = null;
-  for (const line of git(worktree, ["worktree", "list", "--porcelain"]).split("\n")) {
-    if (line.startsWith("worktree ")) current = line.slice(9);
-    else if (current === real && line.startsWith("locked")) return line.slice(7).trim() || "locked";
-  }
-  return null;
+  const lock = git(worktree, ["rev-parse", "--path-format=absolute", "--git-path", "locked"]).replace(/\n$/, "");
+  if (!existsSync(lock)) return null;
+  return readFileSync(lock, "utf8").trim() || "locked";
 }
 
 // Submodules removal could lose work in. A submodule keeps its own objects,
