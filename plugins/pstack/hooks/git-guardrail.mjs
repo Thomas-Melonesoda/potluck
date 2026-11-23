@@ -107,10 +107,12 @@ function lex(line, start, stop, ids, scope) {
       while (i < line.length && line[i] !== "\n") i++;
       i--;
     } else if (c === "<" && line[i + 1] === "<" && line[i + 2] !== "<") {
+      if (word !== null && /^\d+$/.test(word)) word = null;
       end();
-      const tag = /^<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line.slice(i));
+      // The tag is any word, quoted or not (`EOF`, `'END-NOTE'`).
+      const tag = /^<<-?[ \t]*(?:'([^']*)'|"([^"]*)"|([^\s;&|<>()'"]+))/.exec(line.slice(i));
       if (tag) {
-        heredocs.push(tag[2]);
+        heredocs.push(tag[1] ?? tag[2] ?? tag[3]);
         i += tag[0].length - 1;
       } else i++;
     } else if (c === "\n") {
@@ -133,7 +135,7 @@ function lex(line, start, stop, ids, scope) {
     } else if (c === "(" || c === ")") {
       depth += c === "(" ? 1 : -1;
       split();
-    } else if (";&|".includes(c)) {
+    } else if (";&|".includes(c) && !(c === "&" && line[i + 1] === ">")) {
       split();
     } else if (c === "<" || c === ">" || (c === "&" && line[i + 1] === ">")) {
       // A redirect (`2>&1`, `>>`, `&>`, `<<<`): its fd number and its target
@@ -335,7 +337,8 @@ function sharedPush(dir, args) {
     }
   };
   const current = read(["symbolic-ref", "-q", "--short", "HEAD"]);
-  const remote = plan.remote || (current && read(["config", `branch.${current}.remote`])) || "origin";
+  // The remote a push with none named goes to, in git's order.
+  const remote = plan.remote || (current && read(["config", `branch.${current}.pushRemote`])) || read(["config", "remote.pushDefault"]) || (current && read(["config", `branch.${current}.remote`])) || "origin";
   // A mirror remote makes every push a --mirror push.
   if (read(["config", "--bool", `remote.${remote}.mirror`]) === "true") Object.assign(plan, { every: true, prune: true, force: true });
   if (plan.prune) {
@@ -378,7 +381,7 @@ function sharedPush(dir, args) {
       return mode === "nothing" ? [] : [current, upstreamOf(current)];
     }
     if (computed(spec.dst)) return [null];
-    return [spec.dst, !spec.named && mode === "upstream" && known && upstreamOf(spec.src)];
+    return [spec.dst, !spec.named && mode === "upstream" && known && upstreamOf(branchName(spec.src))];
   };
   const forced = [...(forcesEvery ? local() : []), ...specs.filter((s) => s.force).flatMap(writes)];
   const hit = [...shared].find((name) => forced.some((target) => target && covers(target, name)));

@@ -391,6 +391,31 @@ describe("shared branches", () => {
     expect(hook("git push origin").status).toBe(2);
   });
 
+  // From the fourth independent verifier of #33.
+  test("&> inside a command, a numbered heredoc, and a hyphenated heredoc tag are read as the shell reads them", () => {
+    const { work, hook } = repo();
+    expect(hook("git push &>/dev/null --force-with-lease origin").status).toBe(2);
+    expect(hook("git push --force-with-lease origin 2<<EOF\nyes\nEOF").status).toBe(2);
+    writeFileSync(join(work, "a.txt"), "edited\n");
+    expect(hook("git reset &>/dev/null --hard").status).toBe(2);
+    expect(hook("cat > notes.md <<'END-NOTE'\ngit reset --hard\nEND-NOTE").status).toBe(0);
+  });
+
+  test("a push remote and a full source name decide where a push goes", () => {
+    const { root, git, work, hook } = repo("feat");
+    git(work, "config", "push.default", "upstream");
+    git(work, "branch", "-q", "--set-upstream-to=origin/main");
+    expect(hook("git push --force-with-lease origin refs/heads/feat").status).toBe(2);
+    git(work, "config", "push.default", "simple");
+    git(work, "remote", "add", "fork", join(root, "remote.git"));
+    git(work, "config", "remote.fork.push", "+refs/heads/feat:refs/heads/main");
+    git(work, "config", "remote.pushDefault", "fork");
+    expect(hook("git push").status).toBe(2);
+    git(work, "config", "--unset", "remote.pushDefault");
+    git(work, "config", "branch.feat.pushRemote", "fork");
+    expect(hook("git push").status).toBe(2);
+  });
+
   test("deleting a remote branch is blocked in every spelling, and deleting a tag passes", () => {
     const { hook } = repo("feat");
     for (const c of [
