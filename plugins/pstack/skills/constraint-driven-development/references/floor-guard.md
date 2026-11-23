@@ -46,14 +46,20 @@ const mergeBase = git(['merge-base', base, 'HEAD'])?.trim();
 if (!mergeBase) bail('no merge base against ' + base);
 
 // Unified diff plus untracked files (git diff alone cannot see new files). A test file renamed to
-// a name its runner still reads, with the same extension, was only renamed: it is diffed with
+// a name its own runner still reads, with the same extension, was only renamed: it is diffed with
 // rename detection, so it shows only the lines that changed in it. Every other path is diffed
 // without, so a file renamed out of what the guard checks (a test, CI configuration,
 // CONSTRAINTS.md, plain Markdown into code) still reads as deleted and added.
+const isCI = (f) => /^\.github\/(workflows|actions)\/.*\.ya?ml$|^\.(circleci|buildkite|woodpecker)\/.*\.ya?ml$|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|\.woodpecker|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
+// Each runner's own default naming: Go, pytest, Jest and Vitest, XCTest, RSpec, minitest. A rename
+// keeps a test only when one of them reads both names, outside CI configuration and outside the
+// folders runners skip.
+const RUNNERS = [/_test\.go$/, /(^|\/)test_[^/]*\.py$|_test\.py$/, /\.(test|spec)\.[cm]?[jt]sx?$/, /Tests\.swift$/, /_spec\.rb$/, /(^|\/)test_[^/]*\.rb$|_test\.rb$/];
 const extOf = (f) => f.match(/\.[^./]+$/)?.[0] ?? '';
-const runnable = (f) => !f.toLowerCase().endsWith('.md')
-  && /(^|\/)test_[^/]*$|_test\.[^/.]+$|\.(test|spec)\.[^/.]+$|Tests\.swift$/.test(f)
-  && !(extOf(f) === '.go' && /(^|\/)(testdata|[_.][^/]*)\//.test(f));
+const keepsTest = (from, to) => !isCI(from) && !isCI(to) && extOf(from) === extOf(to)
+  && !/(^|\/)(node_modules|vendor|dist|build|testdata|\.[^/]+)\//.test(to)
+  && !(extOf(to) === '.go' && /(^|\/)_[^/]*\//.test(to))
+  && RUNNERS.some((r) => r.test(from) && r.test(to));
 const names = git(['diff', '-M', '--name-status', '-z', mergeBase, '--']);
 if (names === null) bail('could not diff against ' + mergeBase);
 const kept = [];
@@ -61,7 +67,7 @@ for (let i = 0, t = names.split('\0'); i < t.length - 1;) {
   const status = t[i++];
   if (!/^[RC]/.test(status)) { i++; continue; }
   const from = t[i++], to = t[i++];
-  if (status[0] === 'R' && runnable(from) && runnable(to) && extOf(from) === extOf(to)) kept.push(from, to);
+  if (status[0] === 'R' && keepsTest(from, to)) kept.push(from, to);
 }
 const tracked = git(['diff', '--unified=0', '--no-renames', mergeBase, '--', '.', ...kept.map((f) => ':(exclude,literal)' + f)]);
 const renames = kept.length ? git(['diff', '--unified=0', '-M', mergeBase, '--', ...kept.map((f) => ':(literal)' + f)]) : '';
@@ -157,7 +163,6 @@ for (const r of unmoved) {
 // 2d. A test step removed from CI configuration: a removed line that runs the tests, with no
 // line running the same kind of test added back in any CI file, so a step that moved still pairs
 // and one commented out does not. A step's name is not a step.
-const isCI = (f) => /^\.github\/(workflows|actions)\/.*\.ya?ml$|^\.(circleci|buildkite|woodpecker)\/.*\.ya?ml$|^ci_scripts\/|(^|\/)Jenkinsfile$|^(\.gitlab-ci|\.travis|\.drone|\.woodpecker|azure-pipelines|bitbucket-pipelines|appveyor|codemagic|bitrise)\.ya?ml$/.test(f);
 const TEST_RUN = /\b(?:(?:npm|pnpm|yarn|bun)(?: -\S+)*(?: run)?|swift|go|cargo|mvn|gradlew?|make|dotnet|mix|rake) test[\w:-]*|\bxcodebuild\b.*\btest(?:-without-building)?(?![\w-])|\b(?:python3? -m (?:pytest|unittest)|pytest|vitest|jest|rspec|phpunit|ctest|fastlane scan)(?![\w.-])/g;
 const testRun = (t) => {
   if (/^\s*(#|\/\/)|^\s*(-\s+)?name:/.test(t)) return null;
