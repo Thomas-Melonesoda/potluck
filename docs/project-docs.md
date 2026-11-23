@@ -37,7 +37,7 @@ When grill is done, `grill/scripts/starter.mjs` writes what the project lacks. I
 
 | File | What it does |
 | --- | --- |
-| `.github/workflows/ci.yml` | Runs the project's one check command on every pull request and on main. Until that command is set, the step fails and says so |
+| `.github/workflows/ci.yml` | Runs the project's one check command on every pull request and on the default branch. Until that command is set, the step fails and says so |
 | `.githooks/pre-commit` | Before each commit, the quality floor of **constraint-driven-development** and a gitleaks secret scan. The starter enables it in the clone and keeps the floor guard in the clone's git folder, outside the tree |
 | `AGENTS.md`, and `CLAUDE.md` holding `@AGENTS.md` | The skeleton of the project's instructions for agents. The agent fills it from grill's decisions and leaves "to confirm" where nothing was settled |
 

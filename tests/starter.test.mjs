@@ -130,6 +130,34 @@ test("a check command keeps its dollar signs", () => {
   expect(read(root, "AGENTS.md").startsWith("# a $& b\n")).toBe(true);
 });
 
+test("CI runs on the repository's own default branch", () => {
+  const root = scratch();
+  git(root, ["init", "-q", "-b", "master"]);
+  expect(start(root, {})).toContain("note: CI runs on pushes to master; change its branches line if the default branch is another");
+  expect(Bun.YAML.parse(read(root, ".github/workflows/ci.yml")).on.push.branches).toEqual(["master"]);
+});
+
+test("a check command already in CI gets no note", () => {
+  const root = repo();
+  start(root, { check: "npm test" });
+  expect(start(root, { check: "npm test" }).some((l) => l.includes("--check was not applied"))).toBe(false);
+});
+
+test("--root in another letter case is still the top of its work tree", () => {
+  const root = repo();
+  const other = root.replace(/[a-z](?=[^/]*$)/, (c) => c.toUpperCase());
+  if (other === root || !existsSync(other)) return; // a case-sensitive filesystem has no second spelling
+  // Under node, as users run it: node's realpathSync keeps the case as typed.
+  const run = spawnSync("node", [join(import.meta.dir, "../plugins/pstack/skills/grill/scripts/starter.mjs"), "--root", other], { encoding: "utf8", env });
+  expect(run.stdout).toContain("set core.hooksPath to .githooks");
+}, 30_000);
+
+test("from a subfolder of a project, the note points at the project's top", () => {
+  const root = repo();
+  mkdirSync(join(root, "sub"));
+  expect(start(join(root, "sub"), {}).at(-1)).toContain("run the starter from the top");
+});
+
 test("a check command given after CI exists is reported, not dropped in silence", () => {
   const root = repo();
   start(root, {});
@@ -196,6 +224,8 @@ test("runs from a path that crosses a symlink", () => {
 test("usage errors exit 2", () => {
   expect(main(["--check", ""])).toBe(2);
   expect(main(["--check", "a\nb"])).toBe(2);
+  expect(main(["--check", "a\rb"])).toBe(2);
+  expect(main(["--check", "a\u0000b"])).toBe(2);
   expect(main(["--nope"])).toBe(2);
   const missing = join(scratch(), "nowhere");
   expect(main(["--root", missing])).toBe(2);
