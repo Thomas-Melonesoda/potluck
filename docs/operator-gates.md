@@ -40,11 +40,19 @@ A repository's file that cannot be parsed refuses every merge, including the PR 
   - `gh issue`: comment, create, edit, close, reopen, lock, unlock, pin, unpin, transfer, delete, and develop;
   - `gh api` calls that write to a `repos/<owner>/<repo>` path.
 
-  The repository is the one a pull request or issue URL names, since `gh` prefers it, else `--repo` (`-R`, `-R<repo>`, `--repo=<repo>`) or `GH_REPO`, else the one `gh` resolves in the command's directory. It always asks when it cannot tell which repository a write goes to:
+  Rather than predict which repository `gh` picks, the check asks when any repository the write could reach is not owned:
 
-  - a repository, selector, or endpoint the shell fills in at run time, such as `"$R"` or `$(cat pr.txt)`;
+  - each `github.com` URL among the arguments, a link in a comment's body included;
+  - each `--repo` value, in any of `gh`'s spellings (`-R <repo>`, `-R<repo>`, `-sR <repo>`, `--repo=<repo>`);
+  - without `--repo`, each `GH_REPO` value, and the repository `gh` resolves in each directory the command starts in or changes to, a `cd` inside a subshell, brace group, or `sh -c` included.
+
+  This can ask more often than needed, for example for a comment on your own pull request that links someone else's. It also asks when it cannot read where a write goes:
+
+  - a repository, selector, endpoint, or GraphQL query the shell fills in at run time, such as `"$R"` or `$(cat pr.txt)`, or a directory it cannot follow (`cd "$DIR"`, `cd -`);
   - a GraphQL mutation, which names no repository;
-  - a write when the account cannot be read, or when a gates file cannot be parsed. Your own repositories pass without a prompt. Other harnesses have no such hook yet, so there poteto-mode asks before running these commands.
+  - a write when the account cannot be read, or when a gates file cannot be parsed.
+
+  Your own repositories pass without a prompt. Other harnesses have no such hook yet, so there poteto-mode asks before running these commands.
 - **poteto-mode, when a run starts.** It runs `node <plugin>/skills/poteto-mode/scripts/gates.mjs` in the repository and follows each line it prints, `askFirst` items included. Run it yourself to see the gates in force:
 
   ```text

@@ -67,14 +67,14 @@ describe("with foreignRepos: ask", () => {
   });
 
   test.each([
-    ["gh pr comment 5 --repo stranger/app --body hi", "`gh pr comment` writes to a repository owned by stranger"],
-    ["gh issue comment 9 -R stranger/app -b hi", "`gh issue comment` writes to a repository owned by stranger"],
-    ["gh issue create --repo=stranger/app --title t --body b", "`gh issue create` writes to a repository owned by stranger"],
-    ["gh pr review https://github.com/stranger/app/pull/3 --approve", "`gh pr review` writes to a repository owned by stranger"],
-    ["gh pr create --repo stranger/app --fill", "`gh pr create` writes to a repository owned by stranger"],
-    ["gh api repos/stranger/app/issues/1/comments -f body=hi", "`gh api POST repos/stranger/app/issues/1/comments` writes to a repository owned by stranger"],
-    ["gh api --method PATCH /repos/stranger/app/issues/1 -f state=closed", "`gh api PATCH repos/stranger/app/issues/1` writes"],
-    ["gh api graphql -f query='mutation { addComment(input: {subjectId: \"X\", body: \"hi\"}) { clientMutationId } }'", "a GraphQL mutation does not show which repository"],
+    ["gh pr comment 5 --repo stranger/app --body hi", "`gh pr comment` may write to a repository owned by stranger"],
+    ["gh issue comment 9 -R stranger/app -b hi", "`gh issue comment` may write to a repository owned by stranger"],
+    ["gh issue create --repo=stranger/app --title t --body b", "`gh issue create` may write to a repository owned by stranger"],
+    ["gh pr review https://github.com/stranger/app/pull/3 --approve", "`gh pr review` may write to a repository owned by stranger"],
+    ["gh pr create --repo stranger/app --fill", "`gh pr create` may write to a repository owned by stranger"],
+    ["gh api repos/stranger/app/issues/1/comments -f body=hi", "`gh api POST repos/stranger/app/issues/1/comments` may write to a repository owned by stranger"],
+    ["gh api --method PATCH /repos/stranger/app/issues/1 -f state=closed", "`gh api PATCH repos/stranger/app/issues/1` may write"],
+    ["gh api graphql -f query='mutation { addComment(input: {subjectId: \"X\", body: \"hi\"}) { clientMutationId } }'", "a GraphQL mutation, or a GraphQL query this check cannot read, does not show which repository"],
     ["cd sub && sh -c 'gh pr comment 1 -R stranger/app -b x'", "owned by stranger"],
     ["GH_REPO=stranger/app gh issue comment 1 -b x", "owned by stranger"],
     ["gh pr comment 5 --repo ghe.example.com/team/app -b x", "on ghe.example.com, which this check cannot read"],
@@ -87,17 +87,36 @@ describe("with foreignRepos: ask", () => {
     ["GH_REPO=me/app gh pr review https://github.com/stranger/app/pull/1 --approve", "owned by stranger"],
     ["gh pr comment 1 -Rstranger/app -b x", "owned by stranger"],
     ["gh pr comment 1 -R=stranger/app -b x", "owned by stranger"],
-    ["gh pr revert 3 --repo stranger/app", "`gh pr revert` writes to a repository owned by stranger"],
-    ["gh pr update-branch 3 -R stranger/app", "`gh pr update-branch` writes to a repository owned by stranger"],
+    ["gh pr revert 3 --repo stranger/app", "`gh pr revert` may write to a repository owned by stranger"],
+    ["gh pr update-branch 3 -R stranger/app", "`gh pr update-branch` may write to a repository owned by stranger"],
     ["nice gh issue comment 1 -R stranger/app -b x", "owned by stranger"],
     ["pushd foreign && gh pr comment 1 -b x", "owned by stranger"],
     ["GH=gh; $GH issue comment 9 --repo stranger/app -b hi", "owned by stranger"],
+    ['gh issue comment 1 -R stranger/app --body "https://github.com/me/app/pull/44 fixes this"', "owned by stranger"],
+    ["gh pr create -R stranger/app --title t --body https://github.com/me/app/issues/1", "owned by stranger"],
+    ["cd foreign && gh pr comment 1 --body https://github.com/me/app/pull/44", "owned by stranger"],
+    ["gh pr merge -sR stranger/app 1", "owned by stranger"],
+    ["gh pr review 1 -aR stranger/app", "owned by stranger"],
+    ["gh pr create -fR stranger/app", "owned by stranger"],
+    ["gh pr close 1 -dR stranger/app", "owned by stranger"],
+    ['gh api graphql -f query="$(cat m.graphql)"', "does not show which repository it writes to"],
+    ['gh api graphql -f query="$Q"', "does not show which repository it writes to"],
+    ["bash -c 'cd foreign && gh pr comment 1 -b hi'", "owned by stranger"],
+    ["{ cd foreign; gh pr comment 1 -b hi; }", "owned by stranger"],
+    ["if true; then cd foreign; fi; gh pr comment 1 -b hi", "owned by stranger"],
   ])("%s asks", (command, reason) => {
     const { run, user } = setup();
     const r = run(command);
     expect(r.decision).toBe("ask");
     expect(r.reason).toStartWith(`potluck operator's gates (foreignRepos: ask, from ${user}): `);
     expect(r.reason).toContain(reason);
+  });
+
+  test("a cd that a subshell undoes still counts, so a write from someone else's checkout asks", () => {
+    const s = setup();
+    const r = s.run("(cd ..); gh pr comment 1 -b hi", { cwd: join(s.work, "foreign") });
+    expect(r.decision).toBe("ask");
+    expect(r.reason).toContain("owned by stranger");
   });
 
   test("a write in a checkout gh resolves to someone else's repository asks", () => {
@@ -108,7 +127,7 @@ describe("with foreignRepos: ask", () => {
 
   test("reads pass without asking gh anything", () => {
     const { run, calls } = setup();
-    for (const command of ['gh pr view "$PR"', "gh issue list -R \"$R\"", "gh pr view 5 --repo stranger/app", "gh issue list -R stranger/app", "gh api repos/stranger/app/pulls/5", "gh api -X GET repos/stranger/app/issues -f state=open", "gh api graphql -f query='query { viewer { login } }'", "gh pr comment --help", "git commit -m 'gh pr comment 5 --repo stranger/app'"]) {
+    for (const command of ['gh pr view "$PR"', "gh issue list -R \"$R\"", "gh pr view 5 --repo stranger/app", "gh issue list -R stranger/app", "gh api repos/stranger/app/pulls/5", "gh api -X GET repos/stranger/app/issues -f state=open", "gh api graphql -f query='query { viewer { login } }'", "gh api graphql -F owner=me -f query='query($owner: String!) { repository(owner: $owner, name: \"app\") { id } }'", "gh pr comment --help", "git commit -m 'gh pr comment 5 --repo stranger/app'"]) {
       expect([command, run(command).decision]).toEqual([command, null]);
     }
     expect(calls()).toEqual([]);
