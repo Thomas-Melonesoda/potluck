@@ -3,7 +3,7 @@
 // it is done. It writes each of these the project is missing and leaves any
 // file that is already there alone:
 //
-//   .github/workflows/ci.yml  the project's check on every pull request and on main
+//   .github/workflows/ci.yml  the project's check on every pull request and on the default branch
 //   .githooks/pre-commit      the quality floor and a secret scan before each commit
 //   AGENTS.md                 a skeleton of the project's instructions for agents
 //   CLAUDE.md                 `@AGENTS.md`, so Claude Code reads the same file
@@ -37,44 +37,56 @@ const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "../starter");
 export const NO_CHECK = `echo "No check command yet: put the project's one check command here and in AGENTS.md." >&2; exit 1`;
 
 // The files the starter writes into a project, as { path, text, mode }.
-export function starterFiles({ name, check }) {
+export function starterFiles({ name, check, branch = "main" }) {
   const template = (file) => readFileSync(join(TEMPLATES, file), "utf8");
   // A function replacement, so a `$&` or `$$` in a command stays as typed.
   const fill = (text, marker, value) => text.replace(marker, () => value);
   return [
-    { path: ".github/workflows/ci.yml", text: fill(template("ci.yml"), "CHECK_COMMAND", check ?? NO_CHECK) },
+    { path: ".github/workflows/ci.yml", text: fill(fill(template("ci.yml"), "DEFAULT_BRANCH", JSON.stringify(branch)), "CHECK_COMMAND", check ?? NO_CHECK) },
     { path: ".githooks/pre-commit", text: template("pre-commit"), mode: 0o755 },
     { path: "AGENTS.md", text: fill(fill(template("AGENTS.template.md"), "PROJECT_NAME", name), "CHECK_COMMAND", check ? `\`${check}\`` : "to confirm") },
     { path: "CLAUDE.md", text: "@AGENTS.md\n" },
   ];
 }
 
+// The branch CI runs pushes on: origin's default branch, else the branch
+// checked out (a new repository's first branch), else main.
+function defaultBranch(git) {
+  const origin = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").stdout?.trim();
+  if (origin) return origin.replace(/^origin\//, "");
+  return git("symbolic-ref", "--quiet", "--short", "HEAD").stdout?.trim() || "main";
+}
+
 // Writes what is missing under `root` and returns one line per file or setting.
 export function start(root, { name = basename(root), check } = {}) {
   const lines = [];
-  for (const file of starterFiles({ name, check })) {
+  const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  const branch = defaultBranch(git);
+  for (const file of starterFiles({ name, check, branch })) {
     const at = join(root, file.path);
     if (existsSync(at)) {
       lines.push(`kept ${file.path}, which was already there`);
-      if (check && file.path.endsWith("ci.yml")) lines.push(`note: kept ${file.path}, so --check was not applied; put \`${check}\` in its Check step`);
+      if (check && file.path.endsWith("ci.yml") && !readFileSync(at, "utf8").split("\n").some((line) => line.trim() === check)) lines.push(`note: kept ${file.path}, so --check was not applied; put \`${check}\` in its Check step`);
       continue;
     }
     mkdirSync(dirname(at), { recursive: true });
     writeFileSync(at, file.text);
     if (file.mode) chmodSync(at, file.mode);
     lines.push(`wrote ${file.path}`);
+    if (file.path.endsWith("ci.yml") && branch !== "main") lines.push(`note: CI runs on pushes to ${branch}; change its branches line if the default branch is another`);
   }
   const claude = join(root, "CLAUDE.md");
   if (!readFileSync(claude, "utf8").includes("@AGENTS.md")) lines.push("note: CLAUDE.md does not read AGENTS.md; add a line `@AGENTS.md` to it");
 
-  const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
   if (git("rev-parse", "--is-inside-work-tree").stdout.trim() !== "true") {
     lines.push("note: not a git repository, so the hook is not enabled; run `git init`, then the starter again");
     return lines;
   }
   const top = git("rev-parse", "--show-toplevel").stdout.trim();
-  if (realpathSync(top) !== realpathSync(root)) {
-    lines.push(`note: ${root} is not the top of a git work tree (${top} is), so the hook is not enabled; run \`git init\` here for a project of its own, then the starter again`);
+  // The native call returns the case the filesystem stores, so a root typed
+  // in another case on macOS still matches git's top.
+  if (realpathSync.native(top) !== realpathSync.native(root)) {
+    lines.push(`note: ${root} is not the top of a git work tree (${top} is), so the hook is not enabled; run the starter from the top, or run \`git init\` here for a project of its own, then the starter again`);
     return lines;
   }
   const common = resolve(root, git("rev-parse", "--git-common-dir").stdout.trim());
@@ -99,7 +111,8 @@ export function main(argv) {
     process.stderr.write(`${error.message}\n`);
     return 2;
   }
-  if (values.check !== undefined && (!values.check.trim() || values.check.includes("\n"))) return process.stderr.write("--check must be one command on one line\n"), 2;
+  // A line break or another control character would break the YAML around it; a tab is fine.
+  if (values.check !== undefined && (!values.check.trim() || /[\u0000-\u0008\u000a-\u001f\u007f]/.test(values.check))) return process.stderr.write("--check must be one command on one line\n"), 2;
   const root = resolve(values.root ?? ".");
   if (!existsSync(root)) return process.stderr.write(`${root} does not exist\n`), 2;
   for (const line of start(root, { name: values.name, check: values.check })) process.stdout.write(`${line}\n`);

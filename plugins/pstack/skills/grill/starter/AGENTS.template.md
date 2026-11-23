@@ -23,7 +23,7 @@ Instructions for agents in this repository. One line per item, with real command
 
 ## Check before saying done
 
-- One command runs every check (types, lint, tests, build): CHECK_COMMAND. CI runs it on every pull request and on main.
+- One command runs every check (types, lint, tests, build): CHECK_COMMAND. CI runs it on every pull request and on the default branch.
 - The pre-commit hook runs the quality floor and a secret scan. A check that fails is fixed, never loosened or skipped.
 - A bug fix starts with a test that fails.
 
