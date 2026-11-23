@@ -13,7 +13,7 @@ potluck 和各上游不一样的每一处，以及原因和决定。由 [`tools/
 
 A choice of Lauren's way or a compromise is a decision; the file may still hold pstack-claude's text until the stage that applies it, which [the roadmap](roadmap.md) tracks. / 选了 Lauren 的或折中，表示已经定了；在 [路线图](roadmap.md) 里对应的阶段完成前，文件内容可能还是 pstack-claude 的。
 
-58 entries / 共 58 条.
+59 entries / 共 59 条.
 
 ## Files from cursor/plugins (Lauren Tan's pstack and Cursor's kits) / 来自 cursor/plugins 的文件（Lauren Tan 的 pstack 和 Cursor 的组件）
 
@@ -77,3 +77,9 @@ A choice of Lauren's way or a compromise is a decision; the file may still hold 
 | `plugins/pstack/skills/statechart/scripts/test/config-fuzz.test.ts` | H | Michael's way / 用 Michael 的 | policy / 政策 | Names the section keyword `keyword` and the index signature `field`, not `key`, because the plugin directory's scanner reads a `key` identifier beside a file read as a credential read (MCP_FORWARDS_CREDENTIAL_ENV). | Keep every technical adaptation as Michael made it (group H). | 2026-11-21 |
 | `plugins/pstack/skills/statechart/scripts/test/corpus.test.ts` | H | Michael's way / 用 Michael 的 | policy / 政策 | Spawns the command with the named child environment from run.ts plus TLA2TOOLS and JAVA, not the whole environment, because the plugin directory's scanner reads a whole environment given to a child as a credential forward (MCP_FORWARDS_CREDENTIAL_ENV). | Keep every technical adaptation as Michael made it (group H). | 2026-11-21 |
 | `plugins/pstack/skills/thermos/SKILL.md` | H | Michael's way / 用 Michael 的 | port feature / 工具适配 | Sets both reviewers' model from the thermos reviewers line in pstack-models.md, so the override sheet reaches them. | Keep every technical adaptation as Michael made it (group H). | 2026-11-21 |
+
+## Files from Addy Osmani's agent-skills / 来自 Addy Osmani 的 agent-skills 的文件
+
+| File / 文件 | Row / 行号 | Choice / 选择 | Kind / 类型 | Why / 原因 | Ruling / 裁定 | Decided / 日期 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `plugins/pstack/skills/constraint-driven-development/references/floor-guard.md` | D5, A8 | compromise / 折中 | policy / 政策 | Fixes three faults the first pilot hit: CONSTRAINTS.md gets only its exception and rule checks, so the Floor bullets of the skill's own template no longer read as suppressions or stubs; a bullet's key also ends at a full-width colon; and each removed rule pairs with its own counterpart, same form first, so two rules that share a key cannot both match one surviving line. | Fix the three floor-guard faults the first pilot found (the skill's own template refused, full-width colons, shared rule keys) as bugs in one PR; the pilot's other findings go to a design round. | 2026-11-23 |

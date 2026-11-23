@@ -90,12 +90,12 @@ const STUBS = /throw new (Error|NotImplemented).*[Nn]ot implemented|catch\s*\(\w
 // 2. A test made easier (added skips).
 const SKIPS = /\.(skip|todo)\b|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(/;
 
-for (const { file, text } of added) {
+for (const { file, text } of added.filter((l) => !isConstraints(l.file))) {
   if (SUPPRESSIONS.test(text)) flag('silenced-checker', file, text);
   if (STUBS.test(text)) flag('unfinished-work', file, text);
   if (SKIPS.test(text)) flag('test-made-easier', file, text);
-  if (isConstraints(file) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', file, text);
 }
+for (const { file, text } of added) if (isConstraints(file) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', file, text);
 
 // 2b. A test file deleted, or an assertion removed from a test file that still exists.
 for (const f of deleted) if (isTest(f)) flag('test-deleted', f, 'file deleted');
@@ -117,7 +117,7 @@ for (const { file, text } of removed) {
 const ruleKey = (t) => {
   const s = t.trim();
   if (s.startsWith('|')) return s.split('|').map((c) => c.trim()).filter(Boolean)[0] ?? '';
-  if (/^[-*] /.test(s)) return s.slice(2).split(':')[0].trim();
+  if (/^[-*] /.test(s)) return s.slice(2).split(/[:：]/)[0].trim();
   return null; // prose, headings, dates: not a rule
 };
 const isException = (t) => /^\| *(W|E)\d+ *\|/.test(t.trim());
@@ -139,8 +139,14 @@ const thresholds = (t) => {
 };
 const removedRules = removed.filter((l) => isConstraints(l.file) && ruleKey(l.text) !== null);
 const addedRules = added.filter((l) => isConstraints(l.file) && ruleKey(l.text) !== null);
-for (const r of removedRules) {
-  const a = addedRules.find((x) => ruleKey(x.text) === ruleKey(r.text));
+const isRow = (t) => t.trim().startsWith('|');
+const claimCounterpart = (r, { sameForm }) => {
+  const i = addedRules.findIndex((x) => ruleKey(x.text) === ruleKey(r.text) && (!sameForm || isRow(x.text) === isRow(r.text)));
+  return i < 0 ? undefined : addedRules.splice(i, 1)[0];
+};
+const pairs = removedRules.map((r) => ({ r, a: claimCounterpart(r, { sameForm: true }) }));
+for (const p of pairs) p.a ??= claimCounterpart(p.r, { sameForm: false });
+for (const { r, a } of pairs) {
   if (!a) {
     if (!isException(r.text)) flag('rule-removed', r.file, r.text); // dropping an exception tightens: silent
     continue;

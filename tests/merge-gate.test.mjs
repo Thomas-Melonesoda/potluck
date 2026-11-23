@@ -248,7 +248,6 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons.some((l) => l.includes("[new-exception] CONSTRAINTS.md"))).toBe(true);
   });
 
-  // Step 3's template, read from the skill, so this test follows the template the skill hands out.
   const TEMPLATE = readFileSync(join(import.meta.dir, "../plugins/pstack/skills/constraint-driven-development/SKILL.md"), "utf8")
     .match(/^### Step 3[\s\S]*?^```markdown\n([\s\S]*?)^```$/m)[1];
 
