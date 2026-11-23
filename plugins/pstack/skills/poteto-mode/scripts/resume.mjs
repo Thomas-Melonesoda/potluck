@@ -1,40 +1,35 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync,
-} from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep, dirname } from 'node:path';
+import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 
 function git(project, ...args) {
-  return execFileSync('git', ['-C', project, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  return execFileSync('git', ['-C', project, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LC_ALL: 'C' } }).trim();
 }
-function identity(projectPath) {
+function optional(read) {
+  try { return read(); } catch { return null; }
+}
+// A folder outside Git is its own project. Any other Git failure, such as a bare repository, stays an error.
+function identity(directory) {
+  const path = realpathSync(directory);
   let toplevel;
-  try {
-    toplevel = execFileSync('git', ['-C', projectPath, 'rev-parse', '--show-toplevel'], {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LC_ALL: 'C' },
-    }).trim();
-  } catch (error) {
-    if (error.code === 'ENOENT' || /not a git repository/.test(error.stderr ?? ''))
-      return { gitDir: null, worktree: realpathSync(projectPath), folder: '' };
+  try { toplevel = git(path, 'rev-parse', '--show-toplevel'); }
+  catch (error) {
+    if (error.code === 'ENOENT' || /not a git repository/.test(error.stderr)) return { gitDir: null, worktree: path, folder: '' };
     throw error;
   }
   const worktree = realpathSync(toplevel);
-  const gitDir = realpathSync(git(projectPath, 'rev-parse', '--path-format=absolute', '--git-common-dir'));
-  const folder = relative(worktree, realpathSync(projectPath)).split(sep).join('/');
-  return { gitDir, worktree, folder };
-}
-function headOf(worktree) {
-  try { return git(worktree, 'rev-parse', '--verify', '-q', 'HEAD'); } catch { return null; }
+  return {
+    gitDir: realpathSync(git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir')),
+    worktree,
+    folder: relative(worktree, path).split(sep).join('/'),
+  };
 }
 function inside(root, file) {
   const path = relative(root, file);
   return path === '' || (!isAbsolute(path) && path !== '..' && !path.startsWith(`..${sep}`));
-}
-function existingRealpath(path) {
-  try { return realpathSync(path); } catch (error) { if (error.code !== 'ENOENT') throw error; return null; }
 }
 function string(value, name) {
   if (typeof value !== 'string' || !value) throw new Error(`missing ${name}`);
@@ -66,7 +61,7 @@ function resolveLink(note, link, target) {
 }
 function verifyLinks(note, artifacts) {
   const prose = readFileSync(note.path, 'utf8')
-    .replace(/^﻿/, '')
+    .replace(/^\uFEFF/, '')
     .replaceAll('\r\n', '\n')
     .replace(/^ {0,3}((`|~)\2{2,}).*\n[\s\S]*?(?:^ {0,3}\1\2*[ \t]*$|(?![\s\S]))/gm, ' ')
     .replace(/(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, ' ');
@@ -80,93 +75,68 @@ function verifyLinks(note, artifacts) {
     if (path !== note.path && !artifacts.some(artifact => artifact.path === path))
       throw new Error(`register every local note link with --artifact: ${link} resolves to ${path}. ${linkRule}`);
 }
-
-function pointerPath(store, root, folder, task) {
-  const hash = createHash('sha256').update(JSON.stringify([root, folder, task])).digest('hex');
-  return join(store, 'pointers', `${hash}.json`);
+function nullable(value, name) {
+  return value === null ? null : string(value, name);
 }
-function storeRaw(values, project) {
-  return values.store !== undefined
-    ? resolve(values.store)
-    : project.gitDir ? join(project.gitDir, 'pstack', 'resume') : join(project.worktree, '.pstack', 'resume');
+function exists(path) {
+  try { lstatSync(path); return true; }
+  catch (error) { if (error.code !== 'ENOENT') throw error; return false; }
 }
-function readRecord(store, project, key) {
-  const pointer = pointerPath(store, project.gitDir ?? project.worktree, key.folder, key.task);
-  let path = existsAsFile(pointer);
-  if (path === null && key.folder === '' && key.task === null) path = existsAsFile(join(store, 'latest.json'));
-  if (path === null) return null;
-  const file = fileInfo(path, [store]);
-  const raw = object(JSON.parse(readFileSync(file.path, 'utf8')), 'checkpoint');
-  if (raw.schemaVersion !== 1 && raw.schemaVersion !== 2) throw new Error('checkpoint project mismatch');
-  const v2 = raw.schemaVersion === 2;
-  if (v2 && typeof raw.folder !== 'string') throw new Error('invalid folder');
-  const folder = v2 ? raw.folder : '';
-  const task = v2 ? (raw.task === null ? null : string(raw.task, 'task')) : null;
-  const head = v2 ? (raw.head === null ? null : string(raw.head, 'head')) : null;
-  const gitDir = raw.gitDir === null ? null : string(raw.gitDir, 'gitDir');
-  const worktree = string(raw.worktree, 'worktree');
-  if (gitDir !== project.gitDir) throw new Error('checkpoint project mismatch');
-  if (project.gitDir === null && worktree !== project.worktree) throw new Error('checkpoint project mismatch');
-  if (folder !== key.folder || task !== key.task) throw new Error('checkpoint project mismatch');
+function pointer(store, project, task) {
+  const key = JSON.stringify([project.gitDir ?? project.worktree, project.folder, task]);
+  return join(store, 'pointers', `${createHash('sha256').update(key).digest('hex')}.json`);
+}
+function load(store, project, task) {
+  let path = pointer(store, project, task);
+  // A checkpoint from the single-pointer format reads as the top folder's until that folder publishes again.
+  if (!exists(path) && project.folder === '' && task === null) path = join(store, 'latest.json');
+  if (!exists(path)) return null;
+  fileInfo(path, [store]);
+  const record = object(JSON.parse(readFileSync(path, 'utf8')), 'checkpoint');
+  const legacy = record.schemaVersion === 1;
+  if (!legacy && record.schemaVersion !== 2) throw new Error('unsupported checkpoint schema');
+  const folder = legacy ? '' : record.folder;
+  const saved = legacy ? null : nullable(record.task, 'task');
+  if ((record.gitDir ?? record.worktree) !== (project.gitDir ?? project.worktree) || folder !== project.folder || saved !== task)
+    throw new Error('checkpoint project mismatch');
+  const worktree = string(record.worktree, 'worktree');
   const roots = [store, project.worktree];
   if (worktree !== project.worktree) {
-    try { if (identity(worktree).gitDir === project.gitDir) roots.push(realpathSync(worktree)); }
-    catch { /* Removed worktrees cannot supply artifacts; store files remain readable. */ }
+    try {
+      if (identity(worktree).gitDir === project.gitDir) roots.push(realpathSync(worktree));
+    } catch { /* Removed worktrees cannot supply artifacts; store files remain readable. */ }
   }
-  const note = verifyFile(raw.note, [store]);
-  if (!Array.isArray(raw.artifacts)) throw new Error('invalid artifact list');
-  const artifacts = raw.artifacts.map(value => verifyFile(value, roots));
-  const branch = raw.branch === null ? null : string(raw.branch, 'branch');
-  const createdAt = string(raw.createdAt, 'timestamp');
+  const note = verifyFile(record.note, [store]);
+  if (!Array.isArray(record.artifacts)) throw new Error('invalid artifact list');
+  const artifacts = record.artifacts.map(value => verifyFile(value, roots));
+  const branch = nullable(record.branch, 'branch');
+  const head = legacy ? null : nullable(record.head, 'head');
+  const createdAt = string(record.createdAt, 'timestamp');
   if (!Number.isFinite(Date.parse(createdAt))) throw new Error('invalid checkpoint timestamp');
   verifyLinks(note, artifacts);
-  return { schemaVersion: 2, gitDir, worktree, folder, task, branch, head, createdAt, note, artifacts };
-}
-function existsAsFile(path) {
-  try { lstatSync(path); return path; } catch (error) { if (error.code !== 'ENOENT') throw error; return null; }
-}
-function computeHeadNow(project, record) {
-  if (project.gitDir === null) return null;
-  try {
-    return record.branch
-      ? git(project.worktree, 'rev-parse', '--verify', '-q', `refs/heads/${record.branch}`)
-      : git(project.worktree, 'rev-parse', '--verify', '-q', 'HEAD');
-  } catch { return null; }
-}
-function respond(store, project, key) {
-  const record = readRecord(store, project, key);
-  if (record === null) return null;
-  const headNow = computeHeadNow(project, record);
-  const moved = record.head === null ? null : headNow !== record.head;
-  return { kind: 'checkpoint', checkpoint: record, headNow, moved };
-}
-function summarize(record) {
-  const v2 = record.schemaVersion === 2;
+  // The saved branch's tip now, or this checkout's HEAD after a pause on a detached HEAD.
+  const headNow = project.gitDir && optional(() => git(project.worktree, 'rev-parse', '--verify', '-q', branch ? `refs/heads/${branch}` : 'HEAD'));
   return {
-    folder: v2 ? record.folder : '',
-    task: v2 ? (record.task ?? null) : null,
-    worktree: record.worktree,
-    branch: record.branch ?? null,
-    head: v2 ? (record.head ?? null) : null,
-    createdAt: record.createdAt,
-    note: record.note && record.note.path,
+    kind: 'checkpoint',
+    checkpoint: { schemaVersion: 2, gitDir: project.gitDir, worktree, folder, task, branch, head, createdAt, note, artifacts },
+    headNow,
+    moved: head === null ? null : headNow !== head,
   };
 }
-function listStore(store) {
+function list(store) {
   const pointers = join(store, 'pointers');
-  let names = [];
-  try { names = readdirSync(pointers).filter(name => name.endsWith('.json')); }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
-  const files = names.map(name => join(pointers, name));
-  if (existsAsFile(join(store, 'latest.json'))) files.push(join(store, 'latest.json'));
-  const checkpoints = files.map(file => {
+  // Names starting with a dot are publications still being written.
+  const files = (exists(pointers) ? readdirSync(pointers) : [])
+    .filter(name => name.endsWith('.json') && !name.startsWith('.'))
+    .map(name => join(pointers, name));
+  if (exists(join(store, 'latest.json'))) files.push(join(store, 'latest.json'));
+  return files.map(file => {
     let record;
-    try { record = JSON.parse(readFileSync(file, 'utf8')); }
+    try { record = object(JSON.parse(readFileSync(file, 'utf8')), 'checkpoint'); }
     catch { throw new Error(`invalid checkpoint pointer: ${file}`); }
-    return summarize(record);
-  });
-  checkpoints.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
-  return { kind: 'list', checkpoints };
+    const { folder = '', task = null, worktree, branch = null, head = null, createdAt, note } = record;
+    return { folder, task, worktree, branch, head, createdAt, note: note?.path };
+  }).sort((a, b) => (a.createdAt < b.createdAt) - (a.createdAt > b.createdAt));
 }
 
 try {
@@ -174,60 +144,56 @@ try {
     allowPositionals: true,
     options: {
       project: { type: 'string', default: '.' },
-      store: { type: 'string' },
       task: { type: 'string' },
+      store: { type: 'string' },
       note: { type: 'string' },
       artifact: { type: 'string', multiple: true, default: [] },
     },
   });
   const [operation] = positionals;
   if (positionals.length !== 1 || !['begin', 'publish', 'read', 'list'].includes(operation))
-    throw new Error('usage: resume.mjs begin|publish|read|list --project <directory> [--store <dir>] [--task <name>] [--note <file> --artifact <file> ...]');
-  if (operation !== 'publish' && (values.note !== undefined || values.artifact.length)) throw new Error('only publish accepts files');
-  if (!['publish', 'read'].includes(operation) && values.task !== undefined) throw new Error('only publish and read accept --task');
-  if (values.task === '') throw new Error('empty --task');
-  const task = values.task === undefined ? null : values.task;
-
+    throw new Error('usage: resume.mjs begin|publish|read|list --project <folder> [--task <name>] [--store <directory>] [--note <file> --artifact <file> ...]');
+  if (operation !== 'publish' && (values.note || values.artifact.length)) throw new Error('only publish accepts files');
+  if (operation !== 'publish' && operation !== 'read' && values.task !== undefined) throw new Error('only publish and read accept --task');
+  const task = values.task === undefined ? null : string(values.task, '--task');
   const project = identity(values.project);
-
-  if (operation === 'begin' || operation === 'publish') {
-    mkdirSync(storeRaw(values, project), { recursive: true, mode: 0o700 });
-    const store = realpathSync(storeRaw(values, project));
-    if (values.store === undefined && !inside(project.gitDir ?? project.worktree, store))
-      throw new Error('resume store escapes the project directory');
-
-    if (operation === 'begin') {
-      const directory = join(store, randomUUID());
-      mkdirSync(directory, { mode: 0o700 });
-      console.log(JSON.stringify({ kind: 'directory', directory }));
-    } else {
-      mkdirSync(join(store, 'pointers'), { recursive: true, mode: 0o700 });
-      const note = fileInfo(string(values.note, '--note'), [store]);
-      const artifacts = values.artifact.map(path => fileInfo(path, [store, project.worktree]));
-      if (new Set(artifacts.map(file => file.path)).size !== artifacts.length) throw new Error('duplicate artifact');
-      verifyLinks(note, artifacts);
-      const branch = project.gitDir ? (git(project.worktree, 'branch', '--show-current') || null) : null;
-      const head = project.gitDir ? headOf(project.worktree) : null;
-      const record = {
-        schemaVersion: 2, gitDir: project.gitDir, worktree: project.worktree, folder: project.folder, task,
-        branch, head, createdAt: new Date().toISOString(), note, artifacts,
-      };
-      const pointer = pointerPath(store, project.gitDir ?? project.worktree, project.folder, task);
-      const temporary = join(store, 'pointers', `.pointer-${randomUUID()}.json`);
-      try {
-        writeFileSync(temporary, JSON.stringify(record) + '\n', { flag: 'wx', mode: 0o600 });
-        renameSync(temporary, pointer);
-      } finally { rmSync(temporary, { force: true }); }
-      console.log(JSON.stringify(respond(store, project, { folder: project.folder, task })));
-    }
+  const store = values.store ? resolve(values.store)
+    : project.gitDir ? join(project.gitDir, 'pstack', 'resume') : join(project.worktree, '.pstack', 'resume');
+  if (operation === 'begin' || operation === 'publish') mkdirSync(store, { recursive: true, mode: 0o700 });
+  const root = exists(store) ? realpathSync(store) : null;
+  // A default store stays inside its project; a --store location is the user's choice.
+  if (root && !values.store && !inside(project.gitDir ?? project.worktree, root)) throw new Error('resume store escapes its project');
+  if (operation === 'list') {
+    console.log(JSON.stringify({ kind: 'list', checkpoints: root ? list(root) : [] }));
   } else if (operation === 'read') {
-    const store = existingRealpath(storeRaw(values, project));
-    const result = store === null ? null : respond(store, project, { folder: project.folder, task });
-    if (result === null) { console.log(JSON.stringify({ kind: 'missing' })); process.exit(2); }
-    console.log(JSON.stringify(result));
+    const checkpoint = root && load(root, project, task);
+    if (!checkpoint) {
+      console.log(JSON.stringify({ kind: 'missing' }));
+      process.exit(2);
+    }
+    console.log(JSON.stringify(checkpoint));
+  } else if (operation === 'begin') {
+    const directory = join(root, randomUUID());
+    mkdirSync(directory, { mode: 0o700 });
+    console.log(JSON.stringify({ kind: 'directory', directory }));
   } else {
-    const store = existingRealpath(storeRaw(values, project));
-    console.log(JSON.stringify(store === null ? { kind: 'list', checkpoints: [] } : listStore(store)));
+    const note = fileInfo(string(values.note, '--note'), [root]);
+    const artifacts = values.artifact.map(path => fileInfo(path, [root, project.worktree]));
+    if (new Set(artifacts.map(file => file.path)).size !== artifacts.length) throw new Error('duplicate artifact');
+    verifyLinks(note, artifacts);
+    const checkpoint = {
+      schemaVersion: 2, ...project, task,
+      branch: project.gitDir && (git(project.worktree, 'branch', '--show-current') || null),
+      head: project.gitDir && optional(() => git(project.worktree, 'rev-parse', '--verify', '-q', 'HEAD')),
+      createdAt: new Date().toISOString(), note, artifacts,
+    };
+    mkdirSync(join(root, 'pointers'), { recursive: true, mode: 0o700 });
+    const temporary = join(root, 'pointers', `.publishing-${randomUUID()}.json`);
+    try {
+      writeFileSync(temporary, JSON.stringify(checkpoint) + '\n', { flag: 'wx', mode: 0o600 });
+      renameSync(temporary, pointer(root, project, task));
+    } finally { rmSync(temporary, { force: true }); }
+    console.log(JSON.stringify(load(root, project, task)));
   }
 } catch (error) {
   console.log(JSON.stringify({ kind: 'unavailable', detail: error.message }));
