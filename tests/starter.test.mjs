@@ -123,7 +123,9 @@ describe("the hook", () => {
     expect(commit(guarded(), "b.ts", "export const b = 2;\n").status).toBe(0);
   }, SLOW);
   test("stops a new suppression", () => {
-    const silenced = commit(guarded(), "a.ts", "// @ts-ignore\nexport const a = 1;\n");
+    // Spelled in two parts, as tests/merge-gate.test.mjs does, so the floor
+    // guard does not read this test as adding a suppression.
+    const silenced = commit(guarded(), "a.ts", `// @ts-${"ignore"}\nexport const a = 1;\n`);
     expect(silenced.status).not.toBe(0);
     expect(silenced.stderr).toContain("[silenced-checker] a.ts");
   }, SLOW);
