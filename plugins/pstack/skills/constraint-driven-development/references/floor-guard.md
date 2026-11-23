@@ -162,10 +162,11 @@ const isException = (t) => /^\| *(W|E)\d+ *\|/.test(t.trim());
 // mean "the above", "the following" and "within", and a bare 低于, 高于, 最高 or 最低 can state a
 // record or a failure as easily as a bar, so a number they sit beside has no direction and any
 // change to it is reported. Words that disagree, a minimum on one side and a maximum on the other,
-// give no direction either, so the guard never reads a number more loosely than its English
-// words alone would.
-const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not drop|至少|不低于|不少于|不得低于|不得下降到)\s*$/;
-const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed|至多|不超过|不高于|不得超过|不得高于|不得增长到)\s*$/;
+// put the number in a class of its own: any change to it is reported, and losing those words reads
+// as a removed threshold, so the guard never reads a number more loosely than its English words
+// alone would.
+const MIN_BEFORE = /(>=|>|≥|at least|minimum|\bmin\b|no less than|not fall|not drop|(?<!甚)至少|不低于|不少于|不得低于|不得下降到)\s*$/;
+const MAX_BEFORE = /(<=|<|≤|at most|maximum|\bmax\b|no more than|under|below|not grow|not exceed|(?<!甚)至多|不超过|不高于|不得超过|不得高于|不得增长到)\s*$/;
 const MIN_AFTER = /^\s*\S*\s*(?:\|\s*)?(or more|or higher|must not fall|must not drop)|^\s*(?:%|[a-z]+)?\s*\|\s*不得下降\s*(?:\||$)/;
 const MAX_AFTER = /^\s*\S*\s*(?:\|\s*)?(or less|or lower|must not grow|must not exceed)|^\s*(?:%|[a-z]+)?\s*\|\s*不得增长\s*(?:\||$)/;
 const thresholds = (t) => {
@@ -176,7 +177,7 @@ const thresholds = (t) => {
     const after = t.slice(m.index + m[0].length, m.index + m[0].length + 40).toLowerCase();
     const min = MIN_BEFORE.test(before) || MIN_AFTER.test(after);
     const max = MAX_BEFORE.test(before) || MAX_AFTER.test(after);
-    const dir = min && max ? null : min ? 'min' : max ? 'max' : null;
+    const dir = min && max ? 'both' : min ? 'min' : max ? 'max' : null;
     out.push({ n: Number(m[0]), dir });
   }
   return out;
@@ -214,7 +215,7 @@ for (const { r, a } of pairs) {
   }
   const before = thresholds(r.text), after = thresholds(a.text);
   let verdict = null;
-  for (const dir of ['min', 'max', null]) {
+  for (const dir of ['min', 'max', 'both', null]) {
     const was = before.filter((x) => x.dir === dir), now = after.filter((x) => x.dir === dir);
     was.forEach((b, i) => {
       const n = now[i];
@@ -222,7 +223,7 @@ for (const { r, a } of pairs) {
       if (!n) verdict = 'threshold-removed';
       else if (n.n === b.n) return;
       else if (dir === 'min' ? n.n < b.n : dir === 'max' ? n.n > b.n : true) {
-        verdict = dir ? 'threshold-loosened' : 'threshold-changed';
+        verdict = dir === 'min' || dir === 'max' ? 'threshold-loosened' : 'threshold-changed';
       }
     });
   }
