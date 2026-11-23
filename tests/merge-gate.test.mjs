@@ -164,7 +164,13 @@ else if (line.includes("POST")) process.stdout.write("{}");
       f.view = { ...f.view, ...over };
       writeFileSync(join(dir, "fixture.json"), JSON.stringify(f));
     };
-    return { run, runAt, calls, head, work: repoDir.work, setView };
+    // Lists a status first, the way GitHub lists the newest.
+    const addStatus = (status) => {
+      const f = JSON.parse(readFileSync(join(dir, "fixture.json"), "utf8"));
+      f.statuses = [status, ...f.statuses];
+      writeFileSync(join(dir, "fixture.json"), JSON.stringify(f));
+    };
+    return { run, runAt, calls, head, work: repoDir.work, setView, addStatus, dir };
   }
   // Stands for the fixture's PR head in a command line.
   const SHA = "<head>";
@@ -545,6 +551,97 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons.some((l) => l.includes("[test-deleted] src/app.test.js"))).toBe(true);
   });
 
+  // Stage 5 issue 17: a renamed test is only renamed, and a changed assertion waits for the root
+  // agent's co-sign instead of refusing outright.
+  const TWO = `test("adds", () => {\n  ${"expect"}(1 + 1).toBe(2);\n  ${"expect"}(2 + 2).toBe(4);\n});\n`;
+
+  test("a test file renamed to another test name passes", () => {
+    const { run } = fake({ setup: { base: { [TEST]: TWO }, move: [TEST, "src/sum.test.js"] } });
+    expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a renamed test file's old skip does not read as new", () => {
+    const { run } = fake({ setup: { base: { [TEST]: `${TWO}test.${"skip"}("later", () => {});\n` }, move: [TEST, "src/sum.test.js"] } });
+    expect(run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a renamed test file that loses an assertion is stopped", () => {
+    const fewer = TWO.replace(`  ${"expect"}(2 + 2).toBe(4);\n`, "");
+    const { run } = fake({ setup: { base: { [TEST]: TWO }, files: { [TEST]: fewer }, move: [TEST, "src/sum.test.js"] } });
+    expect(run(...merge, "--dry-run").json.reasons).toEqual([`floor: [assertion-removed] src/sum.test.js: ${"expect"}(2 + 2).toBe(4);`]);
+  });
+
+  test("a CONSTRAINTS.md renamed away reads as every rule removed", () => {
+    const bar = "# Constraints\n\n- Coverage: changed lines at least 80% covered\n";
+    const { run } = fake({ setup: { base: { "CONSTRAINTS.md": bar }, move: ["CONSTRAINTS.md", "docs/old-constraints.md"] } });
+    expect(run(...merge, "--dry-run").json.reasons).toEqual(["floor: [rule-removed] CONSTRAINTS.md: - Coverage: changed lines at least 80% covered"]);
+  });
+
+  test("an assertion moved within its test file passes", () => {
+    const swapped = `test("adds", () => {\n  ${"expect"}(2 + 2).toBe(4);\n  ${"expect"}(1 + 1).toBe(2);\n});\n`;
+    expect(fake({ setup: { base: { [TEST]: TWO }, files: { [TEST]: swapped } } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("an assertion commented out is removed, not changed", () => {
+    const off = TWO.replace(`  ${"expect"}(2 + 2)`, `  // ${"expect"}(2 + 2)`);
+    const r = fake({ setup: { base: { [TEST]: TWO }, files: { [TEST]: off } } }).run(...merge, "--dry-run");
+    expect(r.json.reasons).toEqual([`floor: [assertion-removed] ${TEST}: ${"expect"}(2 + 2).toBe(4);`]);
+  });
+
+  const CHANGED = TWO.replace("toBe(4)", "toBe(5)");
+  const changed = (over = {}) => fake({ ...over, setup: { base: { [TEST]: TWO }, files: { [TEST]: CHANGED } } });
+  const FINDING = `floor: [assertion-changed] ${TEST}: ${"expect"}(2 + 2).toBe(4);  ->  ${"expect"}(2 + 2).toBe(5);`;
+  const cosign = (gate) => ["cosign", "--repo", "o/r", "--pr", "7", "--sha", SHA, "--log", join(gate.dir, "decisions.tsv"), "--evidence", "verifier report: sums now round up"];
+
+  test("a changed assertion is refused until the root agent co-signs it", () => {
+    const r = changed().run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toBe(FINDING);
+    expect(r.json.reasons[1]).toContain("needs the root agent's co-sign");
+  });
+
+  test("the co-sign is a status on the head and a row in the root agent's decision log, and it clears those findings", () => {
+    const gate = changed();
+    const r = gate.run(...cosign(gate));
+    expect(r.json.kind).toBe("recorded");
+    const post = gate.calls().find((a) => a.includes("POST"));
+    expect(post).toContain("context=potluck/cosign");
+    const description = post.find((a) => a.startsWith("description=")).slice("description=".length);
+    expect(description).toBe(`co-signed 1 changed assertion ${r.json.cosign}`);
+    const rows = readFileSync(join(gate.dir, "decisions.tsv"), "utf8").trim().split("\n").map((l) => l.split("\t"));
+    expect(rows[0]).toEqual(["ts", "phase", "decision", "why", "evidence", "result"]);
+    expect(rows[1].slice(1)).toEqual(["cosign", `co-signed 1 changed assertion on o/r#7 at ${gate.head}`, "the verifier's evidence shows the behavior changed", "verifier report: sums now round up", `potluck/cosign ${r.json.cosign}`]);
+    gate.addStatus({ context: "potluck/cosign", state: "success", description });
+    expect(gate.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  }, 20_000);
+
+  test("a co-sign of other findings does not clear these", () => {
+    const gate = changed();
+    gate.addStatus({ context: "potluck/cosign", state: "success", description: "co-signed 1 changed assertion 0123456789abcdef" });
+    expect(gate.run(...merge, "--dry-run").json.reasons[0]).toBe(FINDING);
+  });
+
+  test("a co-sign cannot clear a removed assertion", () => {
+    const gate = fake({ setup: { base: { [TEST]: TWO }, files: { [TEST]: TWO.replace(`  ${"expect"}(2 + 2).toBe(4);\n`, "") } } });
+    const r = gate.run(...cosign(gate));
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("clears only changed assertions");
+    expect(gate.calls().some((a) => a.includes("POST"))).toBe(false);
+  });
+
+  test("a co-sign waits for the verifier's verdict", () => {
+    const gate = changed({ statuses: [] });
+    const r = gate.run(...cosign(gate));
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain("no passing potluck/verdict");
+  });
+
+  test("a co-sign is not a CI result", () => {
+    const gate = fake({ runs: [], setup: { base: { ".github/workflows/ci.yml": "on: pull_request\n" } } });
+    gate.addStatus({ context: "potluck/cosign", state: "success", description: "co-signed 1 changed assertion 0123456789abcdef" });
+    expect(gate.run(...merge, "--dry-run").json.reasons[0]).toContain("no CI result on");
+  });
+
   test("a colon in a code file's name does not make its finding look like Markdown", () => {
     const { run } = fake({ change: { path: "src/x.md:y.js", text: `// eslint-${"disable"}\nexport {};\n` } });
     const r = run(...merge, "--dry-run");
@@ -811,6 +908,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
     [["merge", "--repo", "o/r", "--pr", "7", "--sha", "abc"], "--sha must be a full"],
     [["merge", "--repo", "nope", "--pr", "7", "--sha", sha], "--repo must be owner/repo"],
     [["verdict", "--repo", "o/r", "--sha", sha, "--state", "maybe"], "--state must be pass or fail"],
+    [["cosign", "--repo", "o/r", "--pr", "7", "--sha", sha], "--log and --evidence are required"],
     [["land", "--repo", "o/r", "--sha", sha], 'unknown command "land"'],
   ])("usage error %#", (args, message) => {
     const { run } = fake();
