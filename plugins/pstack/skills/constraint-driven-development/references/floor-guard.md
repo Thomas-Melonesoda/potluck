@@ -52,12 +52,16 @@ const isCI = (f) => /^\.github\/(workflows|actions)\/.*\.ya?ml$|^\.(circleci|bui
 // A test is only renamed when its blob is unchanged (git's similarity score alone is not enough: it
 // rates reordered lines 100%), it stays in its folder with its extension and a plain name, it is not
 // CI configuration, and the new name changes no listed runner's default discovery: every pattern
-// below reads both names or neither. For Go, a name go test skips also fails.
+// below reads both names or neither. For Go, a name go test skips also fails, and a test whose
+// snapshot is keyed by its old name (Jest, Vitest, Bun, node --test) is not only renamed: under the
+// new name the runner writes a fresh snapshot.
 const DISCOVERY = [
   /\.test\.[cm]?[jt]sx?$/, /\.spec\.[cm]?[jt]sx?$/, /_test\.[cm]?[jt]sx?$/, /-test\.[cm]?[jt]sx?$/, /_spec\.[cm]?[jt]sx?$/,
   /^test-.*\.[cm]?[jt]sx?$/, /^test\.[cm]?[jt]sx?$/, // Jest, Vitest, node --test, Bun, Deno, AVA
   /^test_.*\.py$/, /_test\.py$/, /^test.*\.py$/, // pytest, unittest
-  /_test\.go$/, /Tests\.swift$/, /^test.*\.rb$/, /_test\.rb$/, /_spec\.rb$/, // go test, XCTest, rake, rails, RSpec
+  /_test\.go$/, /Tests\.swift$/, // go test, XCTest
+  /^test.*\.rb$/, /^test_.*\.rb$/, /^test[_-].+\.rb$/, /_test\.rb$/, /[_-]test\.rb$/, /_spec\.rb$/, // rake, minitest, test-unit, rails, RSpec
+  /\.cy\.[cm]?[jt]sx?$/, // Cypress
 ];
 const GO_SKIPPED = /^[._].*\.go$|_(aix|android|darwin|dragonfly|freebsd|hurd|illumos|ios|js|linux|nacl|netbsd|openbsd|plan9|solaris|wasip1|windows|zos|386|amd64|amd64p32|arm|armbe|arm64|arm64be|loong64|mips|mipsle|mips64|mips64le|mips64p32|mips64p32le|ppc|ppc64|ppc64le|riscv|riscv64|s390|s390x|sparc|sparc64|wasm)_test\.go$/;
 const folderOf = (f) => f.slice(0, f.lastIndexOf('/') + 1);
@@ -72,6 +76,8 @@ const plainName = (f) => {
 const keepsTest = (from, to) => !isCI(from) && !isCI(to) && folderOf(from) === folderOf(to) && extOf(from) === extOf(to)
   && plainName(to) && !GO_SKIPPED.test(nameOf(to))
   && DISCOVERY.some((r) => r.test(nameOf(from))) && DISCOVERY.every((r) => r.test(nameOf(from)) === r.test(nameOf(to)));
+const untrackedFiles = git(['ls-files', '--others', '--exclude-standard']);
+if (untrackedFiles === null) bail('could not list untracked files');
 const raw = git(['diff', '--raw', '-M', '-z', '--no-abbrev', mergeBase, '--']);
 if (raw === null) bail('could not diff against ' + mergeBase);
 const kept = new Set();
@@ -79,12 +85,12 @@ for (let i = 0, t = raw.split('\0'); i < t.length - 1;) {
   const [, , blobFrom, blobTo, status] = t[i++].split(' ');
   if (!/^[RC]/.test(status)) { i++; continue; }
   const from = t[i++], to = t[i++];
-  if (status[0] === 'R' && blobFrom === blobTo && !/^0+$/.test(blobTo) && keepsTest(from, to)) kept.add(from).add(to);
+  const snapshot = [folderOf(from) + '__snapshots__/' + nameOf(from) + '.snap', from + '.snapshot'].some((f) => git(['cat-file', '-e', mergeBase + ':' + f]) !== null);
+  const reused = untrackedFiles.split('\n').includes(from);
+  if (status[0] === 'R' && blobFrom === blobTo && !/^0+$/.test(blobTo) && keepsTest(from, to) && !snapshot && !reused) kept.add(from).add(to);
 }
 const tracked = git(['diff', '--unified=0', '--no-renames', mergeBase, '--']);
 if (tracked === null) bail('could not diff against ' + mergeBase);
-const untrackedFiles = git(['ls-files', '--others', '--exclude-standard']);
-if (untrackedFiles === null) bail('could not list untracked files');
 const untracked = untrackedFiles.split('\n').filter(Boolean).map((f) => {
   const d = git(['diff', '--no-index', '--unified=0', '/dev/null', f], { diffExit: true });
   if (d === null) bail('could not diff untracked file ' + f);
