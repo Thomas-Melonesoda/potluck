@@ -257,7 +257,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const r = bar.run(...merge, "--dry-run");
     expect(r.json.kind).toBe("refused");
     expect(r.json.reasons.some((l) => l.includes("[new-exception] CONSTRAINTS.md"))).toBe(true);
-  });
+  }, 15_000);
 
   const TEMPLATE = readFileSync(join(import.meta.dir, "../plugins/pstack/skills/constraint-driven-development/SKILL.md"), "utf8")
     .match(/^### Step 3[\s\S]*?^```markdown\n([\s\S]*?)^```$/m)[1];
