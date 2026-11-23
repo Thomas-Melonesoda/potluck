@@ -141,10 +141,12 @@ async function tarFiles(file) {
 async function backupProblems(worktree, result) {
   const problems = [];
   for (const { branch, commit } of result.branches) {
-    let at = "";
+    let at;
     try {
       at = git(worktree, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}^{commit}`]).trim();
-    } catch {}
+    } catch {
+      at = "";
+    }
     if (at !== commit) problems.push(`backup branch ${branch} ${at ? `points at ${at}` : "is missing"}, not at ${commit}`);
   }
   const want = diskFiles(worktree, keptFiles(worktree));
