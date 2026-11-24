@@ -487,6 +487,8 @@ describe("merges go through the merge gate", () => {
     "gh api -X PUT repos/o/r/pulls/5/merge",
     "gh api --method PUT /repos/o/r/pulls/5/merge -f merge_method=squash",
     "gh api -X PUT repos/o/r/pulls/5/merge/",
+    'REPO=o/r; gh api -X PUT "repos/$REPO/pulls/5/merge"', 'gh api "repos/$REPO/merges" -f base=main', "gh api -iX PUT repos/o/r/pulls/5/merge", "nice gh pr merge 5", "timeout -k 5 60 gh pr merge 5",
+    'gh api -X PUT "repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/pulls/5/merge"', "env -u GITHUB_TOKEN gh pr merge 5 --squash", "echo 5 | xargs -n1 gh pr merge --squash", "echo 5 | xargs -I{} gh pr merge {}", "caffeinate -i gh pr merge 5",
     "gh api repos/o/r/merges -f base=main -f head=feat",
     "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"X\"}) { clientMutationId } }'",
     "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: \"X\"}) { clientMutationId } }'",
@@ -500,7 +502,8 @@ describe("merges go through the merge gate", () => {
 
   test("reading a PR, merge help, and the merge gate itself pass", () => {
     const { hook } = repo("feat");
-    for (const c of ["gh pr view 5", "gh pr merge --help", "gh api repos/o/r/pulls/5/merge", "gh api graphql -f query='query { viewer { login } }'", "node merge-gate.mjs merge --repo o/r --pr 5 --sha abc", "git commit -m 'never run gh pr merge'"]) {
+    for (const c of ["gh pr view 5", "gh pr merge --help", "gh api repos/o/r/pulls/5/merge", "gh api graphql -f query='query { viewer { login } }'", "node merge-gate.mjs merge --repo o/r --pr 5 --sha abc", "git commit -m 'never run gh pr merge'",
+      "gh api 'search/code?q=mergePullRequest+repo:o/r'", "gh api -X GET search/code -f q='mergePullRequest repo:o/r'", "gh api repos/o/r/contents/src/mergeBranch.ts", "gh api repos/o/r/issues/5/comments -f body='the mergePullRequest mutation, see https://api.github.com/repos/o/r/pulls/5/merge'", "gh api -X PUT repos/o/r/contents/pulls/5/merge -f message=x", "echo run gh pr merge 5"]) {
       expect([c, hook(c).status]).toEqual([c, 0]);
     }
   });

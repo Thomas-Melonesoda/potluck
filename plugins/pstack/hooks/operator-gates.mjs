@@ -33,7 +33,7 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { loadGates, repoRoot, userFile } from "../skills/poteto-mode/scripts/gates.mjs";
 import { commands } from "./git-guardrail.mjs";
@@ -288,36 +288,30 @@ export function check(command, cwd) {
 }
 
 // The gates files: any .potluck/gates.json, and the file ~/.potluck/gates.json
-// links to.
-function gatesTarget() {
-  try {
-    return realpathSync(userFile());
-  } catch {
-    return null;
+// links to. A path is read with its links followed, its folder's too.
+function real(path) {
+  for (const read of [() => realpathSync(path), () => join(realpathSync(dirname(path)), basename(path))]) {
+    try {
+      return read();
+    } catch { continue; }
   }
+  return path;
 }
 const LOCKED = "potluck: only the user changes a gates file (the operator's gates), so this agent call is blocked. It names gates.json or .potluck: read one with the file-reading tool, and leave any shell command that names it, git add and commit included, to the user.";
-function isGatesFile(path, cwd) {
+const isGatesFile = (path, cwd) => {
   const full = resolve(cwd, path);
-  if (/(^|\/)\.potluck\/gates\.json$/.test(full)) return true;
-  const target = gatesTarget();
-  if (!target) return false;
-  try {
-    return realpathSync(full) === target;
-  } catch {
-    return full === target;
-  }
-}
+  return [full, real(full)].some((p) => /(^|\/)\.potluck\/gates\.json$/.test(p)) || real(full) === real(userFile());
+};
 
-// Whether a shell command names a gates file or a .potluck folder, or the file
-// the user's links to. Quotes, backslashes, and line continuations are dropped
-// first, so .potluck/"gates.json" counts. Reads count too: telling a read from
-// a write kept missing a spelling.
+// Whether a shell command names a gates file or a .potluck folder, as a whole
+// path part, or the file the user's links to. Quotes, backslashes, and line
+// continuations are dropped first, so .potluck/"gates.json" counts. Reads count
+// too: telling a read from a write kept missing a spelling.
 export function namesGates(command) {
   const plain = command.replace(/\\\n/g, "").replace(/["'\\]/g, "");
-  const target = gatesTarget();
-  if (/gates\.json/.test(plain) || (target && plain.includes(target.replace(/["'\\]/g, "")))) return true;
-  return /\.potluck/.test(plain) && !ownFoldersOnly(command);
+  const part = (name) => new RegExp(`(?<![\\w.-])(?:-[A-Za-z]+)?${name}(?![\\w-])`).test(plain);
+  if (part("gates\\.json") || plain.includes(real(userFile()).replace(/["'\\]/g, ""))) return true;
+  return part("\\.potluck") && !ownFoldersOnly(command);
 }
 
 // The user's exemption: literal, unquoted paths in potluck's own folders under

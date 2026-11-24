@@ -299,7 +299,7 @@ describe("the gates files are the user's to change", () => {
     "cp -r ../backup/.potluck .",
     "rsync -a /tmp/new/ .potluck/ --exclude node_modules",
     "git -C .potluck rm -r .",
-    "tar -C .potluck -xf /tmp/x.tar",
+    "tar -C.potluck -xf /tmp/x.tar", "cp x dir/{a,gates.json}", "cp x ${D}gates.json",
     "find .potluck -delete",
     "rm -rf ~/.potluck",
     "sh -c 'cd .potluck && rm gates.json'",
@@ -324,7 +324,7 @@ describe("the gates files are the user's to change", () => {
     writeFileSync(target, "{}");
     symlinkSync(target, join(s.home, ".potluck/gates.json"));
     expect(lockRun(s, { tool_name: "Bash", tool_input: { command: `rm '${realpathSync(target)}'` }, cwd: s.work }).status).toBe(2);
-    for (const command of ["git status", "cp a.txt b.txt", "cd src && mv a.js b.js", "ls potluck", "node plugins/pstack/skills/poteto-mode/scripts/gates.mjs", "rm -rf dist"]) {
+    for (const command of ["git status", "cp a.txt b.txt", "cd src && mv a.js b.js", "ls potluck", "cat aggregates.json", "git add data/aggregates.json", "jq . feature_gates.json", "cat quality-gates.json", "jq '.plugins.potluck' package.json", "curl https://www.potluck.dev", "node plugins/pstack/skills/poteto-mode/scripts/gates.mjs", "rm -rf dist"]) {
       expect([command, lockRun(s, { tool_name: "Bash", tool_input: { command }, cwd: s.work }).status]).toEqual([command, 0]);
     }
   });
@@ -354,7 +354,9 @@ describe("the gates files are the user's to change", () => {
     const target = join(s.work, "vault-gates.json");
     writeFileSync(target, "{}");
     symlinkSync(target, join(s.home, ".potluck/gates.json"));
-    for (const file_path of [join(s.home, ".potluck/gates.json"), join(s.work, ".potluck/gates.json"), `${s.work}/.potluck/./gates.json`, "src/../.potluck/gates.json", target]) {
+    mkdirSync(join(s.work, ".potluck"));
+    symlinkSync(join(s.work, ".potluck"), join(s.work, "cfg"));
+    for (const file_path of [join(s.work, "cfg/gates.json"), join(s.home, ".potluck/gates.json"), join(s.work, ".potluck/gates.json"), `${s.work}/.potluck/./gates.json`, "src/../.potluck/gates.json", target]) {
       const r = lockRun(s, { tool_name: tool, tool_input: { file_path, notebook_path: file_path }, cwd: s.work });
       expect([file_path, r.status]).toEqual([file_path, 2]);
     }

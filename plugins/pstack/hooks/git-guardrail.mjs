@@ -456,33 +456,35 @@ function namesFile(dir, path) {
   }
 }
 
-// GitHub's merge endpoints, and the GraphQL mutations that merge or queue a merge.
-const MERGE_API = /(?:^|\/)(?:repos\/[^/\s]+\/[^/\s]+\/pulls\/[^/\s]+\/merge|repos\/[^/\s]+\/[^/\s]+\/merges)\/?(?:$|[?\s])/;
+// GitHub's merge endpoints, whatever fills their parts, and the GraphQL
+// mutations that merge or queue a merge.
+const MERGE_API = /^\/?repos(?:itories)?\/(?!.*\/(?:contents|git)\/).*(?:\/pulls\/.+\/merge|\/merges)\/?(?:\?.*)?$/s;
 const MERGE_MUTATION = /\b(?:mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|mergeBranch)\b/;
+const GH_VALUE = /^--(method|raw-field|field|input|header|jq|template|preview|cache|hostname|repo)(?:=(.*))?$|^-[a-z]*?([XfFHqtpR])=?(.*)$/s;
 
-// A gh call that merges a pull request without the merge gate.
+// A gh call that merges a pull request without the merge gate, a wrapper's
+// leftover flags or numbers before gh included.
 function directMerge(words) {
-  if (!/(^|\/)gh$/.test(words[0] ?? "")) return null;
-  const args = words.slice(1);
-  const positional = [];
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-R" || args[i] === "--repo") i++;
-    else if (!args[i].startsWith("-")) positional.push(args[i]);
-  }
-  const help = args.some((a) => a === "--help" || a === "-h");
-  if (positional[0] === "pr" && positional[1] === "merge" && !help) return "`gh pr merge`";
-  if (positional[0] !== "api") return null;
-  const method = (() => {
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === "-X" || args[i] === "--method") return args[i + 1];
-      if (/^-X./.test(args[i])) return args[i].slice(2);
-      if (args[i].startsWith("--method=")) return args[i].slice(9);
+  const at = words.findIndex((w) => /(^|\/)gh$/.test(w));
+  if (at < 0 || (at > 0 && !/^[-\d]|^(?:.*\/)?(?:nice|ionice|caffeinate|stdbuf|setsid|doas|watch|parallel|timeout)$/.test(words[0]))) return null;
+  const [args, fields] = [[], []];
+  let method;
+  for (let i = at + 1; i < words.length; i++) {
+    const flag = GH_VALUE.exec(words[i]);
+    if (!flag) {
+      if (/^(--help|-h)$/.test(words[i])) return null;
+      if (!words[i].startsWith("-")) args.push(words[i]);
+      continue;
     }
-    return args.some((a) => /^-[fF]|^--(raw-)?field|^--input/.test(a)) ? "POST" : "GET";
-  })().toUpperCase();
-  if (method !== "GET" && args.some((a) => MERGE_API.test(a.replace(/^https?:\/\/[^/]+/, "")))) return "`gh api` on a merge endpoint";
-  if (args.some((a) => MERGE_MUTATION.test(a))) return "a GraphQL merge mutation";
-  return null;
+    const [name, value] = [flag[1] ?? flag[3], (flag[2] ?? flag[4]) || words[++i] || ""];
+    if (/^(X|method)$/.test(name)) method = value;
+    else if (/^(f|F|field|raw-field|input)$/.test(name)) fields.push(value);
+  }
+  if (args[0] === "pr" && args[1] === "merge") return "`gh pr merge`";
+  if (args[0] !== "api") return null;
+  const endpoint = (args[1] ?? "").replace(/^https?:\/\/[^/]+\/(?:api\/v3\/)?/, "");
+  if (/^\/?(?:api\/)?graphql\b/.test(endpoint)) return fields.some((f) => MERGE_MUTATION.test(f)) ? "a GraphQL merge mutation" : null;
+  return (method ?? (fields.length ? "POST" : "GET")).toUpperCase() !== "GET" && MERGE_API.test(endpoint) ? "`gh api` on a merge endpoint" : null;
 }
 
 function checkOne(words, dir) {
