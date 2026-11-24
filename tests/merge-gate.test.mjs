@@ -77,6 +77,13 @@ test.each([
   ["on:\n  pull_request:\n    paths: [\n      'src/**'\n    ]\n", true],
   ["on:\n  push: {\n}\n  pull_request: [unreadable\n", true],
   ["on:\n  push: {\n}\n  workflow_dispatch: [unreadable\n", false],
+  ["on:\n  workflow_dispatch:\n    inputs:\n      n:\n        description: Retry count in [1, 10)\n  pull_request:\n", true],
+  ["on:\n  workflow_dispatch:\n    inputs:\n      n:\n        description: |\n          pick [one\n  pull_request:\n", true],
+  ["on:\n  push:\n    tags:\n      - v[0-9\n  pull_request:\n", true],
+  ["on:\n  push:\n    branches: &b [release]\n  pull_request:\n    branches: *b\n", true],
+  ["x: &p ['docs/**']\non:\n  pull_request:\n    paths: *p\n", true],
+  ["'on':\n- push\n- workflow_dispatch\n", false],
+  ["'on':\n- push\n- pull_request\n", true],
 ])("prTrigger reads the workflow's on: value %#", (text, expected) => {
   expect(prTrigger(text, { base: "main", changed: ["src/app.js"] })).toBe(expected);
 });

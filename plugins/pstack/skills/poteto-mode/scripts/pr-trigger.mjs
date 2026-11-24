@@ -6,8 +6,10 @@ const PR_EVENTS = ["pull_request", "pull_request_target"];
 // A head push is a pull request's opened, synchronize, or reopened event, the
 // types GitHub uses when a trigger names none.
 const PUSH_TYPES = new Set(["opened", "synchronize", "reopened"]);
-// GitHub runs a paths-filtered workflow for any diff over 300 files.
+// GitHub may not run a paths-filtered workflow for a match past a diff's
+// first 300 files, so a diff of 300 or more counts as matching any filter.
 const PATHS_LIMIT = 300;
+const NAMED_PR_EVENT = /(^|[\s[{,-])["']?pull_request(_target)?["']?\s*(:|,|\]|\}|$)/m;
 
 // Whether the workflow in `text` runs on a PR into `base` that changes `changed`.
 export function prTrigger(text, { base, changed }) {
@@ -22,6 +24,9 @@ export function prTrigger(text, { base, changed }) {
   if (on === undefined) return true;
   const events = typeof on === "string" ? { [on]: null } : Array.isArray(on) ? Object.fromEntries(on.map((e) => [e, null])) : on;
   if (events === null || typeof events !== "object") return true;
+  // A pull request event the text names as a key or a list item, but the
+  // reading lost, means the reading is wrong, so the workflow counts.
+  if (!PR_EVENTS.some((e) => e in events) && NAMED_PR_EVENT.test(keyLines(onLines(text)).join("\n"))) return true;
   return PR_EVENTS.filter((e) => e in events).some((e) => runs(events[e], base, changed));
 }
 
@@ -75,20 +80,46 @@ function glob(pattern) {
   return new RegExp(`^${re}$`);
 }
 
-// The workflow's top-level on: value (or "on" quoted, or YAML 1.1's true),
-// undefined when there is none. Throws on YAML outside the subset read here.
-export function onValue(text) {
+// The on: line's value and the lines under it (on, "on", or YAML 1.1's true),
+// or null when there is none. Throws on anchors and aliases.
+function onLines(text) {
   const lines = text.replace(/\r/g, "").split("\n").map(stripComment).filter((l) => l.trim() && !/^\s*(---|\.\.\.)\s*$/.test(l));
   const at = lines.findIndex((l) => /^(["']?)(on|true)\1\s*:/.test(l));
-  if (at < 0) return undefined;
+  if (at < 0) return null;
   const rest = lines[at].replace(/^(["']?)(on|true)\1\s*:/, "").trim();
   const body = [];
   for (const line of lines.slice(at + 1)) {
-    if (!/^\s/.test(line) && depth([rest, ...body].join("\n")) <= 0) break;
+    const flowOpen = /^[[{]/.test(rest) && depth([rest, ...body].join("\n")) > 0;
+    const indentless = !rest && /^-( |$)/.test(line) && body.every((l) => /^-( |$)/.test(l));
+    if (!/^\s/.test(line) && !flowOpen && !indentless) break;
     body.push(line);
   }
+  // Anchors and aliases are outside the subset read here.
+  if ([rest, ...body].some((l) => /(^|[\s[{,:-])[&*][\w-]/.test(l))) throw new Error("anchor or alias");
+  return { rest, body };
+}
+
+// The workflow's top-level on: value (or "on" quoted, or YAML 1.1's true),
+// undefined when there is none. Throws on YAML outside the subset read here.
+export function onValue(text) {
+  const found = onLines(text);
+  if (!found) return undefined;
+  const { rest, body } = found;
   if (rest) return flow([rest, ...body].join(" "));
   return body.length ? block(body) : null;
+}
+
+// The on: block's lines without the text of its | and > block scalars.
+function keyLines(found) {
+  if (!found) return [];
+  const out = [found.rest];
+  let scalarAt = -1;
+  for (const line of found.body) {
+    if (scalarAt >= 0 && indentOf(line) > scalarAt) continue;
+    scalarAt = /:\s+[|>][+-]?\d*$/.test(line) ? indentOf(line) : -1;
+    out.push(line);
+  }
+  return out;
 }
 
 function stripComment(line) {
@@ -104,6 +135,13 @@ function stripComment(line) {
 }
 
 const indentOf = (line) => line.search(/\S/);
+
+// The value part of an item's first line: after "- " or "key: ".
+function flowPart(head) {
+  const rest = head.replace(/^-( |$)/, "").trim();
+  const m = rest.match(ENTRY);
+  return m ? (m[2] ?? "").trim() : rest;
+}
 
 // How many flow brackets the text leaves open, outside quotes.
 function depth(text) {
@@ -127,7 +165,7 @@ function block(lines) {
     const last = items.at(-1);
     // A flow value runs on until its brackets close, at any indent, and a
     // map key's list may sit at the key's own indent.
-    if (last && (depth([last.head, ...last.body].join("\n")) > 0 || (indentOf(line) === indent && /^-( |$)/.test(line.trim()) && !/^-( |$)/.test(last.head) && /:$/.test(last.head)))) last.body.push(line);
+    if (last && ((/^[[{]/.test(flowPart(last.head)) && depth([flowPart(last.head), ...last.body].join("\n")) > 0) || (indentOf(line) === indent && /^-( |$)/.test(line.trim()) && !/^-( |$)/.test(last.head) && /:$/.test(last.head)))) last.body.push(line);
     else if (indentOf(line) < indent) throw new Error("bad indent");
     else if (indentOf(line) === indent) items.push({ head: line.trim(), body: [] });
     else last.body.push(line);
