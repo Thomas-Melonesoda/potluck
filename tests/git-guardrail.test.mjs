@@ -224,7 +224,10 @@ describe("the hook on a real repository", () => {
 
   test("hooks.json runs the wrapper before every Bash call on Claude Code", () => {
     const hooksJson = JSON.parse(readFileSync(join(hooks, "hooks.json"), "utf8"));
-    expect(hooksJson.hooks.PreToolUse).toEqual([{ matcher: "Bash", hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh"', timeout: 60 }] }]);
+    expect(hooksJson.hooks.PreToolUse).toEqual([
+      { matcher: "Bash", hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh"', timeout: 60 }] },
+      { matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/gates-lock.sh"', timeout: 30 }] },
+    ]);
   });
 
   test("without node on PATH the wrapper lets the call run", () => {
@@ -523,5 +526,5 @@ describe("merges go through the merge gate", () => {
 test("Codex runs the same guardrail before each Bash call, so direct merges are blocked there too", () => {
   const codex = JSON.parse(readFileSync(join(hooks, "codex-hooks.json"), "utf8"));
   const bash = codex.hooks.PreToolUse?.find((group) => group.matcher === "Bash");
-  expect(bash?.hooks.map((h) => h.command)).toEqual(['"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh"']);
+  expect(bash?.hooks.map((h) => h.command)).toEqual(['"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh" codex']);
 });

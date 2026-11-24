@@ -7,11 +7,14 @@
 # read or a write to the user's own repository. That check starts node only
 # for a call that names gh or holds a quote, backslash, $, backtick, or glob
 # character ([, *, ?), the ways a command can spell gh without writing it out.
-# Without node on PATH both are off and every call runs, as it did before.
+# A call that names a gates file goes to it as well, which blocks an agent's
+# change to one. Codex's hooks file passes `codex`, which turns an ask into a
+# block, since Codex rejects "ask". Without node on PATH both are off and
+# every call runs, as it did before.
 command -v node >/dev/null 2>&1 || exit 0
 input=$(cat)
 here=$(dirname "$0")
 printf '%s' "$input" | node "$here/git-guardrail.mjs" || exit $?
 case $input in
-  *gh* | *\'* | *\\* | *'$'* | *'`'* | *'['* | *'*'* | *'?'*) printf '%s' "$input" | node "$here/operator-gates.mjs" ;;
+  *gh* | *gates.json* | *\'* | *\\* | *'$'* | *'`'* | *'['* | *'*'* | *'?'*) printf '%s' "$input" | node "$here/operator-gates.mjs" "$@" ;;
 esac

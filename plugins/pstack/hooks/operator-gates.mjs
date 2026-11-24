@@ -16,14 +16,26 @@
 // fills in, a glob, or a script handed to sh -c or eval, asks, with the
 // reason. It does not predict where gh sends a write: a write that names no
 // repository (`gh pr comment 44 -b hi`) asks even in your own checkout. A
-// script file that runs gh is out of its reach. hooks/git-guardrail.sh runs
-// it on each call the guardrail lets through. It reads the hook's JSON on
-// stdin, prints a PreToolUse "ask" decision or nothing, and exits 0.
+// script file that runs gh is out of its reach. A repository the user's own
+// gates file lists in trustRepos counts as owned.
+//
+// It also keeps the gates files the user's (stage 5 follow-up issue 2), with
+// or without a gates file: a shell command that may change ~/.potluck/gates.json
+// (or the file it links to) or a .potluck/gates.json, and an Edit, Write,
+// MultiEdit, or NotebookEdit on one, is blocked. Reading one, and git add,
+// commit, diff, log, or show of the user's own edit, pass.
+//
+// hooks/git-guardrail.sh runs it on each call the guardrail lets through, and
+// hooks.json on each file-editing tool call. It reads the hook's JSON on
+// stdin. It prints a PreToolUse "ask" decision, or blocks with exit 2 and the
+// reason on stderr, or does nothing. With the argument `codex`, which Codex's
+// hooks file passes, an ask blocks too, since Codex rejects "ask".
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 
-import { loadGates, repoRoot } from "../skills/poteto-mode/scripts/gates.mjs";
+import { loadGates, repoRoot, userFile } from "../skills/poteto-mode/scripts/gates.mjs";
 import { commands } from "./git-guardrail.mjs";
 
 // gh subcommands that only read from GitHub (pr checkout and repo clone change
@@ -59,8 +71,8 @@ const QUIET_GIT = new Set(["commit", "tag", "log", "grep", "show"]);
 const WRAPPERS = /(^|\/)(?:command|sudo|env|time|nohup|exec|builtin|nice|timeout|stdbuf|xargs|parallel|watch|eval|then|do|else|elif|if|while|until|!|\{)$/;
 const OPAQUE = /[$`]/;
 const ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/;
-const REPO = /^(?:(?:https?:\/\/)?(?:[\w-]+\.)*github\.com\/)?([\w-]+)\/[\w.-]+\/?$/i;
-const URL = /^https?:\/\/(?:[\w-]+\.)*github\.com\/([\w-]+)\/[\w.-]+(?:[/?#].*)?$/is;
+const REPO = /^(?:(?:https?:\/\/)?(?:[\w-]+\.)*github\.com\/)?([\w-]+)\/([\w.-]+?)(?:\.git)?\/?$/i;
+const URL = /^https?:\/\/(?:[\w-]+\.)*github\.com\/([\w-]+)\/([\w.-]+?)(?:\.git)?(?:[/?#].*)?$/is;
 
 // gh api's arguments as gh reads them, short-flag runs (-iX POST) included.
 function parseApi(args) {
@@ -122,13 +134,13 @@ function ownedWrite(args) {
     const api = parseApi(args.slice(1));
     if (api.unknown || api.host || api.positional.length !== 1) return { why: `${what} uses a flag or form this check does not read` };
     const endpoint = api.positional[0];
-    const m = /^\/?repos\/([\w-]+)\/[\w.-]+(?:[/?]|$)/.exec(endpoint);
+    const m = /^\/?repos\/([\w-]+)\/([\w.-]+)(?:[/?]|$)/.exec(endpoint);
     if (!m || /(^|\/)\.\.?(\/|$)|[%\\]/.test(endpoint)) return { why: `${what} calls ${endpoint}, not a repos/<owner>/<name>/... path on github.com, and this check cannot tell which repository that reaches` };
-    return { what, owners: [m[1]] };
+    return { what, repos: [`${m[1]}/${m[2]}`] };
   }
   if (!WRITES[group]?.includes(sub)) return { why: `${what} is neither a read nor a write this check can place` };
   const rest = args.slice(2);
-  const owners = [];
+  const repos = [];
   let named = URL.test(rest[0] ?? "");
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
@@ -141,7 +153,7 @@ function ownedWrite(args) {
     else if (/^https?:\/\/|github\.com/i.test(a)) {
       const url = URL.exec(a);
       if (!url) return { why: `${what} names ${a}, which is not a github.com repository this check can read` };
-      owners.push(url[1]);
+      repos.push(`${url[1]}/${url[2]}`);
       continue;
     } else continue;
     // A flag before it that takes a value would take this --repo as that value.
@@ -149,12 +161,12 @@ function ownedWrite(args) {
     if (prev.startsWith("-") && !prev.includes("=") && !NO_VALUE.has(prev)) return { why: `${what} gives --repo right after ${prev}, which may take it as its value` };
     const owner = REPO.exec(repo);
     if (!owner) return { why: `${what} names ${repo}, which is not a github.com repository this check can read` };
-    owners.push(owner[1]);
+    repos.push(`${owner[1]}/${owner[2]}`);
     named = true;
     if (next) i++;
   }
   if (!named) return { why: `${what} names no repository with --repo or a URL, so gh would pick one from the checkout, which this check does not predict` };
-  return { what, owners };
+  return { what, repos };
 }
 
 // The words of a command that is one simple command with every word literal:
@@ -270,27 +282,93 @@ export function check(command, cwd) {
   } catch (error) {
     return ask(`${found.what} writes to a repository, and the gh account could not be read (${String(error.stderr || error.message).trim().split("\n")[0]})`);
   }
-  const foreign = found.owners.find((o) => !mine.has(o.toLowerCase()));
-  return foreign ? ask(`${found.what} writes to a repository owned by ${foreign}, which neither the gh account nor its organizations own`) : null;
+  const trusted = new Set(gates.trustRepos ?? []);
+  const foreign = found.repos.map((r) => r.toLowerCase()).find((r) => !mine.has(r.split("/")[0]) && !trusted.has(r.split("/")[0]) && !trusted.has(r));
+  return foreign ? ask(`${found.what} writes to a repository owned by ${foreign.split("/")[0]}, which neither the gh account nor its organizations own, and which the user's trustRepos does not list`) : null;
 }
 
-export function main(stdin) {
+// The gates files: any .potluck/gates.json, and the file ~/.potluck/gates.json
+// links to.
+function gatesTarget() {
+  try {
+    return realpathSync(userFile());
+  } catch {
+    return null;
+  }
+}
+const LOCKED = "potluck: only the user changes a gates file (the operator's gates), so this agent call is blocked. Suggest the change to the user instead; they edit the file themselves.";
+function isGatesFile(path, cwd) {
+  const full = isAbsolute(path) ? path : join(cwd, path);
+  if (/(^|\/)\.potluck\/gates\.json$/.test(full)) return true;
+  const target = gatesTarget();
+  if (!target) return false;
+  try {
+    return realpathSync(full) === target;
+  } catch {
+    return full === target;
+  }
+}
+
+// Commands that only read the files they name, and git subcommands that do
+// not change the working tree.
+const READERS = new Set(["cat", "less", "more", "head", "tail", "bat", "jq", "grep", "egrep", "fgrep", "rg", "wc", "ls", "stat", "file", "diff", "readlink", "realpath", "md5", "shasum", "sha256sum", "test", "["]);
+const GIT_READERS = new Set(["add", "commit", "diff", "log", "show", "status", "blame", "ls-files"]);
+
+// Whether a shell command may change a gates file: it names one (or the file
+// the user's links to) anywhere but as a plain argument of a reader.
+export function touchesGates(command, cwd) {
+  const target = gatesTarget();
+  if (!/gates\.json/.test(command) && !(target && command.includes(target))) return false;
+  const home = process.env.HOME ?? "";
+  const named = (w) => {
+    const path = w === "~" || w.startsWith("~/") ? join(home, w.slice(1)) : w;
+    return w.includes(".potluck/gates.json") || (target && w.includes(target)) || (/gates\.json$/.test(w) && isGatesFile(path, cwd));
+  };
+  // An output redirect may write to it, and commands() drops redirect targets.
+  if (/>/.test(command)) return true;
+  for (const words of commands(command)) {
+    if (!words.some(named)) continue;
+    let i = 0;
+    while (i < words.length && (ASSIGN.test(words[i]) || WRAPPERS.test(words[i]))) i++;
+    const head = (words[i] ?? "").replace(/^.*\//, "");
+    if (READERS.has(head)) continue;
+    if (head === "git" && GIT_READERS.has(words.slice(i + 1).find((w) => !w.startsWith("-")))) continue;
+    return true;
+  }
+  return false;
+}
+
+export function main(stdin, argv = []) {
   let input;
   try {
     input = JSON.parse(stdin);
   } catch {
     return 0;
   }
+  const cwd = input?.cwd || process.cwd();
+  const block = (reason) => {
+    process.stderr.write(`${reason}\n`);
+    return 2;
+  };
+  const file = input?.tool_input?.file_path ?? input?.tool_input?.notebook_path;
+  if (typeof file === "string") return isGatesFile(file, cwd) ? block(LOCKED) : 0;
   const command = input?.tool_input?.command;
   if (typeof command !== "string") return 0;
+  try {
+    if (touchesGates(command, cwd)) return block(LOCKED);
+  } catch {
+    if (/gates\.json/.test(command)) return block(LOCKED);
+  }
   let reason;
   try {
     reason = check(command, input.cwd || process.cwd());
   } catch {
     reason = /gh|[[*?$`]/.test(command) ? "potluck operator's gates: this command could not be read, and it may run gh, so it needs the user's yes." : null;
   }
-  if (reason) process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: reason } })}\n`);
+  if (!reason) return 0;
+  if (argv.includes("codex")) return block(`${reason} Codex cannot ask before a command runs, so ask the user in the conversation, and let them run it.`);
+  process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: reason } })}\n`);
   return 0;
 }
 
-if (process.argv[1]?.endsWith("operator-gates.mjs")) process.exitCode = main(readFileSync(0, "utf8"));
+if (process.argv[1]?.endsWith("operator-gates.mjs")) process.exitCode = main(readFileSync(0, "utf8"), process.argv.slice(2));

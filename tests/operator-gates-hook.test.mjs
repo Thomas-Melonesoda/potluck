@@ -6,7 +6,7 @@
 // records every call.
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -263,4 +263,78 @@ describe("Claude Code's Bash hook, git-guardrail.sh", () => {
     expect(r.stderr).toContain("potluck git guardrail: blocked a clean -f");
     expect(r.stdout).toBe("");
   });
+});
+
+// Stage 5 follow-up issue 3: a manual allow list in the user's own gates file.
+describe("trustRepos, the user's allow list", () => {
+  test("a write to an owner or repository on the user's list passes", () => {
+    const { run } = setup({ gates: { foreignRepos: "ask", trustRepos: ["friend", "club/site"] } });
+    for (const command of ["gh pr comment 5 --repo friend/app -b hi", "gh issue create -R club/site -t t -b b", "gh api repos/Friend/app/issues/1/comments -f body=hi"]) {
+      expect([command, run(command).decision]).toEqual([command, null]);
+    }
+    expect(run("gh issue create -R club/other -t t -b b").decision).toBe("ask");
+  });
+
+  test("a repository's own gates file cannot widen it", () => {
+    const { run, work } = setup({ gates: { foreignRepos: "ask" } });
+    mkdirSync(join(work, ".potluck"), { recursive: true });
+    writeFileSync(join(work, ".potluck/gates.json"), JSON.stringify({ trustRepos: ["stranger"] }));
+    const r = run("gh pr comment 5 --repo stranger/app -b hi");
+    expect(r.decision).toBe("ask");
+    expect(r.reason).toContain("owned by stranger");
+  });
+});
+
+// Stage 5 follow-up issue 2: only the user changes a gates file.
+describe("the gates files are the user's to change", () => {
+  const lockRun = (s, input) => spawnSync("node", [hook], { input: JSON.stringify(input), encoding: "utf8", env: { ...process.env, HOME: s.home, PATH: `${s.bin}:${process.env.PATH}` } });
+
+  test.each([
+    "echo '{}' > ~/.potluck/gates.json",
+    "rm .potluck/gates.json",
+    "sed -i '' 's/wait/merge/' .potluck/gates.json",
+    "cp /tmp/x .potluck/gates.json",
+    "node -e \"require('fs').writeFileSync('.potluck/gates.json','{}')\"",
+    "git checkout -- .potluck/gates.json",
+  ])("an agent's shell command that may change a gates file is blocked: %s", (command) => {
+    const s = setup({ gates: null });
+    const r = lockRun(s, { tool_name: "Bash", tool_input: { command }, cwd: s.work });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("only the user changes a gates file");
+  });
+
+  test("reading a gates file, and committing the user's own edit, pass", () => {
+    const s = setup({ gates: null });
+    for (const command of ["cat ~/.potluck/gates.json", "jq . .potluck/gates.json", "git diff .potluck/gates.json", "git add .potluck/gates.json", "git log -p .potluck/gates.json"]) {
+      expect([command, lockRun(s, { tool_name: "Bash", tool_input: { command }, cwd: s.work }).status]).toEqual([command, 0]);
+    }
+  });
+
+  test.each(["Edit", "Write", "MultiEdit", "NotebookEdit"])("the %s tool on a gates file is blocked, a link to it included", (tool) => {
+    const s = setup({ gates: null });
+    // The user's file is a link to one kept elsewhere, as in a personal notes repository.
+    const target = join(s.work, "vault-gates.json");
+    writeFileSync(target, "{}");
+    symlinkSync(target, join(s.home, ".potluck/gates.json"));
+    for (const file_path of [join(s.home, ".potluck/gates.json"), join(s.work, ".potluck/gates.json"), target]) {
+      const r = lockRun(s, { tool_name: tool, tool_input: { file_path, notebook_path: file_path }, cwd: s.work });
+      expect([file_path, r.status]).toEqual([file_path, 2]);
+    }
+    expect(lockRun(s, { tool_name: tool, tool_input: { file_path: join(s.work, "notes.md") }, cwd: s.work }).status).toBe(0);
+  });
+
+  test("Claude Code sends Edit, Write, MultiEdit, and NotebookEdit calls to the hook", () => {
+    const hooksJson = JSON.parse(readFileSync(join(import.meta.dir, "../plugins/pstack/hooks/hooks.json"), "utf8"));
+    expect(hooksJson.hooks.PreToolUse.map((g) => g.matcher)).toContain("Edit|Write|MultiEdit|NotebookEdit");
+  });
+});
+
+// Codex runs PreToolUse hooks but rejects an "ask" decision, so there the
+// check blocks with its reason instead, and the user runs the command.
+test("on Codex a gh call that would ask is blocked with the reason", () => {
+  const s = setup();
+  const r = spawnSync("node", [hook, "codex"], { input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "gh pr comment 5 --repo stranger/app -b hi" }, cwd: s.work }), encoding: "utf8", env: { ...process.env, GH_REPO: "", HOME: s.home, PATH: `${s.bin}:${process.env.PATH}` } });
+  expect([r.status, r.stdout]).toEqual([2, ""]);
+  expect(r.stderr).toContain("owned by stranger");
+  expect(r.stderr).toContain("Codex cannot ask");
 });
