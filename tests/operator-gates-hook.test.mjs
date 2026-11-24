@@ -318,6 +318,9 @@ describe("the gates files are the user's to change", () => {
     "rm -r .potluck/",
     "rm -rf ~/.potluck",
     "mv ~/.potluck ~/.potluck.bak",
+    "cp /tmp/x .potluck",
+    "cd .potluck && cp /tmp/x ./gates.json",
+    "git rm -r .potluck",
     "cat /tmp/x > .potluck/gates.json",
     "jq . /tmp/x > ~/.potluck/gates.json",
     "echo x >> $F && cat .potluck/gates.json",
@@ -336,6 +339,13 @@ describe("the gates files are the user's to change", () => {
     "jq . .potluck/gates.json > /tmp/view.json",
     "cd .potluck && cat gates.json",
     "ls ~/.potluck",
+    "find ~/.potluck -type f",
+    "tree .potluck",
+    "du -sh ~/.potluck",
+    "git grep -n .potluck",
+    "cp -r .potluck /tmp/backup",
+    "cd tests && cp /tmp/x fixtures/gates.json",
+    "cd /tmp && echo '{}' > /tmp/scratch/gates.json",
   ])("a read whose redirect writes somewhere else passes: %s", (command) => {
     const s = setup({ gates: null });
     expect(lockRun(s, { tool_name: "Bash", tool_input: { command }, cwd: s.work }).status).toBe(0);

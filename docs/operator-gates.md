@@ -69,7 +69,7 @@ Silence counts as no checks only when nothing says CI is still coming. The gate 
 
 An agent never changes a gates file, the root agent included: the gates are the operator's own, so an agent follows them and may suggest a change, such as a repository to add to `trustRepos`, and the user makes it. potluck's hooks block an agent's change, with or without a gates file:
 
-- on Claude Code and Codex, a shell command that may change `~/.potluck/gates.json` (or the file it links to) or a `.potluck/gates.json`: an output redirect into it, `rm`, `cp`, `sed -i`, a script, a `git checkout` of the file, removing or moving its `.potluck` folder, or any of these on a bare `gates.json` after a `cd`. Reading one, a redirect of a read's output somewhere else (`2>/dev/null`, `> /tmp/view.json`), and `git add`, `commit`, `diff`, `log`, or `show` of your own edit, pass;
+- on Claude Code and Codex, a shell command that may change `~/.potluck/gates.json` (or the file it links to) or a `.potluck/gates.json`: an output redirect into it, `rm`, `cp`, `sed -i`, a script, a `git checkout` of the file, removing, moving, or copying over its `.potluck` folder, or any of these on a bare `gates.json` after a `cd`. Reading one or its folder (`ls`, `find`, `cp -r` out of it), a redirect of a read's output somewhere else (`2>/dev/null`, `> /tmp/view.json`), and `git add`, `commit`, `diff`, `log`, or `show` of your own edit, pass;
 - on Claude Code, an Edit, Write, MultiEdit, or NotebookEdit call on one. Codex edits files through its own patch tool, which this hook does not read yet.
 
 The record of a change is the file's git history: your personal repository for your own file, the project's repository for its file. No separate register is kept.

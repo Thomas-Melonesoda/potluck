@@ -318,17 +318,35 @@ const GIT_READERS = new Set(["add", "commit", "diff", "log", "show", "status", "
 // the user's links to, or a folder holding one) anywhere but as a plain
 // argument of a reader, or redirects output to one. After a cd, any bare
 // gates.json counts, since its folder is no longer known.
+// Commands that remove, move, or overwrite a folder they name, and git
+// subcommands that do; cp and install only into it.
+const FOLDER_WRITERS = new Set(["rm", "rmdir", "mv", "rsync", "ln", "unlink", "chmod", "chown", "trash"]);
+const GIT_FOLDER_WRITERS = new Set(["rm", "mv", "checkout", "restore", "clean", "stash", "reset"]);
+function removesFolder(head, args, folder) {
+  const operands = args.filter((a) => !a.startsWith("-"));
+  if (FOLDER_WRITERS.has(head)) return operands.some(folder);
+  if (head === "cp" || head === "install") return operands.length > 1 && folder(operands.at(-1));
+  if (head === "git") return GIT_FOLDER_WRITERS.has(operands[0]) && operands.slice(1).some(folder);
+  return false;
+}
+
 export function touchesGates(command, cwd) {
   const target = gatesTarget();
   if (!/gates\.json|\.potluck/.test(command) && !(target && command.includes(target))) return false;
   const home = process.env.HOME ?? "";
   const all = commands(command);
   const moved = all.some((words) => /^(cd|pushd|popd)$/.test(words.find((w) => !ASSIGN.test(w)) ?? ""));
+  const expand = (w) => (w === "~" || w.startsWith("~/") ? join(home, w.slice(1)) : w);
   const named = (w) => {
-    const path = w === "~" || w.startsWith("~/") ? join(home, w.slice(1)) : w;
+    const path = expand(w);
+    return w.includes(".potluck/gates.json") || (target && w.includes(target)) || (moved && /^(\.\/)?gates\.json$/.test(w)) || (/gates\.json$/.test(w) && isGatesFile(path, cwd));
+  };
+  // A folder that holds a gates file: a .potluck folder, or one above the
+  // file the user's links to.
+  const folder = (w) => {
+    const path = expand(w);
     const full = (isAbsolute(path) ? path : join(cwd, path)).replace(/\/+$/, "");
-    if (/(^|\/)\.potluck$/.test(full) || (target && target.startsWith(`${full}/`))) return true;
-    return w.includes(".potluck/gates.json") || (target && w.includes(target)) || (/gates\.json$/.test(w) && (moved || isGatesFile(path, cwd)));
+    return /(^|\/)\.potluck$/.test(full) || Boolean(target && target.startsWith(`${full}/`));
   };
   // commands() drops redirect targets, so read them here. One that is not a
   // plain path (a variable, a substitution) may be a gates file.
@@ -337,10 +355,11 @@ export function touchesGates(command, cwd) {
     if (!to || /[$`*?[{]/.test(to) || named(to.replace(/^["']|["']$/g, ""))) return true;
   }
   for (const words of all) {
-    if (!words.some(named)) continue;
     let i = 0;
     while (i < words.length && (ASSIGN.test(words[i]) || WRAPPERS.test(words[i]))) i++;
     const head = (words[i] ?? "").replace(/^.*\//, "");
+    if (removesFolder(head, words.slice(i + 1), folder)) return true;
+    if (!words.some(named)) continue;
     if (READERS.has(head)) continue;
     if (head === "git" && GIT_READERS.has(words.slice(i + 1).find((w) => !w.startsWith("-")))) continue;
     return true;
