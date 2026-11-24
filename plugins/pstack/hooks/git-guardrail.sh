@@ -16,5 +16,5 @@ input=$(cat)
 here=$(dirname "$0")
 printf '%s' "$input" | node "$here/git-guardrail.mjs" || exit $?
 case $input in
-  *gh* | *gates.json* | *\'* | *\\* | *'$'* | *'`'* | *'['* | *'*'* | *'?'*) printf '%s' "$input" | node "$here/operator-gates.mjs" "$@" ;;
+  *gh* | *gates.json* | *.potluck* | *\'* | *\\* | *'$'* | *'`'* | *'['* | *'*'* | *'?'*) printf '%s' "$input" | node "$here/operator-gates.mjs" "$@" ;;
 esac

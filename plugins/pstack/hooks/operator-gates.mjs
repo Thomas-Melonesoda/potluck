@@ -311,22 +311,32 @@ function isGatesFile(path, cwd) {
 
 // Commands that only read the files they name, and git subcommands that do
 // not change the working tree.
-const READERS = new Set(["cat", "less", "more", "head", "tail", "bat", "jq", "grep", "egrep", "fgrep", "rg", "wc", "ls", "stat", "file", "diff", "readlink", "realpath", "md5", "shasum", "sha256sum", "test", "["]);
+const READERS = new Set(["cd", "pushd", "popd", "cat", "less", "more", "head", "tail", "bat", "jq", "grep", "egrep", "fgrep", "rg", "wc", "ls", "stat", "file", "diff", "readlink", "realpath", "md5", "shasum", "sha256sum", "test", "["]);
 const GIT_READERS = new Set(["add", "commit", "diff", "log", "show", "status", "blame", "ls-files"]);
 
 // Whether a shell command may change a gates file: it names one (or the file
-// the user's links to) anywhere but as a plain argument of a reader.
+// the user's links to, or a folder holding one) anywhere but as a plain
+// argument of a reader, or redirects output to one. After a cd, any bare
+// gates.json counts, since its folder is no longer known.
 export function touchesGates(command, cwd) {
   const target = gatesTarget();
-  if (!/gates\.json/.test(command) && !(target && command.includes(target))) return false;
+  if (!/gates\.json|\.potluck/.test(command) && !(target && command.includes(target))) return false;
   const home = process.env.HOME ?? "";
+  const all = commands(command);
+  const moved = all.some((words) => /^(cd|pushd|popd)$/.test(words.find((w) => !ASSIGN.test(w)) ?? ""));
   const named = (w) => {
     const path = w === "~" || w.startsWith("~/") ? join(home, w.slice(1)) : w;
-    return w.includes(".potluck/gates.json") || (target && w.includes(target)) || (/gates\.json$/.test(w) && isGatesFile(path, cwd));
+    const full = (isAbsolute(path) ? path : join(cwd, path)).replace(/\/+$/, "");
+    if (/(^|\/)\.potluck$/.test(full) || (target && target.startsWith(`${full}/`))) return true;
+    return w.includes(".potluck/gates.json") || (target && w.includes(target)) || (/gates\.json$/.test(w) && (moved || isGatesFile(path, cwd)));
   };
-  // An output redirect may write to it, and commands() drops redirect targets.
-  if (/>/.test(command)) return true;
-  for (const words of commands(command)) {
+  // commands() drops redirect targets, so read them here. One that is not a
+  // plain path (a variable, a substitution) may be a gates file.
+  for (const [, to] of command.matchAll(/(?:^|[^<>&])(?:\d*|&)>>?\|?\s*([^\s;|&<>()]+|(?=\())/g)) {
+    if (/^&\d?-?$/.test(to) || to === "/dev/null") continue;
+    if (!to || /[$`*?[{]/.test(to) || named(to.replace(/^["']|["']$/g, ""))) return true;
+  }
+  for (const words of all) {
     if (!words.some(named)) continue;
     let i = 0;
     while (i < words.length && (ASSIGN.test(words[i]) || WRAPPERS.test(words[i]))) i++;

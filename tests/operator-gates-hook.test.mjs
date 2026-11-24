@@ -310,6 +310,37 @@ describe("the gates files are the user's to change", () => {
     }
   });
 
+  test.each([
+    "cd .potluck && rm gates.json",
+    "cd .potluck && sed -i '' s/a/b/ gates.json",
+    "cd ~/.potluck && cp /tmp/x gates.json",
+    "rm -rf .potluck",
+    "rm -r .potluck/",
+    "rm -rf ~/.potluck",
+    "mv ~/.potluck ~/.potluck.bak",
+    "cat /tmp/x > .potluck/gates.json",
+    "jq . /tmp/x > ~/.potluck/gates.json",
+    "echo x >> $F && cat .potluck/gates.json",
+  ])("a change after a cd, to a gates file's folder, or through a redirect is blocked: %s", (command) => {
+    const s = setup({ gates: null });
+    const r = lockRun(s, { tool_name: "Bash", tool_input: { command }, cwd: s.work });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("only the user changes a gates file");
+  });
+
+  test.each([
+    "cat ~/.potluck/gates.json 2>/dev/null",
+    "cat ~/.potluck/gates.json 2>/dev/null || echo none",
+    "git diff .potluck/gates.json 2>&1",
+    "grep -rn gates.json docs 2>/dev/null | head",
+    "jq . .potluck/gates.json > /tmp/view.json",
+    "cd .potluck && cat gates.json",
+    "ls ~/.potluck",
+  ])("a read whose redirect writes somewhere else passes: %s", (command) => {
+    const s = setup({ gates: null });
+    expect(lockRun(s, { tool_name: "Bash", tool_input: { command }, cwd: s.work }).status).toBe(0);
+  });
+
   test.each(["Edit", "Write", "MultiEdit", "NotebookEdit"])("the %s tool on a gates file is blocked, a link to it included", (tool) => {
     const s = setup({ gates: null });
     // The user's file is a link to one kept elsewhere, as in a personal notes repository.
