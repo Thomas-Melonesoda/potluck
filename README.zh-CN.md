@@ -47,7 +47,11 @@ codex plugin add pstack@potluck
 
 ## git 护栏
 
-在 Claude Code 里，agent 每次执行 shell 命令前，potluck 会先检查一下。仓库里有未提交的改动、未跟踪的文件，或者只有这里才有的提交时，它会拦住会弄丢这些东西的 git 命令：`reset --hard`、`clean -f`、会丢掉改动的 `checkout`、`switch` 或 `restore`、不带 `--force-with-lease` 的强推，以及删除一个提交只在它上面的分支。报错会告诉 agent 先怎么保存，所以它不用等你就能接着做。有两条 push 规则在仓库干净时也照样生效，因为共享分支上有别人的工作：不许强推默认分支（远程的默认分支、`main` 或 `master`），带不带 lease 都不行；不许删除远程分支（`git push origin :<分支>`、`--delete`、`--prune`、`--mirror`）。普通的 push，以及带 lease 强推到其他分支，都直接放行。这项检查需要电脑上有 `node`；没有的话，命令照常执行。
+在 Claude Code 里（Codex 要你先在 `/hooks` 里信任这个钩子），agent 每次执行 shell 命令前，potluck 会先检查一下。仓库里有未提交的改动、未跟踪的文件，或者只有这里才有的提交时，它会拦住会弄丢这些东西的 git 命令：`reset --hard`、`clean -f`、会丢掉改动的 `checkout`、`switch` 或 `restore`、不带 `--force-with-lease` 的强推，以及删除一个提交只在它上面的分支。报错会告诉 agent 先怎么保存，所以它不用等你就能接着做。有两条 push 规则在仓库干净时也照样生效，因为共享分支上有别人的工作：不许强推默认分支（远程的默认分支、`main` 或 `master`），带不带 lease 都不行；不许删除远程分支（`git push origin :<分支>`、`--delete`、`--prune`、`--mirror`）。普通的 push，以及带 lease 强推到其他分支，都直接放行。这项检查需要电脑上有 `node`；没有的话，命令照常执行。
+
+它还会拦住直接合并：`gh pr merge`，或者用 `gh api` 调 GitHub 的合并接口、发 GraphQL 合并请求。agent 只能用 `merge-gate.mjs merge` 合并，它自己调用 `gh`；你在 GitHub 网页上手动合并不受影响。凡是写到 `gates.json` 或 `.potluck` 的 shell 命令也会被拦，因为[操作者的门](docs/operator-gates.md#only-the-user-changes-a-gates-file)只有你能改。
+
+钩子只读命令行，所以脚本文件、运行时才拼出来的名字或命令、从文件读入的 GraphQL 请求、在别的电脑上做的合并，都拦不住。普通 push 到默认分支不拦。Codex 没法暂停命令来问你，所以在 Claude Code 上会问你的检查，在 Codex 上直接拦下；Codex 的钩子还没有真实跑过。其他工具没有这个钩子。
 
 ## 开始使用
 

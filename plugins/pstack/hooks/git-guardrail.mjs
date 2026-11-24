@@ -14,6 +14,10 @@
 //   - a force push to the default branch (the remote's HEAD, main, or master),
 //     with a lease or not
 //   - deleting a remote branch (`:branch`, `--delete`, `--prune`, `--mirror`)
+// A direct merge is blocked anywhere (stage 5 follow-up issue 1, design row
+// S3-A8): `gh pr merge`, or `gh api` on a REST merge endpoint
+// (`pulls/<n>/merge`, `repos/<o>/<r>/merges`) or with a GraphQL merge
+// mutation. The merge gate runs gh itself, outside this hook.
 // A plain push, a push with --force-with-lease (without --force beside it) to
 // any other branch, and every other command pass. During a merge, rebase,
 // cherry-pick, or revert, taking one side of a conflict (`--ours`,
@@ -452,7 +456,40 @@ function namesFile(dir, path) {
   }
 }
 
+// GitHub's merge endpoints, and the GraphQL mutations that merge or queue a merge.
+const MERGE_API = /(?:^|\/)(?:repos\/[^/\s]+\/[^/\s]+\/pulls\/[^/\s]+\/merge|repos\/[^/\s]+\/[^/\s]+\/merges)\/?(?:$|[?\s])/;
+const MERGE_MUTATION = /\b(?:mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|mergeBranch)\b/;
+
+// A gh call that merges a pull request without the merge gate.
+function directMerge(words) {
+  if (!/(^|\/)gh$/.test(words[0] ?? "")) return null;
+  const args = words.slice(1);
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "-R" || args[i] === "--repo") i++;
+    else if (!args[i].startsWith("-")) positional.push(args[i]);
+  }
+  const help = args.some((a) => a === "--help" || a === "-h");
+  if (positional[0] === "pr" && positional[1] === "merge" && !help) return "`gh pr merge`";
+  if (positional[0] !== "api") return null;
+  const method = (() => {
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "-X" || args[i] === "--method") return args[i + 1];
+      if (/^-X./.test(args[i])) return args[i].slice(2);
+      if (args[i].startsWith("--method=")) return args[i].slice(9);
+    }
+    return args.some((a) => /^-[fF]|^--(raw-)?field|^--input/.test(a)) ? "POST" : "GET";
+  })().toUpperCase();
+  if (method !== "GET" && args.some((a) => MERGE_API.test(a.replace(/^https?:\/\/[^/]+/, "")))) return "`gh api` on a merge endpoint";
+  if (args.some((a) => MERGE_MUTATION.test(a))) return "a GraphQL merge mutation";
+  return null;
+}
+
 function checkOne(words, dir) {
+  const merge = directMerge(words);
+  if (merge) {
+    return `potluck git guardrail: blocked a direct merge (${merge}). potluck merges only through its merge gate: a verifier records the verdict, then the owner runs \`node <installed plugin>/skills/poteto-mode/scripts/merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head>\`. A person can still merge on GitHub's website.`;
+  }
   const call = gitCall(words, dir);
   if (!call) return null;
   let found = risk(call);

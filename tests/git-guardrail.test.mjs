@@ -224,7 +224,10 @@ describe("the hook on a real repository", () => {
 
   test("hooks.json runs the wrapper before every Bash call on Claude Code", () => {
     const hooksJson = JSON.parse(readFileSync(join(hooks, "hooks.json"), "utf8"));
-    expect(hooksJson.hooks.PreToolUse).toEqual([{ matcher: "Bash", hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh"', timeout: 60 }] }]);
+    expect(hooksJson.hooks.PreToolUse).toEqual([
+      { matcher: "Bash", hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh"', timeout: 60 }] },
+      { matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}/hooks/gates-lock.sh"', timeout: 30 }] },
+    ]);
   });
 
   test("without node on PATH the wrapper lets the call run", () => {
@@ -470,4 +473,41 @@ describe("shared branches", () => {
     expect(hook("git push origin :refs/tags/v1").status).toBe(0);
     expect(hook("git push origin --delete refs/tags/v1").status).toBe(0);
   });
+});
+
+// Stage 5 follow-up issue 1: changes reach a default branch only through a
+// pull request the merge gate merges, so a direct merge is blocked.
+describe("merges go through the merge gate", () => {
+  test.each([
+    "gh pr merge 5 --squash",
+    "gh pr merge --auto --squash",
+    "cd sub && gh pr merge 5",
+    "sh -c 'gh pr merge 5'",
+    "/opt/homebrew/bin/gh pr -R o/r merge 5",
+    "gh api -X PUT repos/o/r/pulls/5/merge",
+    "gh api --method PUT /repos/o/r/pulls/5/merge -f merge_method=squash",
+    "gh api -X PUT repos/o/r/pulls/5/merge/",
+    "gh api repos/o/r/merges -f base=main -f head=feat",
+    "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"X\"}) { clientMutationId } }'",
+    "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: \"X\"}) { clientMutationId } }'",
+  ])("a direct merge is blocked: %s", (command) => {
+    const { hook } = repo("feat");
+    const r = hook(command);
+    expect(r.status).toBe(2);
+    expect(r.reason).toContain("blocked a direct merge");
+    expect(r.reason).toContain("merge-gate.mjs merge");
+  });
+
+  test("reading a PR, merge help, and the merge gate itself pass", () => {
+    const { hook } = repo("feat");
+    for (const c of ["gh pr view 5", "gh pr merge --help", "gh api repos/o/r/pulls/5/merge", "gh api graphql -f query='query { viewer { login } }'", "node merge-gate.mjs merge --repo o/r --pr 5 --sha abc", "git commit -m 'never run gh pr merge'"]) {
+      expect([c, hook(c).status]).toEqual([c, 0]);
+    }
+  });
+});
+
+test("Codex runs the same guardrail before each Bash call, so direct merges are blocked there too", () => {
+  const codex = JSON.parse(readFileSync(join(hooks, "codex-hooks.json"), "utf8"));
+  const bash = codex.hooks.PreToolUse?.find((group) => group.matcher === "Bash");
+  expect(bash?.hooks.map((h) => h.command)).toEqual(['"${CLAUDE_PLUGIN_ROOT}/hooks/git-guardrail.sh" codex']);
 });
