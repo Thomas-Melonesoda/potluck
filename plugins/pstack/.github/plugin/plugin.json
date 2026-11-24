@@ -1,7 +1,7 @@
 {
   "name": "pstack",
   "displayName": "potluck (GitHub Copilot)",
-  "version": "0.9.146",
+  "version": "0.9.147",
   "description": "potluck is an agent workflow system built on Lauren Tan's pstack and Michael Denyer's multi-harness port. Rigorous agent workflows you can parallelize with confidence. Ported from cursor/plugins/pstack to GitHub Copilot CLI and app. Original pstack by Lauren Tan (poteto).",
   "author": {
     "name": "Thomas-Melonesoda",
