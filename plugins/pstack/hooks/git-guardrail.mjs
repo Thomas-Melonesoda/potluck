@@ -14,6 +14,7 @@
 //   - a force push to the default branch (the remote's HEAD, main, or master),
 //     with a lease or not
 //   - deleting a remote branch (`:branch`, `--delete`, `--prune`, `--mirror`)
+// A direct merge is blocked anywhere; direct-merge.mjs says what that covers.
 // A plain push, a push with --force-with-lease (without --force beside it) to
 // any other branch, and every other command pass. During a merge, rebase,
 // cherry-pick, or revert, taking one side of a conflict (`--ours`,
@@ -29,6 +30,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+
+import { directMerge } from "./direct-merge.mjs";
 
 const git = (cwd, args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: Infinity });
 
@@ -423,6 +426,10 @@ function inProgress(dir) {
 }
 
 export function check(command, cwd) {
+  const merge = directMerge(command);
+  if (merge) {
+    return `potluck git guardrail: blocked a direct merge (${merge}). potluck merges only through its merge gate: a verifier records the verdict, then the owner runs \`node <installed plugin>/skills/poteto-mode/scripts/merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head>\`. A person can still merge on GitHub's website.`;
+  }
   // The directory each scope is in: a `cd` inside a substitution stays there,
   // and reaches the substitutions nested in it.
   const ids = { next: 0, parent: new Map() };

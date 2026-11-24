@@ -233,6 +233,8 @@ Run `setup-pstack` to turn automatic routing on or off, change model defaults, o
 
 On Claude Code, potluck checks each shell command the agent runs before it runs. In a repository with uncommitted changes, untracked files, or commits nothing else holds, it blocks the git commands that would lose them: `reset --hard`, `clean -f`, a `checkout`, `switch`, or `restore` that discards changes, a force push without `--force-with-lease`, and deleting a branch whose commits exist nowhere else. The message tells the agent how to save the work first, so it carries on without you. Two push rules hold even in a clean repository, because others build on shared branches: no force push to the default branch (the remote's default, `main`, or `master`), with a lease or without, and no deleting a remote branch (`git push origin :<branch>`, `--delete`, `--prune`, `--mirror`). A plain push, and a push with a lease to any other branch, pass. The check needs `node` on your PATH; without it, commands run as before.
 
+It also blocks a direct merge: `gh pr merge`, a `gh` alias for it, or `gh api` on GitHub's merge endpoints or with a GraphQL merge mutation, behind a wrapper such as `env` or `xargs` or inside a script handed to a shell too. The agent merges only with `merge-gate.mjs merge`, which runs `gh` itself, and you can still merge on GitHub's website. It reads the command line only, so a script file, `gh` called from another language, a name or request built when the command runs or read from a file, an alias set earlier, `curl`, and a merge from another machine get past it.
+
 ## Getting started
 
 ```text
