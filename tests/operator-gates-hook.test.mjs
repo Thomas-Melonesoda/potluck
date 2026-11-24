@@ -299,7 +299,8 @@ describe("the gates files are the user's to change", () => {
     "cp -r ../backup/.potluck .",
     "rsync -a /tmp/new/ .potluck/ --exclude node_modules",
     "git -C .potluck rm -r .",
-    "tar -C.potluck -xf /tmp/x.tar", "cp x dir/{a,gates.json}", "cp x ${D}gates.json", "rm \"$D\"gates.json", "printf 'gates.json\\n' | xargs rm", "printf 'a\\ngates.json' | xargs rm", "rm *gates.json", "rm ${D}.potluck/x",
+    "tar -C.potluck -xf /tmp/x.tar", "cp x dir/{a,gates.json}", "cp x ${D}gates.json", "rm \"$D\"gates.json", "printf 'gates.json\\n' | xargs rm", "printf 'a\\ngates.json' | xargs rm", "rm *gates.json", "rm ${D}.potluck/x", "for d in */; do rm -rf \"$d.potluck\"; done", "find . -name '*.potluck' -exec rm -rf {} +", "find . -path '*.potluck*' -delete", "tar -xfgates.json",
+    "rm \"C:\\Users\\me\\.potluck\\gates.json\"", "powershell -c \"Remove-Item ~\\.potluck\\gates.json\"", "cmd /c \"rd /s %USERPROFILE%\\.potluck\"", "rm -r 'C:\\r\\.potluck'", "powershell -c \"rm $HOME\\.potluck -r\"", "del .potluck\\gates.json",
     "find .potluck -delete",
     "rm -rf ~/.potluck",
     "sh -c 'cd .potluck && rm gates.json'",
@@ -324,7 +325,7 @@ describe("the gates files are the user's to change", () => {
     writeFileSync(target, "{}");
     symlinkSync(target, join(s.home, ".potluck/gates.json"));
     expect(lockRun(s, { tool_name: "Bash", tool_input: { command: `rm '${realpathSync(target)}'` }, cwd: s.work }).status).toBe(2);
-    for (const command of ["git status", "cp a.txt b.txt", "cd src && mv a.js b.js", "ls potluck", "cat aggregates.json", "git add data/aggregates.json", "jq . feature_gates.json", "cat quality-gates.json", "jq '.plugins.potluck' package.json", "curl https://www.potluck.dev", "cp gates.json.example x", "cat .potluck.yml", "ls *.potluck", "jq '.plugins[].potluck' x.json", "node -e 'cfg?.potluck'", "grep 'www\\.potluck' x", "node plugins/pstack/skills/poteto-mode/scripts/gates.mjs", "rm -rf dist"]) {
+    for (const command of ["git status", "cp a.txt b.txt", "cd src && mv a.js b.js", "ls potluck", "cat aggregates.json", "git add data/aggregates.json", "jq . feature_gates.json", "cat quality-gates.json", "jq '.plugins.potluck' package.json", "curl https://www.potluck.dev", "cp gates.json.example x", "ls data/*-aggregates.json", "cat out/${DATE}-aggregates.json", "git add \"r/$(date +%F)-aggregates.json\"", "cat \"$day\"-delegates.json", "cat ${X}-app.potluck", "cat $name.potluck", "cat .potluck.yml", "ls *.potluck", "jq '.plugins[].potluck' x.json", "node -e 'cfg?.potluck'", "grep 'www\\.potluck' x", "node plugins/pstack/skills/poteto-mode/scripts/gates.mjs", "rm -rf dist"]) {
       expect([command, lockRun(s, { tool_name: "Bash", tool_input: { command }, cwd: s.work }).status]).toEqual([command, 0]);
     }
   });
@@ -361,6 +362,11 @@ describe("the gates files are the user's to change", () => {
       expect([file_path, r.status]).toEqual([file_path, 2]);
     }
     expect(lockRun(s, { tool_name: tool, tool_input: { file_path: join(s.work, "notes.md") }, cwd: s.work }).status).toBe(0);
+  });
+
+  test.each(["C:\\r\\.potluck\\gates.json", "C:/r/.potluck/gates.json", ".potluck\\gates.json"])("a Windows path to a gates file is one too: %s", (file_path) => {
+    const s = setup({ gates: null });
+    expect(lockRun(s, { tool_name: "Write", tool_input: { file_path }, cwd: s.work }).status).toBe(2);
   });
 
   test("Claude Code sends Edit, Write, MultiEdit, and NotebookEdit calls to the hook", () => {

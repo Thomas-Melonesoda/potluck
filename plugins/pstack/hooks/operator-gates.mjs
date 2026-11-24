@@ -300,8 +300,12 @@ function real(path) {
 const LOCKED = "potluck: only the user changes a gates file (the operator's gates), so this agent call is blocked. It names gates.json or .potluck: read one with the file-reading tool, and leave any shell command that names it, git add and commit included, to the user.";
 const isGatesFile = (path, cwd) => {
   const full = resolve(cwd, path);
-  return [full, real(full)].some((p) => /(^|\/)\.potluck\/gates\.json$/.test(p)) || real(full) === real(userFile());
+  return [path, full, real(full)].some((p) => /(^|[\\/])\.potluck[\\/]gates\.json$/i.test(p)) || real(full) === real(userFile());
 };
+
+// The folder after a Windows drive or home, a loop over folders, or in a find pattern,
+// which the path-part rule below reads as the end of a longer name.
+const FOLDER = /(?:(?:[A-Za-z]:|~|%\w+%|\$[\w:]+)[^\s"']*\\|\bfor\s+(\w+)\s+in\s[^;\n]*\/\s*[;\n][\s\S]*\$\1|\s-i?(?:name|path|wholename)\s+["']?\*\/?)\.potluck(?![\w-]|\.\w)/;
 
 // Whether a shell command names a gates file or a .potluck folder, as a whole
 // path part, or the file the user's links to. Quotes are dropped in one reading
@@ -311,10 +315,11 @@ const isGatesFile = (path, cwd) => {
 export function namesGates(command) {
   const line = command.replace(/\\\n/g, "");
   const plain = line.replace(/["'\\]/g, "");
-  const apart = line.replace(/["']|\\[abefnrtv0]/g, " ").replace(/\\/g, "");
-  const part = (name) => [plain, apart].some((text) => new RegExp(`${name}(?![\\w-]|\\.\\w)`).test(text));
-  if (part("(?<![\\w.-])(?:-[A-Za-z]+)?gates\\.json") || plain.includes(real(userFile()).replace(/["'\\]/g, ""))) return true;
-  return part("(?<![\\w.*?\\]-])(?:-[A-Za-z]+)?\\.potluck") && !ownFoldersOnly(command);
+  const apart = line.replace(/["']|\\[abefnrtv0]|\\(?=gates\.json)/g, " ").replace(/\\/g, "");
+  // A name starts a path part, or follows a short option (-C.potluck).
+  const part = (before, name) => [plain, apart].some((text) => new RegExp(`(?:(?<!${before})|(?<=(?:^|\\s)-[A-Za-z]{1,2}))${name}(?![\\w-]|\\.\\w)`).test(text));
+  if (part("[\\w.-]", "gates\\.json") || plain.includes(real(userFile()).replace(/["'\\]/g, ""))) return true;
+  return (part("[\\w.*?\\]-]", "\\.potluck") || FOLDER.test(line)) && !ownFoldersOnly(command);
 }
 
 // The user's exemption: literal, unquoted paths in potluck's own folders under
