@@ -68,6 +68,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { parseGates, REPO_FILE, strictest, userFile } from "./gates.mjs";
+import { prTrigger } from "./pr-trigger.mjs";
 
 export const CONTEXT = "potluck/verdict";
 export const COSIGN = "potluck/cosign";
@@ -251,26 +252,16 @@ export function floor({ repo, pr, sha, view, cosigned = null, cwd = process.cwd(
     if (opaque.length) return { ok: false, reasons: opaque.map((f) => `floor: [binary-source] ${f}: git reads this file as binary, so the floor cannot check it; remove the NUL or control bytes, or use a binary format's usual extension`) };
     // Workflows count from the base or the head, so a PR cannot escape the
     // no-CI rule by deleting or renaming the CI it would have to pass.
-    const hasWorkflows = (rev) => {
-      try {
-        return isolated(["ls-tree", "--name-only", rev, ".github/workflows/"]).split("\n").some((f) => /\.ya?ml$/.test(f));
-      } catch {
-        return false;
-      }
-    };
+    const hasWorkflows = (rev) => isolated(["ls-tree", "--name-only", rev, ".github/workflows/"]).split("\n").some((f) => /\.ya?ml$/.test(f));
     const workflows = hasWorkflows(base) || hasWorkflows("HEAD");
-    // The workflows that run on pull requests, from the base or the head, so a
-    // PR cannot drop one it would have to pass by deleting or editing it.
-    const prWorkflows = new Map();
+    // The workflows that run on this PR, read from the base or the head, so a
+    // PR cannot drop one it would have to pass by deleting or editing it. Path
+    // filters read the PR's own diff, from where it left its base.
+    const into = { base: view.baseRefName, changed: isolated(["diff", "--name-only", "-z", `${base}...HEAD`]).split("\0").filter(Boolean) };
+    const prWorkflows = new Set();
     for (const rev of [base, "HEAD"]) {
-      let files = [];
-      try {
-        files = isolated(["ls-tree", "--name-only", rev, ".github/workflows/"]).split("\n").filter((f) => /\.ya?ml$/.test(f));
-      } catch {}
-      for (const file of files) {
-        const trigger = prTrigger(isolated(["cat-file", "blob", `${rev}:${file}`]));
-        if (trigger) prWorkflows.set(file, { conditional: (prWorkflows.get(file)?.conditional ?? true) && trigger.conditional });
-      }
+      const files = isolated(["ls-tree", "--name-only", rev, ".github/workflows/"]).split("\n").filter((f) => /\.ya?ml$/.test(f));
+      for (const file of files) if (prTrigger(isolated(["cat-file", "blob", `${rev}:${file}`]), into)) prWorkflows.add(file);
     }
     // A PR that changes the workflows, or whose head skips CI, may be why it
     // has no checks. The repository's gates count from the base and the head,
@@ -284,7 +275,7 @@ export function floor({ repo, pr, sha, view, cosigned = null, cwd = process.cwd(
     });
     const head = {
       workflows,
-      prWorkflows: [...prWorkflows].map(([path, { conditional }]) => ({ path, conditional })),
+      prWorkflows: [...prWorkflows],
       committedAt: isolated(["log", "-1", "--format=%cI", "HEAD"]).trim(),
       skipsCI: SKIP_CI.test(isolated(["log", "-1", "--format=%B", "HEAD"])),
       repoGates,
@@ -307,41 +298,6 @@ export function floor({ repo, pr, sha, view, cosigned = null, cwd = process.cwd(
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
-}
-
-// The value of a workflow's top-level on: key (or "on" quoted, or YAML 1.1's
-// true), comments dropped.
-function onBlock(text) {
-  const lines = text.split("\n").map((l) => l.replace(/(^|\s)#.*$/, ""));
-  const at = lines.findIndex((l) => /^["']?(on|true)["']?\s*:/.test(l));
-  if (at < 0) return null;
-  const block = [lines[at].replace(/^["']?(on|true)["']?\s*:/, "")];
-  for (const line of lines.slice(at + 1)) {
-    if (/^\S/.test(line)) break;
-    block.push(line);
-  }
-  return block.join("\n");
-}
-
-// Whether a workflow runs on pull requests: null when it does not, else
-// { conditional } when its pull_request trigger names paths or branches, so
-// it may rightly not run for a PR. A file whose on: cannot be found counts.
-export function prTrigger(text) {
-  const block = onBlock(text);
-  if (block === null) return { conditional: false };
-  if (!/\bpull_request(_target)?\b/.test(block)) return null;
-  // The lines under a block-style pull_request: key, deeper than the key itself.
-  const lines = block.split("\n");
-  const at = lines.findIndex((l) => /^\s*pull_request(_target)?\s*:\s*$/.test(l));
-  const nested = [];
-  if (at >= 0) {
-    const indent = lines[at].search(/\S/);
-    for (const line of lines.slice(at + 1)) {
-      if (line.trim() && line.search(/\S/) <= indent) break;
-      nested.push(line);
-    }
-  }
-  return { conditional: /\b(paths|paths-ignore|branches|branches-ignore)\s*:/.test(nested.join("\n")) };
 }
 
 // The required checks the base branch's rulesets and classic protection
@@ -373,23 +329,30 @@ function pushedAt(repo, view, committedAt) {
       const pushes = ghJson(["api", `repos/${repo}/activity?ref=${encodeURIComponent(`refs/heads/${view.headRefName}`)}&activity_type=push&per_page=100`]);
       const push = pushes.find((p) => p.after === view.headRefOid);
       if (push) return Date.parse(push.timestamp);
-    } catch {}
+    } catch (error) {
+      if (!/HTTP 40[34]/.test(String(error?.stderr || error?.message || error))) throw error;
+    }
   }
   return Date.parse(committedAt);
 }
+
+const PR_EVENTS = new Set(["pull_request", "pull_request_target"]);
 
 // Why the head's CI is not done: a PR workflow or a required check that has
 // not finished green, or has not reported; null when every expected check has.
 export function expectedBlocker({ prWorkflows, wfRuns, required, runs, statuses, pushed, now, waitMs }) {
   const missing = [];
-  for (const { path, conditional } of prWorkflows) {
-    const latest = wfRuns.filter((r) => r.path === path || r.path?.startsWith(`${path}@`)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
-    if (!latest) {
-      if (!conditional) missing.push(path);
+  for (const path of prWorkflows) {
+    // Only pull request runs count, so a newer push or manual run of the same
+    // file cannot stand in for one that has not finished.
+    const prRuns = wfRuns.filter((r) => (r.path === path || r.path?.startsWith(`${path}@`)) && PR_EVENTS.has(r.event)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    if (!prRuns.length) {
+      missing.push(path);
       continue;
     }
-    if (latest.status !== "completed") return `${path} is ${latest.status}, so it has not finished`;
-    if (!GREEN.has(latest.conclusion)) return `${path} concluded ${latest.conclusion}`;
+    const unfinished = prRuns.find((r) => r.status !== "completed");
+    if (unfinished) return `${path} is ${unfinished.status}, so it has not finished`;
+    if (!GREEN.has(prRuns[0].conclusion)) return `${path} concluded ${prRuns[0].conclusion}`;
   }
   const reported = new Set([...runs.map((r) => r.name), ...statuses.map((s) => s.context)]);
   for (const name of required) if (!reported.has(name)) missing.push(`the required check ${name}`);
@@ -523,7 +486,7 @@ function run(argv) {
     if (!(waitMinutes > 0)) return usage("--ci-wait must be a number of minutes");
     const wfRuns = guard.prWorkflows.length ? pages(`repos/${repo}/actions/runs?head_sha=${sha}&per_page=100`, "workflow_runs") : [];
     const required = requiredChecks(repo, facts.view.baseRefName);
-    const blocker = expectedBlocker({ ...guard, wfRuns, required, runs: facts.runs, statuses: facts.statuses.filter((s) => s.context !== CONTEXT && s.context !== COSIGN), pushed: pushedAt(repo, facts.view, guard.committedAt), now: Date.now(), waitMs: waitMinutes * 60_000 });
+    const blocker = expectedBlocker({ ...guard, wfRuns, required, runs: facts.runs, statuses: facts.statuses, pushed: pushedAt(repo, facts.view, guard.committedAt), now: Date.now(), waitMs: waitMinutes * 60_000 });
     if (blocker) return out({ kind: "refused", repo, pr, sha, reasons: [`no CI result on ${sha}: ${blocker}`] });
     // Failed or pending checks were refused above, so a head here either has
     // green checks or none at all.

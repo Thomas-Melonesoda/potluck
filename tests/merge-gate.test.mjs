@@ -8,7 +8,8 @@ import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CONTEXT, FLOOR_GUARD, OVERVIEW, guardSource, prTrigger, refusals } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
+import { CONTEXT, FLOOR_GUARD, OVERVIEW, guardSource, refusals } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
+import { prTrigger } from "../plugins/pstack/skills/poteto-mode/scripts/pr-trigger.mjs";
 
 const script = join(import.meta.dir, "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs");
 const sha = "a".repeat(40);
@@ -52,20 +53,47 @@ describe("refusals", () => {
   });
 });
 
+// Whether a workflow runs on a PR into main that changes src/app.js.
 test.each([
   ["on: pull_request\n", true],
   ["on: [push, pull_request]\n", true],
+  ["on:\n  - push\n  - pull_request\n", true],
   ["'on':\n  pull_request_target:\n    types: [opened]\n", true],
+  ['"on":\n  pull_request: # a comment\n', true],
+  ["on:\r\n  pull_request:\r\n", true],
   ["name: ci\non:\n  push:\n    branches: [main]  # not pull_request\njobs:\n  pull_request: {}\n", false],
   ["on: push\n", false],
+  ["on: workflow_dispatch\n", false],
   ["jobs: {}\n", true],
-])("prTrigger reads the workflow's on: block %#", (text, expected) => {
-  expect(prTrigger(text) !== null).toBe(expected);
+  ["on: [push\n", true],
+  ["on:\n  pull_request:\n  schedule:\n    - cron: \"17 6 * * 1\"\n", true],
+  ["on:\n  workflow_dispatch:\n    inputs:\n      x:\n        description: run after pull_request merges\n", false],
+  ["on:\n  workflow_dispatch:\n    inputs:\n      x:\n        description: >\n          a pull_request: note\n", false],
+])("prTrigger reads the workflow's on: value %#", (text, expected) => {
+  expect(prTrigger(text, { base: "main", changed: ["src/app.js"] })).toBe(expected);
 });
 
-test("prTrigger marks a pull_request trigger limited to paths or branches as conditional", () => {
-  expect(prTrigger("on:\n  pull_request:\n    paths: ['docs/**']\n")).toEqual({ conditional: true });
-  expect(prTrigger("on:\n  pull_request:\n    types: [opened, synchronize]\n")).toEqual({ conditional: false });
+test.each([
+  ["on:\n  pull_request:\n    branches: [main]\n", true],
+  ["on:\n  pull_request:\n    branches: ['release/**']\n", false],
+  ["on:\n  pull_request:\n    branches-ignore: [main]\n", false],
+  ["on:\n  pull_request:\n    paths: ['src/**']\n", true],
+  ["on:\n  pull_request:\n    paths: ['docs/**']\n", false],
+  ["on:\n  pull_request:\n    paths:\n      - '**'\n      - '!src/**'\n", false],
+  ["on:\n  pull_request:\n    paths-ignore: ['**.md']\n", true],
+  ["on:\n  pull_request:\n    paths-ignore: ['src/**']\n", false],
+  ["on:\n  pull_request:\n    paths: ['docs/**']\n  pull_request_target:\n", true],
+  ["on: { pull_request: { paths: ['docs/**'] } }\n", false],
+  ['on:\n  "pull_request":\n    paths: [docs/**]\n', false],
+  ["on:\n  pull_request:\n    types: [closed]\n", false],
+  ["on:\n  pull_request:\n    types: [opened, synchronize]\n", true],
+])("prTrigger reads a trigger's branches, paths, and types against the PR %#", (text, expected) => {
+  expect(prTrigger(text, { base: "main", changed: ["src/app.js"] })).toBe(expected);
+});
+
+test("a paths filter does not apply to a diff of 300 files or more, as on GitHub", () => {
+  const changed = Array.from({ length: 300 }, (_, i) => `src/${i}.js`);
+  expect(prTrigger("on:\n  pull_request:\n    paths: ['docs/**']\n", { base: "main", changed })).toBe(true);
 });
 
 test("the floor guard's code is the one js block in the synced floor-guard.md", () => {
@@ -979,6 +1007,31 @@ else if (line.includes("POST")) process.stdout.write("{}");
   test("a PR workflow limited to other paths is not waited for", () => {
     const paths = { ".github/workflows/docs.yml": "on:\n  pull_request:\n    paths: ['docs/**']\n" };
     expect(fake({ runs: [], statuses: [aged], setup: { base: paths } }).run(...merge, "--dry-run").json).toMatchObject({ kind: "would-merge", checks: "none" });
+  });
+
+  test("a PR workflow limited to the PR's own base branch is waited for", () => {
+    const branches = { ".github/workflows/ci.yml": "on:\n  pull_request:\n    branches: [main]\n" };
+    const r = fake({ runs: [cla], wfRuns: [], setup: { base: branches } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain(".github/workflows/ci.yml has not reported");
+  });
+
+  test("a newer push run of a PR workflow does not stand in for its unfinished pull request run", () => {
+    const both = { ".github/workflows/ci.yml": "on: [push, pull_request]\n" };
+    const older = { ...wfRun("queued", null), created_at: new Date(Date.now() - 60_000).toISOString() };
+    const r = fake({ runs: [cla], wfRuns: [older, { ...wfRun("completed", "success"), event: "push" }], setup: { base: both } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain(".github/workflows/ci.yml is queued");
+  });
+
+  test("a ruleset that requires the gate's own verdict status merges once the verdict is there", () => {
+    const rules = [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: CONTEXT }] } }];
+    expect(fake({ rules }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a workflow that runs only when a PR closes is not waited for", () => {
+    const closed = { ".github/workflows/cleanup.yml": "on:\n  pull_request:\n    types: [closed]\n" };
+    expect(fake({ runs: [], statuses: [aged], setup: { base: closed } }).run(...merge, "--dry-run").json).toMatchObject({ kind: "would-merge", checks: "none" });
   });
 
   test("deleting a committed binary file passes the binary check", () => {
