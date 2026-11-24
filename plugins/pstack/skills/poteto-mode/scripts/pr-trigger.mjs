@@ -15,7 +15,9 @@ export function prTrigger(text, { base, changed }) {
   try {
     on = onValue(text);
   } catch {
-    return true;
+    // YAML outside the subset read here: an event must be named literally,
+    // so only a file that names a pull request event counts as running.
+    return /\bpull_request/.test(text);
   }
   if (on === undefined) return true;
   const events = typeof on === "string" ? { [on]: null } : Array.isArray(on) ? Object.fromEntries(on.map((e) => [e, null])) : on;
@@ -82,7 +84,7 @@ export function onValue(text) {
   const rest = lines[at].replace(/^(["']?)(on|true)\1\s*:/, "").trim();
   const body = [];
   for (const line of lines.slice(at + 1)) {
-    if (!/^\s/.test(line)) break;
+    if (!/^\s/.test(line) && depth([rest, ...body].join("\n")) <= 0) break;
     body.push(line);
   }
   if (rest) return flow([rest, ...body].join(" "));
@@ -102,6 +104,19 @@ function stripComment(line) {
 }
 
 const indentOf = (line) => line.search(/\S/);
+
+// How many flow brackets the text leaves open, outside quotes.
+function depth(text) {
+  let open = 0, quote = null;
+  for (const c of text) {
+    if (quote) {
+      if (c === quote) quote = null;
+    } else if (c === "'" || c === '"') quote = c;
+    else if (c === "[" || c === "{") open++;
+    else if (c === "]" || c === "}") open--;
+  }
+  return open;
+}
 const ENTRY = /^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^:"'[{][^:]*?)\s*:(?:\s+(.*)|$)/;
 
 // A block map or list made of these lines, all at least as deep as the first.
@@ -109,11 +124,22 @@ function block(lines) {
   const indent = indentOf(lines[0]);
   const items = [];
   for (const line of lines) {
-    if (indentOf(line) < indent) throw new Error("bad indent");
-    if (indentOf(line) === indent) items.push({ head: line.trim(), body: [] });
-    else items.at(-1).body.push(line);
+    const last = items.at(-1);
+    // A flow value runs on until its brackets close, at any indent, and a
+    // map key's list may sit at the key's own indent.
+    if (last && (depth([last.head, ...last.body].join("\n")) > 0 || (indentOf(line) === indent && /^-( |$)/.test(line.trim()) && !/^-( |$)/.test(last.head) && /:$/.test(last.head)))) last.body.push(line);
+    else if (indentOf(line) < indent) throw new Error("bad indent");
+    else if (indentOf(line) === indent) items.push({ head: line.trim(), body: [] });
+    else last.body.push(line);
   }
-  const value = (rest, body) => (/^[|>][+-]?\d*$/.test(rest) ? body.map((l) => l.trim()).join("\n") : rest ? flow([rest, ...body.map((l) => l.trim())].join(" ")) : body.length ? block(body) : null);
+  const lines2 = (body) => body.map((l) => l.trim());
+  const value = (rest, body) => {
+    if (/^[|>][+-]?\d*$/.test(rest)) return lines2(body).join("\n");
+    if (/^[[{"']/.test(rest)) return flow([rest, ...lines2(body)].join(" "));
+    // A plain value is text to the end of its line, continued on deeper ones.
+    if (rest) return scalar([rest, ...lines2(body)].join(" "));
+    return body.length ? block(body) : null;
+  };
   // A list item that is itself a map, such as - cron: "...", reads as a block one level in.
   const item = (rest, body) => (ENTRY.test(rest) ? block([`${" ".repeat(indent + 2)}${rest}`, ...body]) : value(rest, body));
   if (items.every((i) => i.head.startsWith("- ") || i.head === "-")) return items.map((i) => item(i.head.slice(1).trim(), i.body));

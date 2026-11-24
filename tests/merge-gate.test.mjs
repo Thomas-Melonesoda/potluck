@@ -65,10 +65,18 @@ test.each([
   ["on: push\n", false],
   ["on: workflow_dispatch\n", false],
   ["jobs: {}\n", true],
-  ["on: [push\n", true],
+  ["on: [push, pull_request\n", true],
+  ["on: [push\n", false],
   ["on:\n  pull_request:\n  schedule:\n    - cron: \"17 6 * * 1\"\n", true],
   ["on:\n  workflow_dispatch:\n    inputs:\n      x:\n        description: run after pull_request merges\n", false],
   ["on:\n  workflow_dispatch:\n    inputs:\n      x:\n        description: >\n          a pull_request: note\n", false],
+  ["on:\n  workflow_dispatch:\n    inputs:\n      env:\n        description: Environment, e.g. staging [or ${{ inputs.x }}]\n", false],
+  ["on:\n  push:\n    branches:\n    - main\n", false],
+  ["on:\n  push:\n    branches: [\n      main\n    ]\n", false],
+  ["on:\n  pull_request:\n    paths:\n    - 'docs/**'\n", false],
+  ["on:\n  pull_request:\n    paths: [\n      'src/**'\n    ]\n", true],
+  ["on:\n  push: {\n}\n  pull_request: [unreadable\n", true],
+  ["on:\n  push: {\n}\n  workflow_dispatch: [unreadable\n", false],
 ])("prTrigger reads the workflow's on: value %#", (text, expected) => {
   expect(prTrigger(text, { base: "main", changed: ["src/app.js"] })).toBe(expected);
 });
