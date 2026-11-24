@@ -100,7 +100,7 @@ describe("the hook on a real repository", () => {
     expect(hook("cd work && git reset --hard", root).status).toBe(2);
     expect(hook("git restore --staged a.txt").status).toBe(0);
     expect(hook("git stash push -u -m keep").status).toBe(0);
-    expect(hook("git push").status).toBe(0);
+    expect(hook("git push").status).toBe(2);
   });
 
   test("checkout of a path without -- is blocked, and checkout of a branch passes", () => {
@@ -255,7 +255,7 @@ describe("shared branches", () => {
     const r = hook("git push --force-with-lease");
     expect(r.reason).toContain("blocked a force push to main");
     expect(r.reason).toContain("a lease does not change that");
-    for (const c of ["git push", "git push origin main", "git push -n --force origin main", "git reset --hard", "git clean -fdx", "git checkout -- .", "git status"]) {
+    for (const c of ["git push -n --force origin main", "git reset --hard", "git clean -fdx", "git checkout -- .", "git status"]) {
       expect(hook(c).status, c).toBe(0);
     }
   });
@@ -297,7 +297,7 @@ describe("shared branches", () => {
       expect(hook(c).status, c).toBe(2);
     }
     expect(hook("git push --force-with-lease origin 'refs/heads/feat*:refs/heads/feat*'").status).toBe(0);
-    expect(hook("git push origin 'refs/heads/*:refs/heads/*'").status).toBe(0);
+    expect(hook("git push origin 'refs/heads/*:refs/heads/*'").status).toBe(2);
   });
 
   test("abbreviated options, option values, and short names are read as git reads them", () => {
@@ -469,5 +469,58 @@ describe("shared branches", () => {
     expect(r.reason).toContain("ask the user");
     expect(hook("git push origin :refs/tags/v1").status).toBe(0);
     expect(hook("git push origin --delete refs/tags/v1").status).toBe(0);
+  });
+});
+
+// Stage 5 follow-up issue 1: changes reach a default branch only through a
+// pull request, so a push that lands on one is blocked.
+describe("pushes to a default branch", () => {
+  test("a push that lands on a default branch is blocked, in a clean repository too", () => {
+    const { hook } = repo();
+    for (const c of ["git push", "git push origin main", "git push origin HEAD:main", "git push origin feat:refs/heads/main", "git push --all", "git push -u origin master", "git push origin 'refs/heads/*:refs/heads/*'", "git push origin $(git branch --show-current)", "sh -c 'git push origin main'"]) {
+      expect([c, hook(c).status]).toEqual([c, 2]);
+    }
+    expect(hook("git push origin main").reason).toContain("blocked a push to main, a default branch");
+  });
+
+  test("a push to any other branch, a tag, or a dry run passes", () => {
+    const { hook } = repo("feat");
+    for (const c of ["git push", "git push -u origin feat", "git push origin HEAD", "git push origin $(git branch --show-current)", "git push origin v1:refs/tags/v1", "git push --tags", "git push -n origin main"]) {
+      expect([c, hook(c).status]).toEqual([c, 0]);
+    }
+  });
+
+  // R1: the hook runs before the line does, so it reads the branch checked out then.
+  test.each([
+    "git checkout main && git merge feat && git push",
+    "git switch main && git push",
+    "git switch main && git push origin HEAD",
+    "git checkout main; git push --force-with-lease",
+    "gh pr checkout 5 && git push",
+    "sh -c 'git switch main && git push'",
+    "git switch main && git push origin $B",
+  ])("a push after a checkout in the same line is blocked unless it names its branch: %s", (command) => {
+    const r = repo("feat").hook(command);
+    expect(r.status).toBe(2);
+    expect(r.reason).toContain("run the checkout and the push as separate commands");
+  });
+
+  // F1: starting a feature branch on main and pushing it, named, is ordinary work.
+  test("from main, a checkout and a push that names a feature branch pass in one line", () => {
+    const { hook } = repo();
+    for (const c of ["git checkout -b feat/z && git push -u origin feat/z", "git switch -c feat/z && git commit --allow-empty -m x && git push -u origin HEAD:feat/z", "git checkout feat/x && git push --force-with-lease origin feat/x", "git checkout -b feat/z && git push -u origin HEAD:refs/heads/feat/z"]) {
+      expect([c, hook(c).status]).toEqual([c, 0]);
+    }
+    expect(hook("git checkout feat/x && git push origin main").reason).toContain("blocked a push to main");
+  });
+
+  // The cost: these name no branch, so they need two commands.
+  test("a push of HEAD or of the current branch right after a checkout is asked to be split", () => {
+    const { hook } = repo();
+    for (const c of ["git checkout -b feat/z && git push -u origin HEAD", "git checkout feat/x && git push"]) {
+      expect(hook(c).reason).toContain("run the checkout and the push as separate commands");
+    }
+    const feat = repo("feat");
+    for (const c of ["git push && git checkout main", "git checkout -- a.txt && git push"]) expect([c, feat.hook(c).status]).toEqual([c, 0]);
   });
 });

@@ -9,12 +9,15 @@
 //     on HEAD that no remote branch, other branch, or tag holds
 //   - deleting a branch (`branch -D`, `branch -d --force`) that has commits no
 //     other branch, tag, or remote holds
-// Two push rules hold even in a clean repository (stage 5 issue 5), because
-// others build on shared branches:
-//   - a force push to the default branch (the remote's HEAD, main, or master),
-//     with a lease or not
+// Three push rules hold even in a clean repository, because others build on
+// shared branches (stage 5 issue 5) and changes reach a default branch only
+// through a pull request (stage 5 follow-up issue 1):
+//   - any push to the default branch (the remote's HEAD, main, or master),
+//     plain, forced, or with a lease
+//   - a push after a checkout or switch in the same line that does not name
+//     the branch it lands on
 //   - deleting a remote branch (`:branch`, `--delete`, `--prune`, `--mirror`)
-// A plain push, a push with --force-with-lease (without --force beside it) to
+// A plain push, or one with --force-with-lease (without --force beside it), to
 // any other branch, and every other command pass. During a merge, rebase,
 // cherry-pick, or revert, taking one side of a conflict (`--ours`,
 // `--theirs`) passes, and a blocked call is told to finish or abort the
@@ -327,10 +330,11 @@ function covers(dst, name) {
 // A destination the command computes when it runs.
 const computed = (dst) => /[$`]/.test(dst);
 
-// The push rules that hold in a clean repository: no force push that may land
-// on a default branch, and no deleted remote branch. A forced push passes only
-// when every branch it writes can be read and none is a default branch.
-function sharedPush(dir, args) {
+// The push rules that hold in a clean repository: no push that lands on a
+// default branch, none after a checkout in the same line (`moved`) that names
+// no branch, and no deleted remote branch. A forced push passes only when every
+// branch it writes can be read and none is a default branch.
+function sharedPush(dir, args, moved) {
   const plan = pushPlan(args);
   if (!plan) return null;
   const read = (args) => {
@@ -355,7 +359,6 @@ function sharedPush(dir, args) {
   if (configured.length && (!specs.length || specs.some((s) => !s.named))) specs.push(...configured.map((word) => refspec(word, plan.force, false)));
   if (!specs.length && !plan.every && !plan.tags) specs.push({ implicit: true, force: plan.force });
   const forcesEvery = plan.every && plan.force;
-  if (!forcesEvery && !specs.some((s) => s.force || s.delete)) return null;
 
   for (const spec of specs.filter((s) => s.delete)) {
     const branch = spec.dst === "" ? current : computed(spec.dst) ? "named when the command runs" : spec.dst.includes("*") ? spec.dst : branchName(spec.dst);
@@ -387,6 +390,12 @@ function sharedPush(dir, args) {
     if (computed(spec.dst)) return [null];
     return [spec.dst, !spec.named && mode === "upstream" && known && upstreamOf(branchName(spec.src))];
   };
+  // After a checkout earlier in the line, the branch checked out now is not the
+  // one the push runs on, so only a push that names where it lands is read.
+  const unnamed = (spec) => spec.every || spec.implicit || !spec.dst || computed(spec.dst);
+  if (moved && (plan.every || specs.some((s) => !s.delete && unnamed(s)))) {
+    return "potluck git guardrail: blocked a push after a checkout or switch in the same command, since it does not name the branch it lands on and this check runs before the checkout does. Name a branch of your own (`git push -u origin <branch>`), or run the checkout and the push as separate commands.";
+  }
   const forced = [...(forcesEvery ? local() : []), ...specs.filter((s) => s.force).flatMap(writes)];
   const hit = [...shared].find((name) => forced.some((target) => target && covers(target, name)));
   if (hit) {
@@ -394,6 +403,16 @@ function sharedPush(dir, args) {
   }
   if (forced.includes(null)) {
     return `potluck git guardrail: blocked a force push whose branch it cannot read (${known ? "the branch is computed when the command runs" : "the repository it runs in could not be read"}). A force push that may land on a default branch is blocked, so name the branch plainly (\`git push --force-with-lease origin <branch>\`); it passes when that branch is not a default branch.`;
+  }
+  const pushed = [...(plan.every ? local() : []), ...specs.filter((s) => !s.force && !s.delete).flatMap(writes)];
+  const landed = [...shared].find((name) => pushed.some((target) => target && covers(target, name)));
+  if (landed) {
+    return `potluck git guardrail: blocked a push to ${landed}, a default branch. Changes reach a default branch only through a pull request: push to a branch of your own (\`git push -u origin <branch>\`) and open a pull request. A person can still merge on GitHub's website.`;
+  }
+  // A branch computed when the command runs is most often the current one, so
+  // it is blocked only where the current branch is a default branch.
+  if (known && pushed.includes(null) && [...shared].some((name) => covers(current, name))) {
+    return `potluck git guardrail: blocked a push whose branch is computed when the command runs while ${current}, a default branch, is checked out, since it may land there. Push from a branch of your own and name it plainly (\`git push -u origin <branch>\`).`;
   }
   return null;
 }
@@ -427,6 +446,7 @@ export function check(command, cwd) {
   // and reaches the substitutions nested in it.
   const ids = { next: 0, parent: new Map() };
   const dirs = new Map([[0, cwd]]);
+  let moved = false;
   const dirOf = (scope) => dirs.get(scope) ?? dirOf(ids.parent.get(scope) ?? 0);
   for (const { words: base, scope } of lex(command, 0, null, ids, 0).out) {
     const dir = dirOf(scope);
@@ -435,8 +455,9 @@ export function check(command, cwd) {
       continue;
     }
     for (const words of expand(base)) {
-      const reason = checkOne(words, dir);
+      const reason = checkOne(words, dir, moved);
       if (reason) return reason;
+      moved ||= movesBranch(words, dir);
     }
   }
   return null;
@@ -452,13 +473,21 @@ function namesFile(dir, path) {
   }
 }
 
-function checkOne(words, dir) {
+// A call that may check out another branch: git checkout (not of paths after
+// --), git switch, or gh pr checkout.
+function movesBranch(words, dir) {
+  const call = gitCall(words, dir);
+  if (call) return call.sub === "switch" || (call.sub === "checkout" && !call.args.includes("--"));
+  return /(^|\/)gh$/.test(words[0] ?? "") && words.includes("pr") && words.includes("checkout");
+}
+
+function checkOne(words, dir, moved) {
   const call = gitCall(words, dir);
   if (!call) return null;
   let found = risk(call);
   // The push rules hold even where the repository cannot be read.
   if (call.sub === "push") {
-    const shared = sharedPush(call.dir, call.args);
+    const shared = sharedPush(call.dir, call.args, moved);
     if (shared || !found) return shared;
   }
   if (!found) return null;

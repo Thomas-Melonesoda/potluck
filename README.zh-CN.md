@@ -47,7 +47,7 @@ codex plugin add pstack@potluck
 
 ## git 护栏
 
-在 Claude Code 里，agent 每次执行 shell 命令前，potluck 会先检查一下。仓库里有未提交的改动、未跟踪的文件，或者只有这里才有的提交时，它会拦住会弄丢这些东西的 git 命令：`reset --hard`、`clean -f`、会丢掉改动的 `checkout`、`switch` 或 `restore`、不带 `--force-with-lease` 的强推，以及删除一个提交只在它上面的分支。报错会告诉 agent 先怎么保存，所以它不用等你就能接着做。有两条 push 规则在仓库干净时也照样生效，因为共享分支上有别人的工作：不许强推默认分支（远程的默认分支、`main` 或 `master`），带不带 lease 都不行；不许删除远程分支（`git push origin :<分支>`、`--delete`、`--prune`、`--mirror`）。普通的 push，以及带 lease 强推到其他分支，都直接放行。这项检查需要电脑上有 `node`；没有的话，命令照常执行。
+在 Claude Code 里，agent 每次执行 shell 命令前，potluck 会先检查一下。仓库里有未提交的改动、未跟踪的文件，或者只有这里才有的提交时，它会拦住会弄丢这些东西的 git 命令：`reset --hard`、`clean -f`、会丢掉改动的 `checkout`、`switch` 或 `restore`、不带 `--force-with-lease` 的强推，以及删除一个提交只在它上面的分支。报错会告诉 agent 先怎么保存，所以它不用等你就能接着做。有三条 push 规则在仓库干净时也照样生效，因为共享分支上有别人的工作：不许 push 到默认分支（远程的默认分支、`main` 或 `master`），普通 push、强推、带 lease 都不行，改动要走 pull request；同一条命令里先 `checkout` 或 `switch` 再 push 时，push 必须写明推到哪个分支（`git push -u origin <分支>`），因为检查在切换分支之前就跑了，写不明的就分成两条命令执行；不许删除远程分支（`git push origin :<分支>`、`--delete`、`--prune`、`--mirror`）。其他推到别的分支的 push 都放行。检查只读命令行，所以脚本文件、git 别名、运行时才拼出来的命令拦不住。这项检查需要电脑上有 `node`；没有的话，命令照常执行。
 
 ## 开始使用
 
