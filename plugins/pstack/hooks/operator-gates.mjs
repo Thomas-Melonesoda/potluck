@@ -309,71 +309,83 @@ function isGatesFile(path, cwd) {
   }
 }
 
-// Commands that only read the files they name, and git subcommands that do
-// not change the working tree.
-const READERS = new Set(["cd", "pushd", "popd", "cat", "less", "more", "head", "tail", "bat", "jq", "grep", "egrep", "fgrep", "rg", "wc", "ls", "stat", "file", "diff", "readlink", "realpath", "md5", "shasum", "sha256sum", "test", "["]);
-const GIT_READERS = new Set(["add", "commit", "diff", "log", "show", "status", "blame", "ls-files"]);
+// Commands that only read what they name, and git subcommands that do not
+// change the working tree. Anything else that names a gates file or folder
+// counts as a change, so a command this list does not know is blocked.
+const READERS = new Set(["cd", "pushd", "popd", "cat", "less", "more", "head", "tail", "bat", "jq", "grep", "egrep", "fgrep", "rg", "wc", "ls", "tree", "du", "stat", "file", "diff", "readlink", "realpath", "md5", "shasum", "sha256sum", "test", "[", "echo", "printf", "pwd", "basename", "dirname", "mkdir"]);
+const GIT_READERS = new Set(["add", "commit", "diff", "log", "show", "status", "blame", "ls-files", "ls-tree", "grep", "rev-parse", "cat-file"]);
+// git's options before the subcommand that take a value.
+const GIT_VALUED = /^(-C|-c|--git-dir|--work-tree|--namespace)$/;
 
-// Whether a shell command may change a gates file: it names one (or the file
-// the user's links to, or a folder holding one) anywhere but as a plain
-// argument of a reader, or redirects output to one. After a cd, any bare
-// gates.json counts, since its folder is no longer known.
-// Commands that remove, move, or overwrite a folder they name, and git
-// subcommands that do; cp and install only into it.
-const FOLDER_WRITERS = new Set(["rm", "rmdir", "mv", "rsync", "ln", "unlink", "chmod", "chown", "trash"]);
-const GIT_FOLDER_WRITERS = new Set(["rm", "mv", "checkout", "restore", "clean", "stash", "reset"]);
-function removesFolder(head, args, folder) {
-  const operands = args.filter((a) => !a.startsWith("-"));
-  if (FOLDER_WRITERS.has(head)) return operands.some(folder);
-  if (head === "cp" || head === "install") return operands.length > 1 && folder(operands.at(-1));
-  if (head === "find") return args.some((a) => /^-(delete|exec|execdir|ok|okdir)$/.test(a)) && operands.some(folder);
-  // An archive extracted into it: tar's -C or --directory, unzip's -d.
-  if (head === "tar") return /^-?[a-z]*x|^--extract/i.test(args[0] ?? "") && args.some((a, i) => /^(-C|--directory)$/.test(args[i - 1] ?? "") && folder(a) || /^--directory=/.test(a) && folder(a.slice(12)));
-  if (head === "unzip") return args.some((a, i) => args[i - 1] === "-d" && folder(a));
+// Whether a command with these words only reads; `touches` says whether a
+// word names a gates file or a folder holding one.
+function reads(head, args, touches) {
+  if (READERS.has(head)) return true;
+  // find reads unless it deletes, writes a file, or runs a command that is not a reader.
+  if (head === "find") return !args.some((a, i) => /^-(delete|fprint|fprint0|fprintf|fls)$/.test(a) || (/^-(exec|execdir|ok|okdir)$/.test(a) && !READERS.has((args[i + 1] ?? "").replace(/^.*\//, ""))));
   if (head === "git") {
-    // Options before the subcommand, some with a value: -C, -c, --git-dir, --work-tree.
     let i = 0;
-    while (i < args.length && args[i].startsWith("-")) i += /^(-C|-c|--git-dir|--work-tree|--namespace)$/.test(args[i]) ? 2 : 1;
-    return GIT_FOLDER_WRITERS.has(args[i]) && args.slice(i + 1).filter((a) => !a.startsWith("-")).some(folder);
+    while (i < args.length && args[i].startsWith("-")) i += GIT_VALUED.test(args[i]) ? 2 : 1;
+    return GIT_READERS.has(args[i]);
   }
+  // Copying out of a gates folder reads it: only the last operand is written.
+  if (head === "cp" || head === "rsync") {
+    const operands = args.filter((a) => !a.startsWith("-"));
+    return !args.some((a) => /^(-t|--target-directory(=.*)?|--delete.*|--remove-source-files)$/.test(a)) && operands.length > 1 && !touches(operands.at(-1));
+  }
+  // An archive listed or created elsewhere reads; one extracted may write.
+  if (head === "tar") {
+    if (args.some((a, i) => /^--(extract|get|delete|append|update)$/.test(a) || /^-[A-Za-z]*[xrud]/.test(a) || (i === 0 && /^[A-Za-z]*[xrud]/.test(a)))) return false;
+    const file = args.findIndex((a, i) => /^--file$/.test(a) || /^-[A-Za-z]*f$/.test(a) || (i === 0 && /^[A-Za-z]*f$/.test(a)));
+    return !(file >= 0 && touches(args[file + 1] ?? "")) && !args.some((a) => /^--file=/.test(a) && touches(a.slice(7)));
+  }
+  if (head === "unzip") return args.some((a) => /^-[A-Za-z]*[lvZ]/.test(a));
+  // zip writes only its archive, the first operand.
+  if (head === "zip") return !touches(args.find((a) => !a.startsWith("-")) ?? "");
   return false;
 }
 
+// Whether a shell command may change a gates file: it names one, the file the
+// user's links to, or a folder holding one, in a command that does not only
+// read, or redirects output to one. After a cd, a bare gates.json counts, and
+// after a cd into a gates folder (or one the hook cannot read) only reads pass.
 export function touchesGates(command, cwd) {
   const target = gatesTarget();
   if (!/gates\.json|\.potluck/.test(command) && !(target && command.includes(target))) return false;
   const home = process.env.HOME ?? "";
   const all = commands(command);
-  const moved = all.some((words) => /^(cd|pushd|popd)$/.test(words.find((w) => !ASSIGN.test(w)) ?? ""));
   const expand = (w) => (w === "~" || w.startsWith("~/") ? join(home, w.slice(1)) : w);
-  const named = (w) => {
-    const path = expand(w);
-    return w.includes(".potluck/gates.json") || (target && w.includes(target)) || (moved && /^(\.\/)?gates\.json$/.test(w)) || (/gates\.json$/.test(w) && isGatesFile(path, cwd));
-  };
   // A folder that holds a gates file: a .potluck folder, or one above the
   // file the user's links to.
   const folder = (w) => {
     const path = expand(w);
     const full = (isAbsolute(path) ? path : join(cwd, path)).replace(/\/+$/, "");
-    // After a cd, . is the folder the command moved into, which may be one.
-    if (moved && /^\.\/?$/.test(w)) return true;
     return /(^|\/)\.potluck$/.test(full) || Boolean(target && target.startsWith(`${full}/`));
   };
+  const cds = all.map((words) => words.filter((w) => !ASSIGN.test(w))).filter((w) => /^(cd|pushd|popd)$/.test(w[0] ?? ""));
+  const moved = cds.length > 0;
+  const intoGates = cds.some((w) => {
+    const to = w.slice(1).find((a) => !a.startsWith("-") || a === "-");
+    return to === undefined || to === "-" || /[$`*?[{]/.test(to) || folder(to.replace(/^["']|["']$/g, ""));
+  });
+  const named = (w) => {
+    const path = expand(w);
+    return w.includes(".potluck/gates.json") || (target && w.includes(target)) || (moved && /^(\.\/)?gates\.json$/.test(w)) || (/gates\.json$/.test(w) && isGatesFile(path, cwd));
+  };
+  // After a cd into a gates folder, a relative path may be inside it.
+  const touches = (w) => named(w) || folder(w) || (intoGates && !isAbsolute(expand(w))) || (/^--(directory|file|target-directory|output|output-file)=/.test(w) && touches(w.slice(w.indexOf("=") + 1)));
   // commands() drops redirect targets, so read them here. One that is not a
   // plain path (a variable, a substitution) may be a gates file.
-  for (const [, to] of command.matchAll(/(?:^|[^<>&])(?:\d*|&)>>?\|?\s*([^\s;|&<>()]+|(?=\())/g)) {
-    if (/^&\d?-?$/.test(to) || to === "/dev/null") continue;
-    if (!to || /[$`*?[{]/.test(to) || named(to.replace(/^["']|["']$/g, ""))) return true;
+  for (const [, to] of command.matchAll(/(?:^|[^<>&])(?:\d*|&)(?:<>|>&|>>?\|?)\s*([^\s;|&<>()]+|(?=\())/g)) {
+    if (/^\d?-?$/.test(to) || /^&\d?-?$/.test(to) || to === "/dev/null") continue;
+    if (!to || /[$`*?[{]/.test(to) || touches(to.replace(/["']/g, ""))) return true;
   }
   for (const words of all) {
     let i = 0;
     while (i < words.length && (ASSIGN.test(words[i]) || WRAPPERS.test(words[i]))) i++;
     const head = (words[i] ?? "").replace(/^.*\//, "");
-    if (removesFolder(head, words.slice(i + 1), folder)) return true;
-    if (!words.some(named)) continue;
-    if (READERS.has(head)) continue;
-    if (head === "git" && GIT_READERS.has(words.slice(i + 1).find((w) => !w.startsWith("-")))) continue;
-    return true;
+    if (!intoGates && !words.some(touches)) continue;
+    if (!reads(head, words.slice(i + 1), touches)) return true;
   }
   return false;
 }
