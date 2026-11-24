@@ -326,7 +326,16 @@ function removesFolder(head, args, folder) {
   const operands = args.filter((a) => !a.startsWith("-"));
   if (FOLDER_WRITERS.has(head)) return operands.some(folder);
   if (head === "cp" || head === "install") return operands.length > 1 && folder(operands.at(-1));
-  if (head === "git") return GIT_FOLDER_WRITERS.has(operands[0]) && operands.slice(1).some(folder);
+  if (head === "find") return args.some((a) => /^-(delete|exec|execdir|ok|okdir)$/.test(a)) && operands.some(folder);
+  // An archive extracted into it: tar's -C or --directory, unzip's -d.
+  if (head === "tar") return /^-?[a-z]*x|^--extract/i.test(args[0] ?? "") && args.some((a, i) => /^(-C|--directory)$/.test(args[i - 1] ?? "") && folder(a) || /^--directory=/.test(a) && folder(a.slice(12)));
+  if (head === "unzip") return args.some((a, i) => args[i - 1] === "-d" && folder(a));
+  if (head === "git") {
+    // Options before the subcommand, some with a value: -C, -c, --git-dir, --work-tree.
+    let i = 0;
+    while (i < args.length && args[i].startsWith("-")) i += /^(-C|-c|--git-dir|--work-tree|--namespace)$/.test(args[i]) ? 2 : 1;
+    return GIT_FOLDER_WRITERS.has(args[i]) && args.slice(i + 1).filter((a) => !a.startsWith("-")).some(folder);
+  }
   return false;
 }
 
@@ -346,6 +355,8 @@ export function touchesGates(command, cwd) {
   const folder = (w) => {
     const path = expand(w);
     const full = (isAbsolute(path) ? path : join(cwd, path)).replace(/\/+$/, "");
+    // After a cd, . is the folder the command moved into, which may be one.
+    if (moved && /^\.\/?$/.test(w)) return true;
     return /(^|\/)\.potluck$/.test(full) || Boolean(target && target.startsWith(`${full}/`));
   };
   // commands() drops redirect targets, so read them here. One that is not a
