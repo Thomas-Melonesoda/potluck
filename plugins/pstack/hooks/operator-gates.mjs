@@ -305,7 +305,7 @@ const isGatesFile = (path, cwd) => {
 
 // The folder after a Windows drive or home, a loop over folders, or in a find pattern,
 // which the path-part rule below reads as the end of a longer name.
-const FOLDER = /(?:(?:[A-Za-z]:|~|%\w+%|\$[\w:]+)[^\s"']*\\|\bfor\s+(\w+)\s+in\s[^;\n]*\/\s*[;\n][\s\S]*\$\1|\s-i?(?:name|path|wholename)\s+["']?\*\/?)\.potluck(?![\w-]|\.\w)/;
+const FOLDER = /(?:(?:[A-Za-z]:|~|%\w+%|\$[\w:]+)[^\s"']*\\|\bfor\s+(\w+)\s+in\s[^;\n]*\/\s*[;\n][\s\S]{0,500}?\$\1|\s-i?(?:name|path|wholename)\s+["']?\*\/?)\.potluck(?![\w-]|\.\w)/;
 
 // Whether a shell command names a gates file or a .potluck folder, as a whole
 // path part, or the file the user's links to. Quotes are dropped in one reading
