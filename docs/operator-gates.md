@@ -60,9 +60,14 @@ A repository's file that cannot be parsed refuses every merge, including the PR 
 
 ## No checks is not a failed check
 
-The merge gate refuses a PR whose checks failed or are still running. A PR with no CI result at all has "no checks": the repository has no CI, or its CI does not run on pull requests, as when it runs only on pushes to `main`. potluck's default merges such a PR on its verdict, and `noCI: "wait"` holds it instead. A result with no checks says so with `checks: "none"`.
+The merge gate refuses a PR whose checks failed or are still running. Before it decides anything about silence, it lists the checks the PR should get and compares them with what reported:
 
-Silence counts as no checks only when nothing says CI is still coming. The gate refuses while a GitHub Actions check suite on the head is unfinished, or waits for a maintainer's approval, as on a fork PR. In a repository with workflows it also refuses when the head commit's message asks GitHub to skip CI (`[skip ci]` and the like), and when GitHub has held the head for less than a minute, judged by its oldest commit status, since CI may not have started yet. A PR with no checks that changes `.github/workflows/` is held for a person under any setting, since its silence may be its own doing.
+- each workflow in the base or the head that runs on `pull_request` needs a finished, green Actions run on the head. A run that is waiting, queued, in progress, or waiting for a maintainer's approval has not finished, even when another app already reported a green check;
+- each check the base branch's rulesets or branch protection require must have reported.
+
+One that has not reported refuses while CI may still start. Ten minutes after the head was pushed (`--ci-wait <minutes>` changes this), it refuses as "CI did not start", never as no checks. A workflow whose `pull_request` trigger names paths or branches is waited for only once it runs, since it may rightly not run for a PR.
+
+A PR has "no checks" only when no workflow runs on pull requests, no check is required, and none reported: the repository has no CI, or its CI runs only on pushes to `main`. potluck's default merges such a PR on its verdict at once, and `noCI: "wait"` holds it instead. A result with no checks says so with `checks: "none"`. In a repository with workflows, a head whose commit message asks GitHub to skip CI (`[skip ci]` and the like) still refuses.
 
 ## Loosening a gate
 
