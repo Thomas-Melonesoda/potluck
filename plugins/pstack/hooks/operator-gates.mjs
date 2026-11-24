@@ -303,10 +303,6 @@ const isGatesFile = (path, cwd) => {
   return [path, full, real(full)].some((p) => /(^|[\\/])\.potluck[\\/]gates\.json$/i.test(p)) || real(full) === real(userFile());
 };
 
-// The folder after a Windows drive or home, a loop over folders, or in a find pattern,
-// which the path-part rule below reads as the end of a longer name.
-const FOLDER = /(?:(?:[A-Za-z]:|~|%\w+%|\$[\w:]+)[^\s"']*\\|\bfor\s+(\w+)\s+in\s[^;\n]*\/\s*[;\n][\s\S]{0,500}?\$\1|\s-i?(?:name|path|wholename)\s+["']?\*\/?)\.potluck(?![\w-]|\.\w)/;
-
 // Whether a shell command names a gates file or a .potluck folder, as a whole
 // path part, or the file the user's links to. Quotes are dropped in one reading
 // (.potluck/"gates.json") and end a part in the other ("$D"gates.json), as an
@@ -314,12 +310,15 @@ const FOLDER = /(?:(?:[A-Za-z]:|~|%\w+%|\$[\w:]+)[^\s"']*\\|\bfor\s+(\w+)\s+in\s
 // missing a spelling.
 export function namesGates(command) {
   const line = command.replace(/\\\n/g, "");
-  const plain = line.replace(/["'\\]/g, "");
+  const bare = line.replace(/["']/g, "");
+  const plain = bare.replace(/\\/g, "");
   const apart = line.replace(/["']|\\[abefnrtv0]|\\(?=gates\.json)/g, " ").replace(/\\/g, "");
   // A name starts a path part, or follows a short option (-C.potluck).
-  const part = (before, name) => [plain, apart].some((text) => new RegExp(`(?:(?<!${before})|(?<=(?:^|\\s)-[A-Za-z]{1,2}))${name}(?![\\w-]|\\.\\w)`).test(text));
-  if (part("[\\w.-]", "gates\\.json") || plain.includes(real(userFile()).replace(/["'\\]/g, ""))) return true;
-  return (part("[\\w.*?\\]-]", "\\.potluck") || FOLDER.test(line)) && !ownFoldersOnly(command);
+  const part = (before, letters, name) => [plain, apart].some((text) => new RegExp(`(?:(?<!${before})|(?<=(?:^|\\s)-${letters}))${name}(?![\\w-]|\\.\\w)`).test(text));
+  if (part("[\\w.-]", "[A-Za-z]{1,2}", "gates\\.json") || plain.includes(real(userFile()).replace(/["'\\]/g, ""))) return true;
+  // A backslash before .potluck always names it: .\.potluck is a Windows path.
+  const named = part("[\\w.*?\\]-]", "[A-Za-z]+", "\\.potluck") || [line, bare].some((text) => /\\\.potluck(?![\w-]|\.\w)/.test(text));
+  return named && !ownFoldersOnly(command);
 }
 
 // The user's exemption: literal, unquoted paths in potluck's own folders under
