@@ -954,8 +954,15 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const r = run(...merge);
     expect([r.status, r.json.kind]).toEqual([1, "refused"]);
     expect(r.json.reasons[0]).toContain("CI did not start: .github/workflows/ci.yml never reported within 10 minutes of the push");
-    expect(run(...merge, "--ci-wait", "30").json.reasons[0]).toEndWith("rerun in a minute");
     expect(calls().some((a) => a[1] === "merge")).toBe(false);
+  });
+
+  test("--ci-wait sets how long a PR workflow may take to start", () => {
+    const { run, head, dir } = fake({ runs: [], view: { headRefName: "feature" }, setup: { base: prCI } });
+    const f = JSON.parse(readFileSync(join(dir, "fixture.json"), "utf8"));
+    f.activity = [{ ref: "refs/heads/feature", after: head, timestamp: new Date(Date.now() - 20 * 60_000).toISOString() }];
+    writeFileSync(join(dir, "fixture.json"), JSON.stringify(f));
+    expect(run(...merge, "--ci-wait", "30", "--dry-run").json.reasons[0]).toEndWith("rerun in a minute");
   });
 
   test("a check a ruleset requires that has not reported refuses", () => {
@@ -965,8 +972,11 @@ else if (line.includes("POST")) process.stdout.write("{}");
     expect(r.json.reasons[0]).toContain("the required check build has not reported");
   });
 
-  test("a PR workflow that ran green merges, and one limited to other paths is not waited for", () => {
+  test("a PR workflow that ran green merges", () => {
     expect(fake({ wfRuns: [wfRun("completed", "success")], setup: { base: prCI } }).run(...merge, "--dry-run").json.kind).toBe("would-merge");
+  });
+
+  test("a PR workflow limited to other paths is not waited for", () => {
     const paths = { ".github/workflows/docs.yml": "on:\n  pull_request:\n    paths: ['docs/**']\n" };
     expect(fake({ runs: [], statuses: [aged], setup: { base: paths } }).run(...merge, "--dry-run").json).toMatchObject({ kind: "would-merge", checks: "none" });
   });
