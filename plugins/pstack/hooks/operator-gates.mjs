@@ -312,7 +312,7 @@ function isGatesFile(path, cwd) {
 // Commands that only read what they name, and git subcommands that do not
 // change the working tree. Anything else that names a gates file or folder
 // counts as a change, so a command this list does not know is blocked.
-const READERS = new Set(["cd", "pushd", "popd", "cat", "less", "more", "head", "tail", "bat", "jq", "grep", "egrep", "fgrep", "rg", "wc", "ls", "tree", "du", "stat", "file", "diff", "readlink", "realpath", "md5", "shasum", "sha256sum", "test", "[", "echo", "printf", "pwd", "basename", "dirname", "mkdir"]);
+const READERS = new Set(["cd", "pushd", "popd", "cat", "less", "more", "head", "tail", "bat", "jq", "grep", "egrep", "fgrep", "rg", "wc", "ls", "tree", "du", "stat", "file", "diff", "cmp", "readlink", "realpath", "md5", "shasum", "sha256sum", "test", "[", "echo", "printf", "pwd", "basename", "dirname", "mkdir"]);
 const GIT_READERS = new Set(["add", "commit", "diff", "log", "show", "status", "blame", "ls-files", "ls-tree", "grep", "rev-parse", "cat-file"]);
 // git's options before the subcommand that take a value.
 const GIT_VALUED = /^(-C|-c|--git-dir|--work-tree|--namespace)$/;
@@ -320,6 +320,10 @@ const GIT_VALUED = /^(-C|-c|--git-dir|--work-tree|--namespace)$/;
 // Whether a command with these words only reads; `touches` says whether a
 // word names a gates file or a folder holding one.
 function reads(head, args, touches) {
+  // A few readers have an option that writes a file or runs a program: tree
+  // and less -o, git and diff --output, jq -i, rg --pre, git grep -O.
+  const writing = { tree: /^-[A-Za-z]*o/, less: /^-[A-Za-z]*[oO]/, jq: /^(-i|--in-place)/, rg: /^--pre(=|$)/, git: /^(-O|--open-files-in-pager)/ };
+  if (args.some((a) => /^--output(-file)?(=|$)/.test(a) || writing[head]?.test(a))) return false;
   if (READERS.has(head)) return true;
   // find reads unless it deletes, writes a file, or runs a command that is not a reader.
   if (head === "find") return !args.some((a, i) => /^-(delete|fprint|fprint0|fprintf|fls)$/.test(a) || (/^-(exec|execdir|ok|okdir)$/.test(a) && !READERS.has((args[i + 1] ?? "").replace(/^.*\//, ""))));
@@ -328,20 +332,24 @@ function reads(head, args, touches) {
     while (i < args.length && args[i].startsWith("-")) i += GIT_VALUED.test(args[i]) ? 2 : 1;
     return GIT_READERS.has(args[i]);
   }
-  // Copying out of a gates folder reads it: only the last operand is written.
+  // Copying out of a gates folder reads it. The destination is the last
+  // operand, but an option after it can take a value, so no word after the
+  // first operand may name a gates path.
   if (head === "cp" || head === "rsync") {
     const operands = args.filter((a) => !a.startsWith("-"));
-    return !args.some((a) => /^(-t|--target-directory(=.*)?|--delete.*|--remove-source-files)$/.test(a)) && operands.length > 1 && !touches(operands.at(-1));
+    const writes = head === "cp" ? /^(-[A-Za-z]*t|--target-directory(=.*)?)$/ : /^(--delete.*|--remove-source-files)$/;
+    return operands.length > 1 && !operands.slice(1).some(touches) && !args.some((a) => writes.test(a) || (/^--[\w-]+=/.test(a) && touches(a.slice(a.indexOf("=") + 1))));
   }
   // An archive listed or created elsewhere reads; one extracted may write.
   if (head === "tar") {
-    if (args.some((a, i) => /^--(extract|get|delete|append|update)$/.test(a) || /^-[A-Za-z]*[xrud]/.test(a) || (i === 0 && /^[A-Za-z]*[xrud]/.test(a)))) return false;
+    if (args.some((a, i) => /^--(extract|get|delete|append|update|remove-files)$/.test(a) || /^-[A-Za-z]*[xrud]/.test(a) || (i === 0 && /^[A-Za-z]*[xrud]/.test(a)))) return false;
     const file = args.findIndex((a, i) => /^--file$/.test(a) || /^-[A-Za-z]*f$/.test(a) || (i === 0 && /^[A-Za-z]*f$/.test(a)));
     return !(file >= 0 && touches(args[file + 1] ?? "")) && !args.some((a) => /^--file=/.test(a) && touches(a.slice(7)));
   }
   if (head === "unzip") return args.some((a) => /^-[A-Za-z]*[lvZ]/.test(a));
-  // zip writes only its archive, the first operand.
-  if (head === "zip") return !touches(args.find((a) => !a.startsWith("-")) ?? "");
+  // zip reads what it packs, unless it moves the files in (-m) or writes its
+  // archive elsewhere (-O); its archive is the first operand.
+  if (head === "zip") return !args.some((a) => /^-[A-Za-z]*[mO]/.test(a) || /^--(move|output-file|out)/.test(a)) && !touches(args.find((a) => !a.startsWith("-")) ?? "");
   return false;
 }
 
