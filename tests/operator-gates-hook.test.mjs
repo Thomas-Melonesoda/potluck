@@ -6,7 +6,7 @@
 // records every call.
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -263,4 +263,118 @@ describe("Claude Code's Bash hook, git-guardrail.sh", () => {
     expect(r.stderr).toContain("potluck git guardrail: blocked a clean -f");
     expect(r.stdout).toBe("");
   });
+});
+
+// Stage 5 follow-up issue 3: a manual allow list in the user's own gates file.
+describe("trustRepos, the user's allow list", () => {
+  test("a write to an owner or repository on the user's list passes", () => {
+    const { run } = setup({ gates: { foreignRepos: "ask", trustRepos: ["friend", "club/site"] } });
+    for (const command of ["gh pr comment 5 --repo friend/app -b hi", "gh issue create -R club/site -t t -b b", "gh api repos/Friend/app/issues/1/comments -f body=hi"]) {
+      expect([command, run(command).decision]).toEqual([command, null]);
+    }
+    expect(run("gh issue create -R club/other -t t -b b").decision).toBe("ask");
+  });
+
+  test("a repository's own gates file cannot widen it", () => {
+    const { run, work } = setup({ gates: { foreignRepos: "ask" } });
+    mkdirSync(join(work, ".potluck"), { recursive: true });
+    writeFileSync(join(work, ".potluck/gates.json"), JSON.stringify({ trustRepos: ["stranger"] }));
+    const r = run("gh pr comment 5 --repo stranger/app -b hi");
+    expect(r.decision).toBe("ask");
+    expect(r.reason).toContain("owned by stranger");
+  });
+});
+
+// Stage 5 follow-up issue 2: only the user changes a gates file.
+describe("the gates files are the user's to change", () => {
+  const wrapper = join(import.meta.dir, "../plugins/pstack/hooks/git-guardrail.sh");
+  const lockRun = (s, input, [cmd, script] = ["node", hook]) => spawnSync(cmd, [script], { input: JSON.stringify(input), encoding: "utf8", env: { ...process.env, HOME: s.home, PATH: `${s.bin}:${process.env.PATH}` } });
+
+  test.each([
+    "echo '{}' > ~/.potluck/gates.json",
+    "echo '{}' > \"/x/My Repo/.potluck/gates.json\"",
+    "echo x > ~/.potluck/\"gates.json\"",
+    "cd .potluck && sed -i '' s/a/b/ gates.json",
+    "cd ~/.potluck && cp /tmp/gates.json .",
+    "cp -r ../backup/.potluck .",
+    "rsync -a /tmp/new/ .potluck/ --exclude node_modules",
+    "git -C .potluck rm -r .",
+    "tar -C.potluck -xf /tmp/x.tar", "cp x dir/{a,gates.json}", "cp x ${D}gates.json", "rm \"$D\"gates.json", "printf 'gates.json\\n' | xargs rm", "printf 'a\\ngates.json' | xargs rm", "rm *gates.json", "rm ${D}.potluck/x",
+    "find .potluck -delete",
+    "rm -rf ~/.potluck",
+    "sh -c 'cd .potluck && rm gates.json'",
+    "node -e \"require('fs').writeFileSync('.potluck/gates.json','{}')\"",
+    "python3 - <<'EOF'\nopen('.potluck/gates.json','w').write('{}')\nEOF",
+    "rm .pot\\\nluck/gates.json",
+    "cat ~/.potluck/gates.json",
+    "git add .potluck/gates.json",
+    "git commit -m 'note gates.json'",
+  ])("a shell command that names a gates file or its folder is blocked: %s", (command) => {
+    const s = setup({ gates: null });
+    for (const script of [["node", hook], ["sh", wrapper]]) {
+      const r = lockRun(s, { tool_name: "Bash", tool_input: { command }, cwd: s.work }, script);
+      expect([script[1], r.status]).toEqual([script[1], 2]);
+      if (script[1] === hook) expect(r.stderr).toContain("only the user changes a gates file");
+    }
+  });
+
+  test("a command that names the file the user's links to is blocked, and one that names neither passes", () => {
+    const s = setup({ gates: null });
+    const target = join(s.work, "my-settings.json");
+    writeFileSync(target, "{}");
+    symlinkSync(target, join(s.home, ".potluck/gates.json"));
+    expect(lockRun(s, { tool_name: "Bash", tool_input: { command: `rm '${realpathSync(target)}'` }, cwd: s.work }).status).toBe(2);
+    for (const command of ["git status", "cp a.txt b.txt", "cd src && mv a.js b.js", "ls potluck", "cat aggregates.json", "git add data/aggregates.json", "jq . feature_gates.json", "cat quality-gates.json", "jq '.plugins.potluck' package.json", "curl https://www.potluck.dev", "cp gates.json.example x", "cat .potluck.yml", "ls *.potluck", "jq '.plugins[].potluck' x.json", "node -e 'cfg?.potluck'", "grep 'www\\.potluck' x", "node plugins/pstack/skills/poteto-mode/scripts/gates.mjs", "rm -rf dist"]) {
+      expect([command, lockRun(s, { tool_name: "Bash", tool_input: { command }, cwd: s.work }).status]).toEqual([command, 0]);
+    }
+  });
+
+  // The user exempted potluck's own folders under ~/.potluck, for reads and the decision log's two writers.
+  const gate = "node /p/skills/poteto-mode/scripts/merge-gate.mjs cosign --repo o/r --pr 5 --sha abc";
+  const exempt = (command) => {
+    const s = setup({ gates: null });
+    return lockRun(s, { tool_name: "Bash", tool_input: { command: command.replaceAll("<home>", s.home) }, cwd: s.work }).status;
+  };
+  test.each([
+    `${gate} --log ~/.potluck/decisions/a.tsv --evidence notes/v.md --why 'it is stricter (0 -> 2); checked'`,
+    "bash /p/skills/show-me-your-work/scripts/log.sh $HOME/.potluck/decisions/a.tsv verify \"don't merge\" 'why' 'pr 5' ok",
+    "ls ~/.potluck/trash", "ls -la <home>/.potluck/trash/2026-11-24 2>/dev/null | head -5", "cat ~/.potluck/decisions/a.tsv", "grep -c x ~/.potluck/backup/b.log && wc -l ~/.potluck/decisions/a.tsv",
+  ])("an exempt folder passes: %s", (command) => expect(exempt(command)).toBe(0));
+
+  test.each([
+    "ls ~/.potluck", "cat ~/.potluck/trash/w/gates.json", "ls ~/.potluck/trash/w/.potluck", "ls ~/.potluck/trash/../x", "cat ~/.potluck/trash/a ../b",
+    "cat ~/.potluck/trash/*", "cat ~/.potluck/trash/{a,b}", "cat ~/.potluck/trash/`x`", "cat ~/.potluck/trash/$X", "cat ${HOME}/.potluck/trash/a", "cat \"~/.potluck/trash/a\"", "cat .potluck/trash/a", "HOME=/r cat $HOME/.potluck/trash/a",
+    "cd ~/.potluck/trash && cat a", "cat ~/.potluck/trash/a && cd x && rm b", "cp -r ~/.potluck/trash/d/w/. .", "rsync -a ~/.potluck/trash/d/w/ ./", "mv ~/.potluck/trash/d/w w", "cat ~/.potluck/backup/w.tgz | tar -xzf -", "ls -d ~/.potluck/trash/w | xargs -J % cp -r % .",
+    "cp -r $(ls -d ~/.potluck/trash/w) .", "D=~/.potluck/trash/w; cp -r $D .", "echo x > ~/.potluck/decisions/a.tsv", "cat ~/.potluck/trash/a > b", "node ~/.potluck/trash/w/merge-gate.mjs cosign --log ~/.potluck/decisions/a", "bash ~/.potluck/trash/log.sh a", "bash /p/log.sh ~/.potluck/trash/a b c d e f", "gh pr create --body 'see .potluck/gates.json'", `${gate} --log ~/.potluck/decisions/a --why 'see .potluck/x'`,
+  ])("everything else that names .potluck stays blocked: %s", (command) => expect(exempt(command)).toBe(2));
+
+  test.each(["Edit", "Write", "MultiEdit", "NotebookEdit"])("the %s tool on a gates file is blocked, a link to it included", (tool) => {
+    const s = setup({ gates: null });
+    // The user's file is a link to one kept elsewhere, as in a personal notes repository.
+    const target = join(s.work, "vault-gates.json");
+    writeFileSync(target, "{}");
+    symlinkSync(target, join(s.home, ".potluck/gates.json"));
+    mkdirSync(join(s.work, ".potluck"));
+    symlinkSync(join(s.work, ".potluck"), join(s.work, "cfg"));
+    for (const file_path of [join(s.work, "cfg/gates.json"), join(s.home, ".potluck/gates.json"), join(s.work, ".potluck/gates.json"), `${s.work}/.potluck/./gates.json`, "src/../.potluck/gates.json", target]) {
+      const r = lockRun(s, { tool_name: tool, tool_input: { file_path, notebook_path: file_path }, cwd: s.work });
+      expect([file_path, r.status]).toEqual([file_path, 2]);
+    }
+    expect(lockRun(s, { tool_name: tool, tool_input: { file_path: join(s.work, "notes.md") }, cwd: s.work }).status).toBe(0);
+  });
+
+  test("Claude Code sends Edit, Write, MultiEdit, and NotebookEdit calls to the hook", () => {
+    const hooksJson = JSON.parse(readFileSync(join(import.meta.dir, "../plugins/pstack/hooks/hooks.json"), "utf8"));
+    expect(hooksJson.hooks.PreToolUse.map((g) => g.matcher)).toContain("Edit|Write|MultiEdit|NotebookEdit");
+  });
+});
+
+// Codex runs PreToolUse hooks but rejects an "ask" decision, so there the
+// check blocks with its reason instead, and the user runs the command.
+test("on Codex a gh call that would ask is blocked with the reason", () => {
+  const s = setup();
+  const r = spawnSync("node", [hook, "codex"], { input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "gh pr comment 5 --repo stranger/app -b hi" }, cwd: s.work }), encoding: "utf8", env: { ...process.env, GH_REPO: "", HOME: s.home, PATH: `${s.bin}:${process.env.PATH}` } });
+  expect([r.status, r.stdout]).toEqual([2, ""]);
+  expect(r.stderr).toContain("owned by stranger");
+  expect(r.stderr).toContain("Codex cannot ask");
 });
