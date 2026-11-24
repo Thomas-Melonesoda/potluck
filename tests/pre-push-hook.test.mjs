@@ -23,7 +23,7 @@ function push(fakeBun, extraEnv = {}) {
     for (const tool of tools) symlinkSync(execFileSync("/bin/sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).trim(), join(bin, tool));
     if (fakeBun !== null) {
       const bun = join(bin, "bun");
-      writeFileSync(bun, `#!/bin/sh\necho "$@" > "${dir}/args"\nenv | grep '^GIT_' > "${dir}/gitenv"\n${fakeBun}\n`);
+      writeFileSync(bun, `#!/bin/sh\necho "$@" > "${dir}/args"\nenv | grep '^GIT_' > "${dir}/gitenv"\necho "$BUN_OPTIONS" > "${dir}/bunoptions"\n${fakeBun}\n`);
       chmodSync(bun, 0o755);
     }
     const run = spawnSync(hook, ["origin", "https://example.invalid/repo.git"], {
@@ -33,7 +33,7 @@ function push(fakeBun, extraEnv = {}) {
       input: "",
     });
     const read = (name) => (existsSync(join(dir, name)) ? readFileSync(join(dir, name), "utf8").trim() : null);
-    return { status: run.status, out: `${run.stdout}${run.stderr}`, args: read("args"), gitEnv: read("gitenv") };
+    return { status: run.status, out: `${run.stdout}${run.stderr}`, args: read("args"), gitEnv: read("gitenv"), bunOptions: read("bunoptions") };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -71,6 +71,11 @@ describe("pre-push hook", () => {
     expect(block).toBeDefined();
     expect(block).toMatch(/\n\s+entry: \.githooks\/pre-push\n/);
     expect(block).toMatch(/\n\s+stages: \[pre-push\]/);
+  });
+
+  test("each test gets 30 s, so a slow machine does not block a push on a timeout", () => {
+    // Under heavy load, git-heavy tests that take 5 to 6 s blocked pushes at bun's 5 s default.
+    expect(push('echo " 0 fail"; exit 0').bunOptions).toBe("--timeout=30000");
   });
 
   test("without bun on PATH the push is blocked, not waved through", () => {

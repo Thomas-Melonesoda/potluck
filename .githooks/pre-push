@@ -19,7 +19,9 @@ fi
 log="$(mktemp "${TMPDIR:-/tmp}/potluck-pre-push.XXXXXX")"
 trap 'rm -f "$log"' EXIT
 echo "pre-push: bun test tests/" >&2
-if ! bun test tests/ >"$log" 2>&1; then
+# 30 s per test, through BUN_OPTIONS: on a loaded machine git-heavy tests take
+# 5 to 6 s and would otherwise block the push at bun's 5 s default. CI keeps 5 s.
+if ! BUN_OPTIONS="--timeout=30000" bun test tests/ >"$log" 2>&1; then
   echo "pre-push: the test suite failed, so the push is blocked. Failing tests:" >&2
   grep -E '^\(fail\)' "$log" >&2 || tail -n 20 "$log" >&2
   grep -E '^ [0-9]+ (pass|fail)$' "$log" >&2 || true
