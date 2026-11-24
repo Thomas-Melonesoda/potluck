@@ -22,7 +22,7 @@ const DATA = new Set(["echo", "printf", "cat", "ls", "grep", "egrep", "fgrep", "
 const RUNNERS = new Set(["su", "parallel", "trap", "watch", "ssh", "script", "env", "flock", "entr"]);
 const SHELL = /^(?:ba|z|da|k|mk|fi|c|tc)?sh$/;
 const ASSIGN = /^[A-Za-z_]\w*=/;
-const COMPUTED = /^(?:\$\{?\w+\}?|\$\([\s\S]*\)|`[\s\S]*`)$/;
+const COMPUTED = /^(?:\$\w+|\$\{[^{}]*\}|\$\([\s\S]*\)|`[\s\S]*`)$/;
 // gh's flags that take a value, among `gh api`, `gh pr merge`, and --repo.
 const VALUED = /^--(method|raw-field|field|input|header|jq|template|preview|cache|hostname|repo|subject|body|body-file|author-email|match-head-commit)(?:=([\s\S]*))?$|^-[a-z]*?([XfFHqtpRbA])=?([\s\S]*)$/;
 // A merge endpoint; § stands for a part filled in when the command runs.
