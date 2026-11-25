@@ -428,7 +428,7 @@ function inProgress(dir) {
 export function check(command, cwd) {
   const merge = directMerge(command);
   if (merge) {
-    return `potluck git guardrail: blocked a direct merge (${merge}). potluck merges only through its merge gate: a verifier records the verdict, then the owner runs \`node <installed plugin>/skills/poteto-mode/scripts/merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head>\`. A person can still merge on GitHub's website.`;
+    return `potluck git guardrail: blocked a direct merge (${merge}). potluck merges only through its merge gate: once a verifier has recorded its verdict, run \`node <installed plugin>/skills/poteto-mode/scripts/merge-gate.mjs merge --repo <owner/repo> --pr <number> --sha <verified head>\`. A person can still merge on GitHub's website.`;
   }
   // The directory each scope is in: a `cd` inside a substitution stays there,
   // and reaches the substitutions nested in it.

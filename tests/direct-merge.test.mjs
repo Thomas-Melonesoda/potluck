@@ -25,7 +25,8 @@ test.each(["gh pr view 5", "git commit -m 'never run gh pr merge'", "node x/merg
 
 // The corpus is command lines that should block or pass: "seen" from reviewers
 // of earlier versions, "fresh" written before this reader first ran on them,
-// "tests" from its own tests, and "unseen" by an agent that had not read it. A
+// "tests" from its own tests, and "unseen" by an agent that had not read it,
+// and "ordinary" from a verifier whose lines an earlier version blocked. A
 // recorded miss is a direct merge that passes; a false block is the reverse.
 // Both only go down: a case keeps its place and label, and one that was read
 // right stays right.

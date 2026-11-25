@@ -111,7 +111,7 @@
       "node x/merge-gate.mjs verdict --repo o/r --sha a --state pass --description 'ran gh pr merge cases'", "printf '%s\\n' 'gh pr merge 5'", "rg 'gh pr merge' -n", "rg -n 'gh pr merge' docs",
       "time grep -rn 'gh pr merge' .", "timeout 60 rg gh pr merge", "watch -n 10 gh pr checks 5", "which gh", "which gh; ls /opt/gh", "xargs -n1 gh pr view"
     ],
-    "misses": ["gh api graphql -F query=@m.graphql", "python3 -c \"import subprocess; subprocess.run(['gh','pr','merge','5'])\""],
+    "misses": ["Q='mutation{mergePullRequest(input:{}){clientMutationId}}'; gh api graphql -f query=\"$Q\"", "bash <<'EOF'\ngh pr merge 5\nEOF", "bash <<< 'gh pr merge 5'", "echo 'gh pr merge 5' | sh", "gh api graphql --input - <<'EOF'\n{\"query\":\"mutation{mergePullRequest(input:{}){clientMutationId}}\"}\nEOF", "gh api graphql -F query=@m.graphql", "python3 -c \"import subprocess; subprocess.run(['gh','pr','merge','5'])\""],
     "falseBlocks": []
   },
   "fresh": {
@@ -140,7 +140,7 @@
       "sh -c \"git commit -m 'block gh pr merge'\"", "ssh host 'cat /var/log/gh-pr-merge.log'", "sudo tail -f /var/log/merge.log", "timeout 30 grep -c 'gh pr merge' f", "vim docs/gh-pr-merge.md",
       "xargs -n1 echo < list.txt"
     ],
-    "misses": [],
+    "misses": ["cat <<'X' | sh\ngh pr merge 5\nX", "gh pr $'merge' 5", "printf 'gh pr merge 5\\n' | bash -s"],
     "falseBlocks": []
   },
   "tests": {
@@ -158,7 +158,7 @@
       "gh api repos/o/r/issues/5/comments -f body='the mergePullRequest mutation, see https://api.github.com/repos/o/r/pulls/5/merge'", "gh pr view 5 --json mergeable", "git commit -m 'never run gh pr merge'",
       "grep -rn 'gh pr merge' .", "node x/merge-gate.mjs merge --repo o/r --pr 5 --sha abc"
     ],
-    "misses": [],
+    "misses": ["eval \"$(echo gh pr merge 5)\"", "gh pr \"$(echo merge)\" 7", "sh -c \"$(cat <<'EOF'\ngh pr merge 5\nEOF\n)\""],
     "falseBlocks": []
   },
   "unseen": {
@@ -189,7 +189,20 @@
       "printf \"After approval, run gh pr merge %s\\n\" 123", "rsync -a --delete src/ dist/ # merge build output", "sed -n '1,20p' MERGING.md", "sort -m file1.txt file2.txt",
       "svn merge -r 100:200 https://svn.example.com/branch"
     ],
-    "misses": ["$(echo gh pr merge 7)"],
+    "misses": ["$(echo gh pr merge 7)", "bash <<'EOF'\ngh pr merge 88\nEOF"],
+    "falseBlocks": []
+  },
+  "ordinary": {
+    "block": [],
+    "pass": [
+      "bash -c \"cd $D && gh pr comment 7 --body 'please merge when green'\"", "bash -c \"gh api repos/$R/pulls/7/merge --silent && echo merged\"", "bash -lc \"gh pr review $N --approve -b 'ok to merge'\"",
+      "bash -lc 'cd \"$REPO\" && gh pr create --title \"fix: merge two tables\" --body x'", "bash <<'EOF'\nset -e\ngh pr comment 7 --body 'ready to merge'\nEOF",
+      "eval \"$(/opt/homebrew/bin/brew shellenv)\" && gh pr edit 7 --title \"refactor: merge two tables\"", "eval \"$(direnv export bash)\" && gh pr list --search \"merge conflict\"",
+      "eval \"$(fnm env)\" && gh pr create --fill --title \"feat: merge configs\"", "eval \"$(mise activate bash)\"; gh pr comment 7 --body \"Rebased, ready to merge\"",
+      "eval \"$(ssh-agent -s)\" && gh pr create --title \"fix: handle merge conflicts\" --body x", "for c in view checks diff; do gh pr $c 7; done",
+      "for n in 1 2; do bash -c \"echo $n\"; done; gh pr comment 62 --body \"the gate runs gh pr merge\""
+    ],
+    "misses": [],
     "falseBlocks": []
   }
 }
