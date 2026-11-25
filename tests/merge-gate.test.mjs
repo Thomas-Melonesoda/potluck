@@ -107,7 +107,7 @@ test.each([
 });
 
 // GitHub documents \ as the escape in a branch filter and says nothing of it in
-// a path filter, so there it may only add a reason to run.
+// a path filter, so there an escaped pattern never excludes a file.
 test.each([
   ["branches: ['rel\\+1']", { base: "rel+1" }, true],
   ["branches: ['rel\\+1']", { base: "rell1" }, false],
@@ -132,6 +132,7 @@ test.each([
 test.each([
   ["paths: ['docs\\a/**']"],
   ["paths: ['docs/\\']"],
+  ["paths: ['docs/\\?.md']"],
   ["paths: ['docs/[\\]a].md']"],
   ["paths: ['docs/[z-a].md']"],
   ["branches: ['+x']"],
