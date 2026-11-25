@@ -14,6 +14,12 @@
 //                             account and its organizations do not own stops
 //                             for the user's yes (default "allow")
 //   "askFirst": ["<action>"]  actions the agent asks the user about first
+//   "trustRepos": ["<owner>", "<owner>/<name>"]
+//                             repositories the foreignRepos check treats as
+//                             the user's own; read from the user's file only,
+//                             so a repository's file cannot widen it
+// Only the user changes a gates file; an agent may suggest a change and never
+// makes one (the owner's ruling, 2026-11-23), and potluck's hooks block it.
 // An unknown key or value fails, so a typo never drops a gate quietly.
 //
 //   node gates.mjs [--root <dir>]
@@ -58,12 +64,14 @@ export function parseGates(text, source) {
   const twice = keys.find((key, i) => keys.indexOf(key) !== i);
   if (twice !== undefined) throw new Error(`${source}: key ${JSON.stringify(twice)} appears more than once`);
   for (const [key, value] of Object.entries(raw)) {
-    if (key === "askFirst") {
+    if (key === "trustRepos") {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !/^[\w-]+(\/[\w.-]+)?$/.test(item))) throw new Error(`${source}: trustRepos must be a list of owners or owner/name repositories`);
+    } else if (key === "askFirst") {
       if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) throw new Error(`${source}: askFirst must be a list of non-empty strings`);
     } else if (Object.hasOwn(LEVELS, key)) {
       if (!LEVELS[key].includes(value)) throw new Error(`${source}: ${key} must be ${LEVELS[key].map((v) => JSON.stringify(v)).join(" or ")}, not ${JSON.stringify(value)}`);
     } else {
-      throw new Error(`${source}: unknown key ${JSON.stringify(key)}; the keys are ${[...Object.keys(LEVELS), "askFirst"].join(", ")}`);
+      throw new Error(`${source}: unknown key ${JSON.stringify(key)}; the keys are ${[...Object.keys(LEVELS), "askFirst", "trustRepos"].join(", ")}`);
     }
   }
   return raw;
@@ -74,7 +82,7 @@ export function parseGates(text, source) {
 export function strictest(layers) {
   const gates = { from: {}, askFirst: [] };
   for (const [key, values] of Object.entries(LEVELS)) gates[key] = values[0];
-  for (const { source, gates: layer } of layers) {
+  for (const { source, gates: layer, user } of layers) {
     for (const [key, values] of Object.entries(LEVELS)) {
       if (layer[key] !== undefined && values.indexOf(layer[key]) > values.indexOf(gates[key])) {
         gates[key] = layer[key];
@@ -82,6 +90,7 @@ export function strictest(layers) {
       }
     }
     for (const item of layer.askFirst ?? []) if (!gates.askFirst.includes(item.trim())) gates.askFirst.push(item.trim());
+    if (user && layer.trustRepos?.length) gates.trustRepos = [...new Set([...(gates.trustRepos ?? []), ...layer.trustRepos.map((item) => item.toLowerCase())])];
   }
   return gates;
 }
@@ -90,7 +99,7 @@ export function strictest(layers) {
 // nothing; one that cannot be parsed throws.
 export function loadGates({ root, user = userFile() } = {}) {
   const paths = [...new Set([user, root && join(root, REPO_FILE)].filter(Boolean))];
-  return strictest(paths.filter((path) => existsSync(path)).map((path) => ({ source: path, gates: parseGates(readFileSync(path, "utf8"), path) })));
+  return strictest(paths.filter((path) => existsSync(path)).map((path) => ({ source: path, user: path === user, gates: parseGates(readFileSync(path, "utf8"), path) })));
 }
 
 export function describe(gates) {
@@ -98,6 +107,7 @@ export function describe(gates) {
     .filter((key) => gates.from[key])
     .map((key) => `- ${key}: ${gates[key]} (${gates.from[key]}). ${SAYS[key][gates[key]]}`);
   for (const item of gates.askFirst) lines.push(`- Ask the user first: ${item}`);
+  if (gates.trustRepos?.length) lines.push(`- trustRepos: ${gates.trustRepos.join(", ")}. The foreignRepos check treats these as the user's own.`);
   if (!lines.length) return ["No operator's gates: potluck's defaults apply."];
   return ["The operator's gates, stricter than potluck's defaults:", ...lines];
 }
