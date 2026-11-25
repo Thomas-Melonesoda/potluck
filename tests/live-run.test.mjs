@@ -23,7 +23,7 @@ let user = {};
 const file = path.join(process.env.HOME, ".claude/settings.json");
 if (sources.split(",").includes("user") && fs.existsSync(file)) user = JSON.parse(fs.readFileSync(file, "utf8")).env;
 const env = { ...process.env, ...user };
-if (line === "--version") say("9.9.9 (Claude Code)");
+if (line === "--version") say("9.9.9 (Claude Code) " + process.env.FAKE_VERSION);
 else if (line === "auth status --help") say(process.env.FAKE_OLD ? "Usage: claude [prompt]" : "Usage: claude auth status [options]");
 else if (line.endsWith("auth status --json")) {
   say(JSON.stringify({ loggedIn: Boolean(env.ANTHROPIC_AUTH_TOKEN), authMethod: env.ANTHROPIC_AUTH_TOKEN ? "oauth_token" : "none", email: "someone@example.invalid" }));
@@ -32,7 +32,8 @@ else if (line.endsWith("auth status --json")) {
   const url = process.env.FAKE_URL ?? env.ANTHROPIC_BASE_URL;
   if (url) say("Anthropic base URL: " + url);
 } else if (args[0] === "-p") {
-  say("PAID prompt=" + fs.readFileSync(0, "utf8") + " token=" + env.ANTHROPIC_AUTH_TOKEN + " model=" + env.ANTHROPIC_MODEL + " " + env.ANTHROPIC_CUSTOM_HEADERS);
+  say("PAID prompt=" + fs.readFileSync(0, "utf8") + " token=" + env.ANTHROPIC_AUTH_TOKEN + " model=" + env.ANTHROPIC_MODEL + " " + env.ANTHROPIC_CUSTOM_HEADERS + " " + process.env.FAKE_SAY);
+  for (const p of [process.cwd(), process.env.HOME]) say(p + " " + p.replace(/[^a-zA-Z0-9]/g, "-"));
   process.stderr.write("err " + env.ANTHROPIC_AUTH_TOKEN);
   process.exit(Number(process.env.FAKE_EXIT ?? 0));
 } else process.exit(9);
@@ -74,13 +75,14 @@ const settings = () => ({ ANTHROPIC_AUTH_TOKEN: TOKEN, ANTHROPIC_BASE_URL: up, A
 
 describe("the paid step", () => {
   test("does not run by default: the preflight passes and the command is printed", () => {
-    const r = live(ARGS, good());
+    const r = live([...ARGS, "--plugin-dir", join(root, String(n + 1), "home/p")], good());
     expect(r.status, r.out).toBe(0);
     expect(r.paid).toEqual([]);
     expect(r.out).toContain("would run (paid, capped at $0.20): claude -p --setting-sources=project --max-budget-usd=0.20");
     expect(r.out).toContain("--confirm-paid");
     expect(r.out).not.toContain(TOKEN);
     expect(r.out).not.toContain(up);
+    expect(r.out).not.toContain(root);
     expect(r.out).not.toContain("someone@example.invalid");
   });
 
@@ -93,6 +95,20 @@ describe("the paid step", () => {
     expect(r.out).not.toContain("fixture-");
   });
 
+  test.each([["the shell", () => ({ shell: { ...good().shell, ANTHROPIC_BASE_URL: `${up}/` } })], ["kept settings", () => ({ user: settings() })]])("prints a gateway's 502 without the API address, host or hostname from %s", (_, options) => {
+    const { host, hostname } = new URL(up), text = "API Error: 502 Bad Gateway. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway";
+    const { shell, ...rest } = options();
+    const r = live([...ARGS, "--confirm-paid", "--keep-user-endpoint"], { ...rest, shell: { ...shell, FAKE_SAY: `${text} (${host}). ${up}/v1 ${hostname}` } });
+    expect(r.out).toContain(`${text} ([redacted]). [redacted]/v1 [redacted]`);
+    expect(r.out).not.toContain(hostname);
+  });
+
+  test("prints no path of this machine and no secret that --version or the project's settings give", () => {
+    const r = live([...ARGS, "--confirm-paid"], { project: { DEPLOY_SECRET: "hidden-in-project" }, shell: { ...good().shell, A_KEY: "hidden-in", FAKE_SAY: "hidden-in-project", FAKE_VERSION: TOKEN } });
+    expect(r.status, r.out).toBe(0);
+    for (const value of [root, root.replace(/[^a-zA-Z0-9]/g, "-"), "-project", TOKEN]) expect(r.out).not.toContain(value);
+  });
+
   test.each([
     ["no budget", ["--prompt", "hi"]],
     ["a zero budget", ["--prompt", "hi", "--max-budget-usd", "0"]],
@@ -100,11 +116,13 @@ describe("the paid step", () => {
     ["no prompt", ["--max-budget-usd", "0.20"]],
     ["a claude flag that could change what the preflight checked", [...ARGS, "--settings", "x.json"]],
     ["an extra argument", [...ARGS, "more"]],
+    ["a --cwd that is not a folder", [...ARGS, "--cwd", "more".repeat(99)]],
     ["an unknown settings source", [...ARGS, "--setting-sources", "project,everything"]],
   ])("is refused before any call with %s", (_, args) => {
     const r = live([...args, "--confirm-paid"], good());
     expect(r.status).toBe(2);
     expect(r.calls).toEqual([]);
+    expect(r.out).not.toContain("more");
   });
 });
 
@@ -159,6 +177,8 @@ describe("the preflight stops the paid step", () => {
     const out = stopped(() => ({ user: `{ "env": { "ANTHROPIC_AUTH_TOKEN": "${TOKEN}" `, ...good() }));
     expect(out).toMatch(/FAIL +settings +the user settings file is not valid JSON/);
     expect(out).not.toContain(root);
+    mkdirSync(join(root, "config/settings.json"), { recursive: true });
+    expect(stopped(() => ({ shell: { ...good().shell, CLAUDE_CONFIG_DIR: join(root, "config") } }))).toMatch(/^FAIL +settings .*cannot be read/);
   });
 });
 
