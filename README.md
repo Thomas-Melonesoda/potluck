@@ -237,8 +237,6 @@ It also blocks any shell command that names `gates.json` or `.potluck`, since on
 
 A hook reads the command line, so a script file, or a name or command assembled at run time, gets past it. Codex cannot pause a command to ask you, so a check that asks on Claude Code blocks there, and the Codex hook has not been run live. Other harnesses have no such hook.
 
-It also blocks a direct merge: `gh pr merge`, a `gh` alias for it, or `gh api` on GitHub's merge endpoints or with a GraphQL merge mutation, behind a wrapper such as `env` or `xargs` or inside a script handed to a shell too. The agent merges only with `merge-gate.mjs merge`, which runs `gh` itself, and you can still merge on GitHub's website. It reads the command line only, so a script file, `gh` called from another language, a name or request built when the command runs or read from a file, an alias set earlier, `curl`, and a merge from another machine get past it.
-
 ## Getting started
 
 ```text

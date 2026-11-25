@@ -53,8 +53,6 @@ codex plugin add pstack@potluck
 
 钩子只读命令行，所以脚本文件、运行时才拼出来的名字或命令拦不住。Codex 没法暂停命令来问你，所以在 Claude Code 上会问你的检查，在 Codex 上直接拦下；Codex 的钩子还没有真实跑过。其他工具没有这个钩子。
 
-它还会拦住直接合并：`gh pr merge`、给它起的 `gh` 别名，或者用 `gh api` 调 GitHub 的合并接口、发 GraphQL 合并请求；前面套了 `env`、`xargs` 之类，或者写在交给 shell 的脚本里，也会拦。agent 只能用 `merge-gate.mjs merge` 合并，它自己调用 `gh`；你在 GitHub 网页上手动合并不受影响。它只读命令行，所以脚本文件、别的语言里调用的 `gh`、运行时才拼出来或从文件读入的名字和请求、事先设好的别名、`curl`、在别的电脑上做的合并，都拦不住。
-
 ## 开始使用
 
 ```text
