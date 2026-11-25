@@ -160,5 +160,36 @@
     ],
     "misses": [],
     "falseBlocks": []
+  },
+  "unseen": {
+    "block": [
+      "\"gh\" pr merge 88", "$(echo gh pr merge 7)", "'gh' 'pr' 'merge' 88", "( gh pr merge 7 )", "GH_PAGER=cat gh pr merge 88 --squash", "GH_TOKEN=abc123 gh pr merge 99", "\\gh pr merge 88",
+      "alias mpr='gh pr merge 88'; mpr", "bash -c \"gh pr merge 123\"", "bash -c \"sh -c 'gh pr merge 7'\"", "bash -c 'gh pr merge 123 --squash'", "bash <<'EOF'\ngh pr merge 88\nEOF", "cd /tmp && gh pr merge 88",
+      "command gh pr merge 88", "echo 12 | xargs gh pr merge", "echo y | gh pr merge 42 --squash", "env GH_TOKEN=abc gh pr merge 99 -m", "eval \"gh pr merge 7\"", "eval gh pr merge 7",
+      "for n in 1 2 3; do gh pr merge \"$n\" --squash; done", "function merge_pr { gh pr merge \"$1\"; }; merge_pr 88", "gh  pr   merge   88", "gh alias set merge-it 'pr merge --squash'; gh merge-it 123",
+      "gh api --method PUT /repos/acme/widgets/pulls/88/merge -f merge_method=squash", "gh api -X PUT repos/acme/widgets/pulls/88/merge",
+      "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"PR_kwD\"}) { pullRequest { merged } } }'",
+      "gh api repos/acme/widgets/pulls/88/merge -X PUT -f merge_method=rebase -f commit_title=\"Merge PR\"", "gh pr merge --auto 123 --squash", "gh pr merge 123", "gh pr merge 123 --merge --delete-branch",
+      "gh pr merge 123 --rebase -d", "gh pr merge 123 --squash", "gh pr merge 42 --admin", "gh pr merge 88 && echo done", "gh pr merge 88 || echo failed", "gh pr merge https://github.com/acme/widgets/pull/456",
+      "merge_pr() { gh pr merge \"$1\" --squash; }; merge_pr 88", "nohup gh pr merge 123 &", "printf '%s\\n' 12 | xargs -I{} gh pr merge {}", "sh -c \"gh pr merge 42\"",
+      "shopt -s expand_aliases; alias mpr='gh pr merge'; mpr 88", "sudo -E gh pr merge 123", "time gh pr merge 123", "timeout 60 gh pr merge 123", "while read -r n; do gh pr merge \"$n\"; done <<< \"12\"",
+      "x=$(gh pr merge 7); echo $x", "yes | gh pr merge 123", "zsh -c \"gh pr merge 42 -d\"", "{ gh pr merge 7; }"
+    ],
+    "pass": [
+      "alias gs='git status'", "bash -c \"gh pr list --state open\"", "cat <<'EOF' > MERGING.md\nTo merge a pull request, ask a reviewer to click the merge button.\nEOF",
+      "cat <<'EOF' > pr-body.txt\nThis PR should be merged once CI is green.\nEOF", "cat CONTRIBUTING.md", "convert a.png b.png -append merged.png", "diff3 -m file1 file2 file3 > merged.txt", "echo \"gh pr merge 123\"",
+      "echo \"remember: gh pr merge 123 is blocked by policy\"", "ffmpeg -i part1.mp4 -i part2.mp4 -filter_complex concat merged.mp4", "for f in *.md; do echo \"checking $f for merge instructions\"; done",
+      "gh api graphql -f query='query { repository(owner:\"acme\",name:\"widgets\"){ pullRequest(number:123){ merged } } }'", "gh api repos/acme/widgets/pulls/123 -q .title",
+      "gh api repos/acme/widgets/pulls/123/merge -X GET", "gh help pr", "gh issue create --title \"Merge conflict on release branch\" --body \"Needs manual merge\"", "gh issue list --label merge-conflict",
+      "gh pr checkout 123", "gh pr close 123", "gh pr comment 123 --body \"Please merge main into this branch to resolve conflicts\"", "gh pr create --title \"Add login flow\" --body \"Ready to merge after review\"",
+      "gh pr diff 123", "gh pr list", "gh pr list --state open", "gh pr ready 123", "gh pr reopen 123", "gh pr review 123 --approve --body \"LGTM, ready to merge\"",
+      "gh pr review 123 --comment --body \"please merge main into this branch first\"", "gh pr view 123", "gh pr view 123 --json title,body,state", "gh pr view 123 --web", "gh repo view acme/widgets", "gh status",
+      "git commit -m \"Merge feature/login into main\"", "git log --oneline --grep=merge", "git merge --no-ff release/1.2", "git merge --squash feature/login", "git merge feature/login", "git rebase main",
+      "grep -r \"merge\" src/", "grep -rn \"gh pr merge\" docs/", "jq -s 'add' a.json b.json > merged.json", "merge_info() { echo \"merging requires two approvals\"; }; merge_info",
+      "printf \"After approval, run gh pr merge %s\\n\" 123", "rsync -a --delete src/ dist/ # merge build output", "sed -n '1,20p' MERGING.md", "sort -m file1.txt file2.txt",
+      "svn merge -r 100:200 https://svn.example.com/branch"
+    ],
+    "misses": ["$(echo gh pr merge 7)"],
+    "falseBlocks": []
   }
 }

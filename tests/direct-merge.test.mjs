@@ -25,9 +25,10 @@ test.each(["gh pr view 5", "git commit -m 'never run gh pr merge'", "node x/merg
 
 // The corpus is command lines that should block or pass: "seen" from reviewers
 // of earlier versions, "fresh" written before this reader first ran on them,
-// and "tests" from its own tests. A recorded miss is a direct merge that
-// passes; a false block is the reverse. Both only go down: a case keeps its
-// place and label, and one that was read right stays right.
+// "tests" from its own tests, and "unseen" by an agent that had not read it. A
+// recorded miss is a direct merge that passes; a false block is the reverse.
+// Both only go down: a case keeps its place and label, and one that was read
+// right stays right.
 const CORPUS = "tests/direct-merge-corpus.json";
 const corpus = JSON.parse(readFileSync(join(root, CORPUS), "utf8"));
 const LABELS = ["block", "pass"];
