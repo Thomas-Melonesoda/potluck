@@ -27,7 +27,13 @@ export function prTrigger(text, { base, changed }) {
   // A pull request event the text names as a key or a list item, but the
   // reading lost, means the reading is wrong, so the workflow counts.
   if (!PR_EVENTS.some((e) => e in events) && NAMED_PR_EVENT.test(keyLines(onLines(text)).join("\n"))) return true;
-  return PR_EVENTS.filter((e) => e in events).some((e) => runs(events[e], base, changed));
+  return PR_EVENTS.filter((e) => e in events).some((e) => {
+    try {
+      return runs(events[e], base, changed);
+    } catch {
+      return true; // a filter pattern that cannot be read here
+    }
+  });
 }
 
 function runs(config, base, changed) {
@@ -40,7 +46,11 @@ function runs(config, base, changed) {
   if (branches && !matches(branches, base)) return false;
   if (ignoreBranches && matches(ignoreBranches, base)) return false;
   if (changed.length >= PATHS_LIMIT) return true;
-  const paths = list("paths"), ignorePaths = list("paths-ignore");
+  // GitHub documents \ as the escape in branch filters and says nothing of it
+  // in path filters, so an escaped path pattern never excludes a file.
+  const escaped = (p) => p.includes("\\"), negated = (p) => p.startsWith("!");
+  const paths = list("paths")?.filter((p) => !(escaped(p) && negated(p)));
+  const ignorePaths = list("paths-ignore")?.filter((p) => !escaped(p) || negated(p));
   if (paths && !changed.some((f) => matches(paths, f))) return false;
   if (ignorePaths && changed.every((f) => matches(ignorePaths, f))) return false;
   return true;
@@ -56,11 +66,17 @@ function matches(patterns, name) {
   return hit;
 }
 
+// Throws on a pattern it cannot read: a \ inside brackets, at the end, or before
+// any other character (\? too, which read literally is an optional backslash),
+// or one that makes no regular expression.
 function glob(pattern) {
   let re = "";
   for (let i = 0; i < pattern.length; i++) {
     const c = pattern[i];
-    if (c === "*" && pattern[i + 1] === "*") {
+    if (c === "\\") {
+      if (!/[*+![\]\\]/.test(pattern[++i] ?? "")) throw new Error(`unreadable escape in ${pattern}`);
+      re += `\\${pattern[i]}`;
+    } else if (c === "*" && pattern[i + 1] === "*") {
       i++;
       if (pattern[i + 1] === "/") {
         i++;
@@ -72,10 +88,11 @@ function glob(pattern) {
       const end = pattern.indexOf("]", i);
       if (end < 0) re += "\\[";
       else {
+        if (pattern.slice(i, end).includes("\\")) throw new Error(`unreadable escape in ${pattern}`);
         re += pattern.slice(i, end + 1);
         i = end;
       }
-    } else re += c.replace(/[.^$|(){}\\/]/g, "\\$&");
+    } else re += c.replace(/[.^$|(){}/]/g, "\\$&");
   }
   return new RegExp(`^${re}$`);
 }
