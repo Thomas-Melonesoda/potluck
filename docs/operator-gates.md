@@ -27,6 +27,7 @@ Both files apply. For each gate the stricter value wins, so a repository's file 
 | `foreignRepos` | `"allow"`, `"ask"` | A `gh` command that writes to a repository that neither the `gh` account nor one of its organizations owns needs the user's yes first: a comment, review, issue, or pull request, an edit or state change to one, or a write through `gh api`. |
 | `askFirst` | a list of actions | The agent asks the user before each one. Items from both files apply. |
 | `trustRepos` | a list of owners or `owner/name` repositories | The `foreignRepos` check treats these as your own, beside the `gh` account and its organizations. Read only from your own `~/.potluck/gates.json`, so a repository's file cannot widen it. |
+| `allowDirectPushRepos` | a list of `owner/name` repositories | The git guardrail lets an agent push these repositories' default branches directly; everywhere else it blocks such a push. A force push to a default branch, deleting a remote branch, and a line that both switches branches and pushes stay blocked. Matched against every github.com push URL of the remote. Read only from your own `~/.potluck/gates.json`, so a repository's file cannot widen it. |
 
 Every key is optional. An unknown key or value, or a key given twice, is an error, so a typo such as `"noCi"` fails loudly instead of dropping a gate. JSON has no comments, so keep notes about the file somewhere else.
 
