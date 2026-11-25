@@ -106,6 +106,39 @@ test.each([
   expect(prTrigger(text, { base: "main", changed: ["src/app.js"] })).toBe(expected);
 });
 
+// GitHub documents \ as the escape in a branch filter and says nothing of it in
+// a path filter, so there it may only add a reason to run.
+test.each([
+  ["branches: ['rel\\+1']", { base: "rel+1" }, true],
+  ["branches: ['rel\\+1']", { base: "rell1" }, false],
+  ["branches: ['\\!main']", { base: "!main" }, true],
+  ["branches-ignore: ['rel\\+1']", { base: "rel+1" }, false],
+  ["branches: ['rel\\\\']", { base: "main" }, false],
+  ["paths: ['src/c\\+\\+/**']", { changed: ["src/c++/a.js"] }, true],
+  ["paths: ['src/c\\+\\+/**']", { changed: ["docs/a.md"] }, false],
+  ['paths: ["src/c\\\\+\\\\+/**"]', { changed: ["src/c++/a.js"] }, true],
+  ["paths: ['\\!x.md']", { changed: ["!x.md"] }, true],
+  ["paths: ['src/\\[id\\].js']", { changed: ["src/[id].js"] }, true],
+  ["paths: ['src/\\[id\\].js']", { changed: ["docs/a.md"] }, false],
+  ["paths: ['src/\\*.js']", { changed: ["src/a.js"] }, false],
+  ["paths: ['**', '!src/c\\+\\+/**']", { changed: ["src/c++/a.js"] }, true],
+  ["paths-ignore: ['src/c\\+\\+/**']", { changed: ["src/c++/a.js"] }, true],
+  ["paths-ignore: ['src/**', '!src/c\\+\\+/**']", { changed: ["src/c++/a.js"] }, true],
+  ["paths-ignore: ['src/**', 'x\\+.md']", { changed: ["src/a.js"] }, false],
+])("prTrigger reads a backslash escape, %s %j", (filter, pr, expected) => {
+  expect(prTrigger(`on:\n  pull_request:\n    ${filter}\n`, { base: "main", changed: ["src/app.js"], ...pr })).toBe(expected);
+});
+
+test.each([
+  ["paths: ['docs\\a/**']"],
+  ["paths: ['docs/\\']"],
+  ["paths: ['docs/[\\]a].md']"],
+  ["paths: ['docs/[z-a].md']"],
+  ["branches: ['+x']"],
+])("a filter pattern prTrigger cannot read counts as running, %s", (filter) => {
+  expect(prTrigger(`on:\n  pull_request:\n    ${filter}\n`, { base: "main", changed: ["src/app.js"] })).toBe(true);
+});
+
 test("a paths filter does not apply to a diff of 300 files or more, as on GitHub", () => {
   const changed = Array.from({ length: 300 }, (_, i) => `src/${i}.js`);
   expect(prTrigger("on:\n  pull_request:\n    paths: ['docs/**']\n", { base: "main", changed })).toBe(true);
@@ -1022,6 +1055,17 @@ else if (line.includes("POST")) process.stdout.write("{}");
   test("a PR workflow limited to other paths is not waited for", () => {
     const paths = { ".github/workflows/docs.yml": "on:\n  pull_request:\n    paths: ['docs/**']\n" };
     expect(fake({ runs: [], statuses: [aged], setup: { base: paths } }).run(...merge, "--dry-run").json).toMatchObject({ kind: "would-merge", checks: "none" });
+  });
+
+  test.each([
+    ["src/c\\+\\+/**", "src/c++/a.js"],
+    ["\\!x.md", "!x.md"],
+    ["src/\\[id\\].js", "src/[id].js"],
+  ])("a PR workflow whose paths filter %s escapes the changed file's name is waited for", (filter, file) => {
+    const base = { ".github/workflows/ci.yml": `on:\n  pull_request:\n    paths: ['${filter}']\n` };
+    const r = fake({ runs: [], wfRuns: [], statuses: [aged], setup: { base, files: { [file]: "x\n" } } }).run(...merge, "--dry-run");
+    expect(r.json.kind).toBe("refused");
+    expect(r.json.reasons[0]).toContain(".github/workflows/ci.yml");
   });
 
   test("a PR workflow limited to the PR's own base branch is waited for", () => {
