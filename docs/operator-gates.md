@@ -85,9 +85,18 @@ The lock stops an agent's shortcut, not someone set on getting around it. These 
 - `gates.json` right after three or more option letters (`-fsSLogates.json`), and either name right after options that hold a digit (`-p1d.potluck`);
 - another letter case in a shell command (`.Potluck`), which is the same folder on macOS and Windows;
 - on Windows, an option glued to the name (`rd/s/q.potluck`), a caret inside it (`.pot^luck`), a short name (`POTLUC~1`), and `%~dp0.potluck`;
+- in a shell command, the Windows folder followed by a backslash and a letter, with no backslash before it: `dir .potluck\decisions`, `del .potluck\gates.*`, and `Remove-Item .potluck\gates*` pass, and the last two would delete the gates file (`.potluck\gates.json` in full blocks; checked by feeding the hook these lines on macOS, not on Windows);
+- in an edit tool, the file your `~/.potluck/gates.json` links to spelled in another letter case (`GATES.JSON`), which is the same file on a disk that ignores case;
+- in an edit tool, the file a repository's own `.potluck/gates.json` links to;
 - a hard link to a gates file, in the shell or an edit tool;
 - an edit that would create a gates file through a link of another name, or a Write to the missing file your `~/.potluck/gates.json` links to;
 - in the shell, a link target whose own name does not contain `gates.json`, unless the call reaches the hook for another reason;
 - a script file, and a command that names nothing, such as `git add -A`, `git stash -u`, or one run from inside the folder.
 
 The record of a change is the file's git history: your personal repository for your own file, the project's repository for its file. No separate register is kept.
+
+## Known gaps
+
+The two lists of what is out of reach, for the [shell hook](#who-reads-it) and for the [gates lock](#only-the-user-changes-a-gates-file), are above. One more gap is in the merge gate:
+
+- **A verdict is not signed by its verifier.** `potluck/verdict` and `potluck/cosign` are commit statuses, and the merge gate does not check who wrote them. The agents on one machine usually share one `gh` token, so an agent that wrote a change can, in principle, also write its passing verdict. A GitHub ruleset that requires the status cannot tell the two apart either. Closing it needs a GitHub identity that only the verifier uses. The owner decided (2026-11-24) to leave that until potluck has other users or this happens.

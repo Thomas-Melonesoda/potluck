@@ -148,6 +148,7 @@ So: any PR that changes skill behavior either bumps the version itself or is fol
 
 - Explain what changed and why. The diff already shows how.
 - One concern per PR. A behavior fix and a refactor in the same diff are two separate reviews, and reviewing them together means doing neither properly.
+- Name who decided. A decision that the root agent relayed is a "root decision" in the PR, never the "owner's ruling". Approval to spend money, to push where no standing permission covers it, or to waive a step counts only in the owner's own words. The owner's private decision log keeps both kinds, with the date and the source.
 - Claim only what you verified, and name the check. "52/52 bun tests pass" beats "tests pass"; "did not run the behavioral leg" beats silence.
 
 ## Reporting bugs

@@ -15,7 +15,7 @@ It is a potluck of four open-source projects:
 
 Each place where potluck differs from its upstreams is declared in [`tools/forks.json`](tools/forks.json).
 
-> **Status: under construction.** This repository currently matches Michael Denyer's pstack-claude v0.9.146 with the public names changed. The plugin still installs under its internal ID `pstack`, and skills keep their upstream names (such as `poteto-mode`) to keep syncing cheap. Stage 3's policy changes are in, and stage 4 is bringing in the borrowed skills: see the [roadmap](docs/roadmap.md).
+> **Status: under construction.** This repository builds on Michael Denyer's pstack-claude v0.9.146. The plugin still installs under its internal ID `pstack`, and skills keep their upstream names (such as `poteto-mode`) to keep syncing cheap. Stage 3's policy changes, stage 4's borrowed skills, and most of stage 6 are in: see the [roadmap](docs/roadmap.md), and [decisions](docs/decisions.md) for every difference from an upstream.
 
 Tell `poteto-mode` your goal and it will invoke the correct workflow for the task. It keeps your code concise, simple and verified.
 
@@ -235,7 +235,7 @@ On Claude Code, and on Codex once you trust the hook in `/hooks`, potluck checks
 
 It also blocks any shell command that names `gates.json` or `.potluck`, since only you change [the operator's gates](docs/operator-gates.md#only-the-user-changes-a-gates-file). The one exemption is reading potluck's own folders there, `~/.potluck/decisions`, `trash`, and `backup`, and appending to the decision log.
 
-A hook reads the command line, so a script file, or a name or command assembled at run time, gets past it. Codex cannot pause a command to ask you, so a check that asks on Claude Code blocks there, and the Codex hook has not been run live. Other harnesses have no such hook.
+A hook reads the command line, so a script file, or a name or command assembled at run time, gets past it. Codex cannot pause a command to ask you, so a check that asks on Claude Code blocks there and leaves the command for you to run, and the Codex hook has not been run live. Other harnesses have no such hook. The gaps that stay open are in [known gaps](docs/operator-gates.md#known-gaps).
 
 ## Getting started
 
