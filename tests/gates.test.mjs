@@ -41,6 +41,7 @@ describe("parseGates", () => {
     ['{"foreignRepos": true}', 'f: foreignRepos must be "allow" or "ask", not true'],
     ['{"askFirst": "spending money"}', "f: askFirst must be a list of non-empty strings"],
     ['{"askFirst": [" "]}', "f: askFirst must be a list of non-empty strings"],
+    ['{"allowDirectPushRepos": ["me"]}', "f: allowDirectPushRepos must be a list of owner/name repositories"],
     ['{"noCI": "wait", "noCI": "merge"}', 'f: key "noCI" appears more than once'],
     ['{"noCI": "wait", "\\u006eoCI": "merge"}', 'f: key "noCI" appears more than once'],
   ])("a typo fails instead of dropping a gate: %s", (text, message) => {
@@ -77,6 +78,12 @@ describe("loadGates", () => {
     const s = setup({ user: { noCI: "wait" }, repo: { noCI: "merge", foreignRepos: "ask" } });
     const gates = loadGates({ root: s.root, user: s.user });
     expect(gates).toMatchObject({ noCI: "wait", foreignRepos: "ask", from: { noCI: s.user, foreignRepos: s.repo } });
+  });
+
+  test("allowDirectPushRepos counts from the user's file only, and is printed", () => {
+    const s = setup({ user: { allowDirectPushRepos: ["Me/Notes"] }, repo: { allowDirectPushRepos: ["me/other"] } });
+    expect(loadGates({ root: s.root, user: s.user }).allowDirectPushRepos).toEqual(["me/notes"]);
+    expect(s.cli().stdout).toContain("- allowDirectPushRepos: me/notes.");
   });
 
   test("missing files leave the defaults, and a broken one throws naming its path", () => {

@@ -5,9 +5,10 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { commands, gitCall, risk } from "../plugins/pstack/hooks/git-guardrail.mjs";
+import { REPO_FILE } from "../plugins/pstack/skills/poteto-mode/scripts/gates.mjs";
 
 const hooks = join(import.meta.dir, "../plugins/pstack/hooks");
 const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" };
@@ -499,37 +500,72 @@ describe("pushes to a default branch", () => {
     }
   });
 
-  // R1: the hook runs before the line does, so it reads the branch checked out then.
+  // The hook runs before the line does, so it reads the branch checked out then.
   test.each([
     "git checkout main && git merge feat && git push",
-    "git switch main && git push",
     "git switch main && git push origin HEAD",
-    "git checkout main; git push --force-with-lease",
+    "git checkout -b feat/z && git push -u origin feat/z",
+    "git checkout feat/x; git push --force-with-lease origin feat/x",
+    "git push && git checkout main",
     "gh pr checkout 5 && git push",
+    "git branch -M feat/z && git push",
+    "git stash branch feat/z && git push",
+    "git rebase main feat && git push",
     "sh -c 'git switch main && git push'",
-    "git switch main && git push origin $B",
-  ])("a push after a checkout in the same line is blocked unless it names its branch: %s", (command) => {
+  ])("a line that switches branches and pushes is blocked: %s", (command) => {
     const r = repo("feat").hook(command);
     expect(r.status).toBe(2);
-    expect(r.reason).toContain("run the checkout and the push as separate commands");
+    expect(r.reason).toContain("Run these as two commands");
   });
 
-  // F1: starting a feature branch on main and pushing it, named, is ordinary work.
-  test("from main, a checkout and a push that names a feature branch pass in one line", () => {
-    const { hook } = repo();
-    for (const c of ["git checkout -b feat/z && git push -u origin feat/z", "git switch -c feat/z && git commit --allow-empty -m x && git push -u origin HEAD:feat/z", "git checkout feat/x && git push --force-with-lease origin feat/x", "git checkout -b feat/z && git push -u origin HEAD:refs/heads/feat/z"]) {
-      expect([c, hook(c).status]).toEqual([c, 0]);
-    }
-    expect(hook("git checkout feat/x && git push origin main").reason).toContain("blocked a push to main");
+  test("a line that only restores paths, rebases in place, or dry-runs beside a push passes", () => {
+    const { hook } = repo("feat");
+    for (const c of ["git checkout -- a.txt && git push", "git rebase main && git push", "git branch --list && git push", "git switch main && git push -n origin main"]) expect([c, hook(c).status]).toEqual([c, 0]);
   });
 
-  // The cost: these name no branch, so they need two commands.
-  test("a push of HEAD or of the current branch right after a checkout is asked to be split", () => {
-    const { hook } = repo();
-    for (const c of ["git checkout -b feat/z && git push -u origin HEAD", "git checkout feat/x && git push"]) {
-      expect(hook(c).reason).toContain("run the checkout and the push as separate commands");
+  describe("allowDirectPushRepos", () => {
+    const listed = { allowDirectPushRepos: ["Me/Notes"] };
+    // A clone on main whose push URL is `url`, with the user's and the repository's gates.
+    function clone(url, user, repository) {
+      const { root, work, git } = repo();
+      git(work, "remote", "set-url", "--push", "origin", url);
+      for (const [dir, gates] of [[root, user], [work, repository]]) {
+        if (!gates) continue;
+        mkdirSync(dirname(join(dir, REPO_FILE)));
+        writeFileSync(join(dir, REPO_FILE), typeof gates === "string" ? gates : JSON.stringify(gates));
+      }
+      return (command) => {
+        const r = spawnSync("sh", [join(hooks, "git-guardrail.sh")], { input: JSON.stringify({ tool_name: "Bash", tool_input: { command }, cwd: work }), encoding: "utf8", env: { ...env, HOME: root } });
+        return [command, r.status];
+      };
     }
-    const feat = repo("feat");
-    for (const c of ["git push && git checkout main", "git checkout -- a.txt && git push"]) expect([c, feat.hook(c).status]).toEqual([c, 0]);
+
+    test.each(["https://github.com/me/notes.git", "git@github.com:me/notes.git", "ssh://git@github.com/me/notes"])("a listed repository takes a plain push to its default branch: %s", (url) => {
+      const run = clone(url, listed);
+      for (const c of ["git push", "git push origin main", "git push origin $(git branch --show-current)"]) expect(run(c)).toEqual([c, 0]);
+      for (const c of ["git push --force-with-lease", "git push -f origin main", "git push origin :main", "git checkout main && git push"]) expect(run(c)).toEqual([c, 2]);
+    });
+
+    test.each([
+      ["another repository", "https://github.com/me/other.git", listed, null],
+      ["another host", "https://example.com/github.com/me/notes.git", listed, null],
+      ["a lookalike host", "https://notgithub.com/me/notes.git", listed, null],
+      ["the repository's own file", "https://github.com/me/notes.git", null, listed],
+      ["a gates file that does not parse", "https://github.com/me/notes.git", '{"allowDirectPushRepos": "me/notes"}', null],
+    ])("%s stays blocked", (_, url, user, repository) => {
+      expect(clone(url, user, repository)("git push origin main")).toEqual(["git push origin main", 2]);
+    });
+
+    test("a remote with a second push URL that is not listed stays blocked, and so does a push to a URL", () => {
+      const { root, work, git } = repo();
+      git(work, "remote", "set-url", "--push", "origin", "https://github.com/me/notes.git");
+      git(work, "remote", "set-url", "--push", "--add", "origin", "https://github.com/me/other.git");
+      mkdirSync(dirname(join(root, REPO_FILE)));
+      writeFileSync(join(root, REPO_FILE), JSON.stringify(listed));
+      for (const command of ["git push origin main", "git push https://github.com/me/notes.git main"]) {
+        const r = spawnSync("sh", [join(hooks, "git-guardrail.sh")], { input: JSON.stringify({ tool_name: "Bash", tool_input: { command }, cwd: work }), encoding: "utf8", env: { ...env, HOME: root } });
+        expect([command, r.status]).toEqual([command, 2]);
+      }
+    });
   });
 });

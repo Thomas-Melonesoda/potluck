@@ -18,6 +18,9 @@
 //                             repositories the foreignRepos check treats as
 //                             the user's own; read from the user's file only,
 //                             so a repository's file cannot widen it
+//   "allowDirectPushRepos": ["<owner>/<name>"]
+//                             repositories whose default branch an agent may
+//                             push to directly; the user's file only, as well
 // Only the user changes a gates file; an agent may suggest a change and never
 // makes one (the owner's ruling, 2026-11-23), and potluck's hooks block it.
 // An unknown key or value fails, so a typo never drops a gate quietly.
@@ -66,12 +69,14 @@ export function parseGates(text, source) {
   for (const [key, value] of Object.entries(raw)) {
     if (key === "trustRepos") {
       if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !/^[\w-]+(\/[\w.-]+)?$/.test(item))) throw new Error(`${source}: trustRepos must be a list of owners or owner/name repositories`);
+    } else if (key === "allowDirectPushRepos") {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !/^[\w-]+\/[\w.-]+$/.test(item))) throw new Error(`${source}: allowDirectPushRepos must be a list of owner/name repositories`);
     } else if (key === "askFirst") {
       if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) throw new Error(`${source}: askFirst must be a list of non-empty strings`);
     } else if (Object.hasOwn(LEVELS, key)) {
       if (!LEVELS[key].includes(value)) throw new Error(`${source}: ${key} must be ${LEVELS[key].map((v) => JSON.stringify(v)).join(" or ")}, not ${JSON.stringify(value)}`);
     } else {
-      throw new Error(`${source}: unknown key ${JSON.stringify(key)}; the keys are ${[...Object.keys(LEVELS), "askFirst", "trustRepos"].join(", ")}`);
+      throw new Error(`${source}: unknown key ${JSON.stringify(key)}; the keys are ${[...Object.keys(LEVELS), "askFirst", "trustRepos", "allowDirectPushRepos"].join(", ")}`);
     }
   }
   return raw;
@@ -90,7 +95,9 @@ export function strictest(layers) {
       }
     }
     for (const item of layer.askFirst ?? []) if (!gates.askFirst.includes(item.trim())) gates.askFirst.push(item.trim());
-    if (user && layer.trustRepos?.length) gates.trustRepos = [...new Set([...(gates.trustRepos ?? []), ...layer.trustRepos.map((item) => item.toLowerCase())])];
+    for (const key of ["trustRepos", "allowDirectPushRepos"]) {
+      if (user && layer[key]?.length) gates[key] = [...new Set([...(gates[key] ?? []), ...layer[key].map((item) => item.toLowerCase())])];
+    }
   }
   return gates;
 }
@@ -108,6 +115,7 @@ export function describe(gates) {
     .map((key) => `- ${key}: ${gates[key]} (${gates.from[key]}). ${SAYS[key][gates[key]]}`);
   for (const item of gates.askFirst) lines.push(`- Ask the user first: ${item}`);
   if (gates.trustRepos?.length) lines.push(`- trustRepos: ${gates.trustRepos.join(", ")}. The foreignRepos check treats these as the user's own.`);
+  if (gates.allowDirectPushRepos?.length) lines.push(`- allowDirectPushRepos: ${gates.allowDirectPushRepos.join(", ")}. The user lets an agent push these repositories' default branches directly.`);
   if (!lines.length) return ["No operator's gates: potluck's defaults apply."];
   return ["The operator's gates, stricter than potluck's defaults:", ...lines];
 }
