@@ -11,8 +11,9 @@ In the tables, `hooks/` and `skills/` are under `plugins/pstack/`, and `scripts/
 | Row / 行号 | What / 内容 | Files / 文件 | Checked by, PR / 检查和 PR |
 | --- | --- | --- | --- |
 | S3-A8 | The merge gate / 合并门 | `scripts/merge-gate.mjs` (the playbook is in `decisions.md`) | `tests/merge-gate.test.mjs`; #8, #9, #19 |
-| S3-C3 | Worktree backup and removal / worktree 备份和移除 | `scripts/worktree-backup.mjs`, `scripts/worktree-remove.mjs` (the playbook is in `decisions.md`) | `tests/worktree-backup.test.mjs`, `tests/worktree-remove.test.mjs`; #10, #38 |
-| S3-D1 | Checkpoints in a fixed form. Stage 5 issue 11 changed the script: one pointer per folder and task, folders outside Git, and HEAD recorded at each pause / 固定格式的检查点。阶段 5 第 11 条改了脚本：每个文件夹加任务一个指针，支持 Git 之外的文件夹，每次暂停记录 HEAD | `scripts/resume.mjs`, `skills/poteto-mode/references/resume-storage.md` (Michael's; Pause safely is in `decisions.md`) | `tests/resume.test.mjs`; #35 |
+| S3-C3 | Worktree backup and removal / worktree 备份和移除 | `scripts/worktree-backup.mjs`, `scripts/worktree-remove.mjs` (the playbook is in `decisions.md`) | `tests/worktree-backup.test.mjs`, `tests/worktree-remove.test.mjs`; #10, #38, #42 |
+| S3-A6 | The limit of two fix rounds per PR, recorded by a script / 每个 PR 最多两轮修复，由脚本记录 | `scripts/fix-rounds.mjs`, potluck's own (the playbook, `autopilot-full`, is in `decisions.md`) | `tests/fix-rounds.test.mjs`, `tests/potluck-rules.test.mjs`; #58 |
+| S3-D1 | Checkpoints in a fixed form. Stage 5 issue 11 changed the script: one pointer per folder and task, folders outside Git, and HEAD recorded at each pause / 固定格式的检查点。阶段 5 第 11 条改了脚本：每个文件夹加任务一个指针，支持 Git 之外的文件夹，每次暂停记录 HEAD | `scripts/resume.mjs`, `skills/poteto-mode/references/resume-storage.md` (Michael's; Pause safely is in `decisions.md`) | `tests/resume.test.mjs`; #35, #40 |
 | S3-E4 | Principles are `user-invocable: false` / 原则用 `user-invocable: false` | The [24 leaves](#s3-e4-the-24-principle-leaves--24-个原则文件), changed by `portFrontmatter` in `tools/generate.mjs` | `tools/generate.mjs --check` fails a leaf without it; it came with pstack-claude |
 | S3-E12 | The session-start routing hook, on by default, can be turned off / 开局分流钩子，默认开启，可以关掉 | See [below](#s3-e12-the-session-start-hook--开局钩子) (the switch, `setup-pstack`, is in `decisions.md`) | `tests/session-hook.test.mjs`, `tests/session-hook-windows.test.mjs`, `tests/potluck-rules.test.mjs`; the hook came with pstack-claude, #40 changed six of its texts |
 | S3-G1 | Lauren's guide, in English and Chinese / Lauren 的使用指南，中英双语 | `docs/guide/` (synced component `guide` in `tools/upstream.json`, no file forked), `docs/guide-zh-CN/` (potluck's translation). For it `tools/substitutions.json` gained 17 rules, each with a rationale that starts `potluck guide:`, and 2 denylist entries (`Custom Mode`, cloud agents) / 为它加了 17 条翻译规则和 2 条禁用词 | `bun tools/sync.mjs --check-rules`, `tests/guide-zh.test.mjs`; #12, #13 |
@@ -47,7 +48,7 @@ Michael's files. potluck changed the six texts marked (#40) in that PR, to route
 | S4-M4 | Decision record (ADR) format / 决定记录格式 | `skills/domain-modeling/ADR-FORMAT.md`, synced | The sync; #17 |
 | S4-M7 | `prototype` | `skills/prototype/`, synced | The sync; #17 |
 | S4-M10 | `wizard` | `skills/wizard/`, synced | The sync; #17 |
-| S4-M11 | Git guardrail / git 护栏 | `hooks/git-guardrail.mjs`, `hooks/git-guardrail.sh`, potluck's own, registered in `hooks/hooks.json` and `hooks/codex-hooks.json` | `tests/git-guardrail.test.mjs`; #16, #33, #41, #45, #54 |
+| S4-M11 | Git guardrail / git 护栏 | `hooks/git-guardrail.mjs`, `hooks/git-guardrail.sh`, potluck's own, registered in `hooks/hooks.json` and `hooks/codex-hooks.json` | `tests/git-guardrail.test.mjs`; #16, #33, #41, #44, #45, #54 |
 | S4-D4 | `CONSTRAINTS.md` template / `CONSTRAINTS.md` 模板 | `skills/constraint-driven-development/SKILL.md` (step 3 holds the template) and its `scripts/quality-gate.mjs`, synced from Addy Osmani | The sync; #18 |
 | S4-D5 | The floor / 底线 | `references/floor-guard.md` of the same skill, a borrow in `decisions.md`, run by `scripts/merge-gate.mjs` | `tests/merge-gate.test.mjs`; #18, #19, #29, #36, #43 |
 | S4-D7 | No rationalization table / 不要反借口表 | A rule in `tools/substitutions.json` drops it from `constraint-driven-development` | `bun tools/sync.mjs --check-rules`; #18 |
@@ -60,5 +61,5 @@ Each synced component has its pin in `tools/upstream.json` and its rules, with a
 These come from the stage 5 answers, which number issues, not rows. [The roadmap](roadmap.md) describes each. / 来自阶段 5 的答复，只有条号，没有行号，内容见[路线图](roadmap.md)。
 
 - `scripts/gates.mjs`, `hooks/operator-gates.mjs`, `hooks/gates-lock.sh`: the operator's gates / 操作者的门 (#39, #44, #54).
-- `scripts/pr-trigger.mjs`: which checks a PR should get / PR 应该有哪些检查 (#50).
+- `scripts/pr-trigger.mjs`: which checks a PR should get / PR 应该有哪些检查 (#50, #56).
 - `skills/grill/scripts/starter.mjs`, `skills/grill/starter/`: the new-project starter, issue 10 / 新项目起步文件，第 10 条 (#34, #47).
