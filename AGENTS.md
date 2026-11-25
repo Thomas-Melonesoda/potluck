@@ -2,7 +2,7 @@
 
 ## What this is
 - An open-source agent workflow system: Lauren Tan's pstack at the core, built on Michael Denyer's multi-harness port (pstack-claude), with selected skills from Matt Pocock and Addy Osmani. Users may not be programmers, so every gate must be a check, not a human review.
-- Stage: under construction (see the roadmap below). The tree still matches pstack-claude v0.9.146 plus potluck's rename and pre-push checks.
+- Stage: under construction (see the roadmap below). The tree builds on pstack-claude v0.9.146.
 
 ## Where progress lives
 - [`docs/roadmap.md`](docs/roadmap.md) is the single source of progress. Read it before starting; update it in the PR that finishes a step. Do not keep a second progress copy.
@@ -30,7 +30,7 @@
 - Remote `michael` is fetch-only. Never push Michael's tags here.
 
 ## AI self-merge (from 2026-11-21, set by the owner)
-No levels: apart from "always ask" below, the AI verifies and merges its own PRs; the owner does not review PRs. Trust comes from checks, tests, and the AI's own runtime verification, so none of these conditions may be skipped.
+No levels: apart from "always ask" below, the AI verifies and merges its own PRs; the owner does not review PRs. Trust comes from checks, tests, and the AI's own runtime verification, so none of these conditions may be skipped. Only the owner may waive a step that may not be skipped. The waiver is recorded with the owner's own words and the date. No agent may waive one, the root agent included.
 - **Before every merge**:
   1. CI passes on the PR's current head; the local checks above pass.
   2. Behavior a user can trigger changed: run it for real in at least one harness (Claude Code or Codex) and paste the output into the PR.
