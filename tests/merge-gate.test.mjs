@@ -140,6 +140,54 @@ test.each([
   expect(prTrigger(`on:\n  pull_request:\n    ${filter}\n`, { base: "main", changed: ["src/app.js"] })).toBe(true);
 });
 
+test.each([
+  ["branches: !!str main"],
+  ["branches: [!!str main]"],
+  ["branches:\n      - !!str main"],
+  ["paths: ! src/**"],
+  ["types: !!seq [opened]"],
+  ["paths:"],
+  ["paths: []"],
+  ["branches:"],
+  ["branches: ~"],
+  ["types: []"],
+  ["branches: {a: b}"],
+  ["branches: |2-\n        main"],
+  ["paths: ['!docs/**']"],
+  ["branches: ['!release/**']"],
+  ["paths: ['**/?rc/app.js']"],
+  ["paths: ['src/b+?.js']"],
+  ["paths: ['src/[!b]pp.js']"],
+  ["paths: ['src/[']"],
+  ["paths: ['src/[]app.js']"],
+  ["paths-ignore: ['src/[^b]pp.js']"],
+])("a limit GitHub does not define, or this reading cannot read, counts as touched, %j", (filter) => {
+  expect(prTrigger(`on:\n  pull_request:\n    ${filter}\n`, { base: "main", changed: ["src/app.js"] })).toBe(true);
+});
+
+test("a tag on the pull request event itself counts as touched", () => {
+  for (const on of ["on: !!str pull_request\n", "on: [push, !!str pull_request]\n", "on:\n  !!str pull_request:\n"]) expect(prTrigger(on, { base: "main", changed: ["a"] })).toBe(true);
+});
+
+test("a quoted exclusion is a pattern, not a YAML tag", () => {
+  const on = "on:\n  pull_request:\n    paths:\n      - 'src/**'\n      - '!src/app.js'\n";
+  expect(prTrigger(on, { base: "main", changed: ["src/app.js"] })).toBe(false);
+});
+
+test("a file name with a line break matches a wildcard", () => {
+  expect(prTrigger("on:\n  pull_request:\n    paths: ['src/**']\n", { base: "main", changed: ["src/a\nb.js"] })).toBe(true);
+});
+
+test("a comment after a plain value with an apostrophe is not part of it", () => {
+  expect(prTrigger("on:\n  pull_request:\n    paths:\n      - src/it's # note\n", { base: "main", changed: ["src/it's"] })).toBe(true);
+});
+
+test("a paths filter does not apply past 1,000 commits, as on GitHub", () => {
+  const on = "on:\n  pull_request:\n    paths: ['docs/**']\n";
+  expect(prTrigger(on, { base: "main", changed: ["a"], commits: 1001 })).toBe(true);
+  expect(prTrigger(on, { base: "main", changed: ["a"], commits: 1000 })).toBe(false);
+});
+
 test("a paths filter does not apply to a diff of 300 files or more, as on GitHub", () => {
   const changed = Array.from({ length: 300 }, (_, i) => `src/${i}.js`);
   expect(prTrigger("on:\n  pull_request:\n    paths: ['docs/**']\n", { base: "main", changed })).toBe(true);
@@ -196,7 +244,7 @@ describe("merge-gate CLI against a fake gh", () => {
   // `change` is one PR file; `base` and `files` add files before and in the PR;
   // `remove` deletes base files in the PR, `move` renames one; `pullRef: false`
   // leaves refs/pull/7/head out, as if GitHub had no such PR.
-  function checkout(change = { path: "src/app.js", text: "export const answer = 42;\n" }, { base: baseFiles = {}, files = {}, remove = [], move = null, pullRef = true, message = "change" } = {}) {
+  function checkout(change = { path: "src/app.js", text: "export const answer = 42;\n" }, { base: baseFiles = {}, files = {}, remove = [], links = {}, move = null, pullRef = true, message = "change" } = {}) {
     const dir = mkdtempSync(join(tmpdir(), "potluck-gate-repo-"));
     dirs.push(dir);
     const remote = join(dir, "o", "r.git");
@@ -224,6 +272,7 @@ describe("merge-gate CLI against a fake gh", () => {
     }
     if (move) git(work, "mv", move[0], move[1]);
     git(work, "add", ".");
+    for (const [path, commit] of Object.entries(links)) git(work, "update-index", "--add", "--cacheinfo", `160000,${commit},${path}`);
     git(work, "commit", "-q", "-m", message);
     const head = git(work, "rev-parse", "HEAD");
     if (pullRef) git(work, "push", "-q", "origin", "HEAD:refs/pull/7/head");
@@ -1067,6 +1116,56 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const r = fake({ runs: [], wfRuns: [], statuses: [aged], setup: { base, files: { [file]: "x\n" } } }).run(...merge, "--dry-run");
     expect(r.json.kind).toBe("refused");
     expect(r.json.reasons[0]).toContain(".github/workflows/ci.yml");
+  });
+
+  const LIMITED = ".github/workflows/limited.yml";
+  const touched = "on:\n  pull_request:\n    branches: [main]\n    paths: ['lib/**']\n";
+  const limited = (wfRuns, over = {}) => fake({ runs: [cla], wfRuns, ...over, setup: { base: { [LIMITED]: touched }, files: { "lib/a.txt": "x\n" }, ...over.setup } }).run(...merge, "--dry-run").json;
+  const limitedRun = (status, conclusion) => wfRun(status, conclusion, LIMITED);
+
+  test.each([
+    ["has no run", []],
+    ["is queued", [limitedRun("queued", null)]],
+    ["is in_progress", [limitedRun("in_progress", null)]],
+    ["concluded failure", [limitedRun("completed", "failure")]],
+  ])("a limited workflow the PR touches refuses while it %s", (_, wfRuns) => {
+    const r = limited(wfRuns);
+    expect(r.kind).toBe("refused");
+    expect(r.reasons[0]).toContain(LIMITED);
+  });
+
+  test("a limited workflow the PR touches merges once it finished green", () => {
+    expect(limited([limitedRun("completed", "success")]).kind).toBe("would-merge");
+  });
+
+  test.each([
+    ["paths: ['docs/**']"],
+    ["branches: ['release/**']"],
+    ["branches-ignore: [main]"],
+    ["paths-ignore: ['**']"],
+  ])("a limited workflow the PR does not touch is skipped, %s", (filter) => {
+    const base = { [LIMITED]: `on:\n  pull_request:\n    ${filter}\n` };
+    expect(limited([], { setup: { base } }).kind).toBe("would-merge");
+  });
+
+  test("a file renamed out of a filter's paths touches the workflow", () => {
+    const base = { [LIMITED]: touched, "lib/b.txt": "one\ntwo\nthree\n" };
+    const r = limited([], { setup: { base, files: { "docs/b.txt": "one\ntwo\nthree\n" }, remove: ["lib/b.txt"] } });
+    expect(r.kind).toBe("refused");
+    expect(r.reasons[0]).toContain(LIMITED);
+  });
+
+  test.each([["检查.yml"], ['a"b.yml']])("a workflow file named %s is waited for", (name) => {
+    const r = limited([], { setup: { base: { [`.github/workflows/${name}`]: touched } } });
+    expect(r.kind).toBe("refused");
+    expect(r.reasons[0]).toContain(name);
+  });
+
+  test("a submodule the PR's own .gitmodules hides from diffs still touches the workflow", () => {
+    const base = { [LIMITED]: "on:\n  pull_request:\n    paths: ['vendor']\n", ".gitmodules": '[submodule "vendor"]\n\tpath = vendor\n\turl = ./vendor\n\tignore = all\n' };
+    const r = limited([], { setup: { base, links: { vendor: "1".repeat(40) } } });
+    expect(r.kind).toBe("refused");
+    expect(r.reasons[0]).toContain(LIMITED);
   });
 
   test("a PR workflow limited to the PR's own base branch is waited for", () => {
