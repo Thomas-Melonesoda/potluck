@@ -67,6 +67,7 @@ function lex(line, start, stop, ids, scope) {
     if (word !== null) target = false;
     word = null;
   };
+  const outer = [];
   const split = () => {
     end();
     target = false;
@@ -146,6 +147,12 @@ function lex(line, start, stop, ids, scope) {
     } else if (c === "(" || c === ")") {
       depth += c === "(" ? 1 : -1;
       split();
+      // A subshell is a scope of its own: its `cd` ends with it.
+      if (c === "(") {
+        outer.push(scope);
+        ids.parent.set(++ids.next, scope);
+        scope = ids.next;
+      } else scope = outer.pop() ?? scope;
     } else if (";&|".includes(c) && !(c === "&" && line[i + 1] === ">")) {
       split();
     } else if (c === "<" || c === ">" || (c === "&" && line[i + 1] === ">")) {
@@ -192,8 +199,10 @@ export function gitCall(words, cwd) {
   if (!/(^|\/)git$/.test(words[i] ?? "")) return null;
   i++;
   let dir = cwd;
+  let elsewhere = false;
   while (i < words.length && words[i].startsWith("-")) {
     const option = words[i];
+    if (/^--(?:git-dir|work-tree)(?:=|$)/.test(option)) elsewhere = true;
     if (option === "-C") dir = resolveDir(dir, words[++i] ?? ".");
     else if (option === "--work-tree") dir = resolveDir(dir, words[++i] ?? ".");
     else if (option.startsWith("--work-tree=")) dir = resolveDir(dir, option.slice("--work-tree=".length));
@@ -201,7 +210,7 @@ export function gitCall(words, cwd) {
     i++;
   }
   if (i >= words.length) return null;
-  return { dir, sub: words[i], args: words.slice(i + 1) };
+  return { dir, sub: words[i], args: words.slice(i + 1), ...(elsewhere && { elsewhere }) };
 }
 
 const resolveDir = (base, path) => {
@@ -270,7 +279,8 @@ function longOption(word) {
 // A push's options, its remote, and its refspec words. A dry run asks nothing.
 function pushPlan(args) {
   const plan = { force: false, delete: false, every: false, prune: false, tags: false, remote: undefined, refspecs: [] };
-  let dry = false;
+  let dry = args.length === 1 && args[0] === "-h";
+  let repo;
   const words = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -278,8 +288,10 @@ function pushPlan(args) {
       words.push(...args.slice(i + 1));
       break;
     }
+    if (a === "--help") return null;
     if (a.startsWith("--")) {
       const name = longOption(a);
+      if (name === "repo") repo = a.includes("=") ? a.slice(a.indexOf("=") + 1) : args[i + 1];
       if (VALUED.has(name) && !a.includes("=")) i++;
       else if (name === "force" || name === "force-with-lease") plan.force = true;
       else if (name === "delete") plan.delete = true;
@@ -302,7 +314,7 @@ function pushPlan(args) {
     } else words.push(a);
   }
   if (dry) return null;
-  return { ...plan, remote: words[0], refspecs: words.slice(1) };
+  return { ...plan, remote: words[0] ?? repo, refspecs: words.slice(1) };
 }
 
 // One refspec: its source, its destination ("" for HEAD), whether it named a
@@ -334,7 +346,9 @@ function covers(dst, name) {
 // A destination the command computes when it runs.
 const computed = (dst) => /[$`]/.test(dst);
 
-const GITHUB = /^(?:(?:https?|ssh|git):\/\/(?:[^@/]+@)?github\.com(?::\d+)?\/|(?:[^@/\s]+@)?github\.com:)([\w-]+\/[\w.-]+?)(?:\.git)?\/?$/i;
+// A github.com repository in a plain https or ssh URL or the scp form. Nothing
+// but name characters may stand before the host, so no other host fits there.
+const GITHUB = /^(?:(?:https|ssh):\/\/(?:\w[\w.-]*@)?github\.com\/|(?:\w[\w.-]*@)?github\.com:)([\w-]+\/[\w.-]+?)(?:\.git)?\/?$/;
 
 // Whether the user's own gates file lists every repository a push to `remote`
 // writes. A remote given as a URL, or a gates file that cannot be read, is no.
@@ -350,8 +364,9 @@ function directPushAllowed(read, remote) {
 
 // The push rules that hold in a clean repository: no push that lands on a
 // default branch, and no deleted remote branch. A forced push passes only when
-// every branch it writes can be read and none is a default branch.
-function sharedPush(dir, args) {
+// every branch it writes can be read and none is a default branch. `elsewhere`
+// is a push with --git-dir or --work-tree, whose repository is not `dir`'s.
+function sharedPush(dir, args, elsewhere = false) {
   const plan = pushPlan(args);
   if (!plan) return null;
   const read = (args) => {
@@ -415,12 +430,16 @@ function sharedPush(dir, args) {
   if (forced.includes(null)) {
     return `potluck git guardrail: blocked a force push whose branch it cannot read (${known ? "the branch is computed when the command runs" : "the repository it runs in could not be read"}). A force push that may land on a default branch is blocked, so name the branch plainly (\`git push --force-with-lease origin <branch>\`); it passes when that branch is not a default branch.`;
   }
+  const unnamed = (spec) => spec.every || spec.implicit || !spec.dst || computed(spec.dst);
+  if ((elsewhere || !known) && (plan.every || specs.some((s) => !s.delete && unnamed(s)))) {
+    return "potluck git guardrail: blocked a push that lands by the branch of a repository this check cannot read (its folder is worked out when the command runs, or named with --git-dir or --work-tree). Run these as two commands: cd into the repository first, then push. Or name a branch of your own (`git push -u origin <branch>`).";
+  }
   const pushed = [...(plan.every ? local() : []), ...specs.filter((s) => !s.force && !s.delete).flatMap(writes)];
   const landed = [...shared].find((name) => pushed.some((target) => target && covers(target, name)));
   // A branch computed when the command runs is most often the current one, so
   // it is blocked only where the current branch is a default branch.
   const unread = !landed && known && pushed.includes(null) && [...shared].some((name) => covers(current, name));
-  if ((!landed && !unread) || directPushAllowed(read, remote)) return null;
+  if ((!landed && !unread) || (!elsewhere && directPushAllowed(read, remote))) return null;
   if (landed) {
     return `potluck git guardrail: blocked a push to ${landed}, a default branch. Changes reach a default branch only through a pull request: push to a branch of your own (\`git push -u origin <branch>\`) and open a pull request. A person can still merge on GitHub's website.`;
   }
@@ -461,8 +480,9 @@ export function check(command, cwd) {
   const dirOf = (scope) => dirs.get(scope) ?? dirOf(ids.parent.get(scope) ?? 0);
   for (const { words: base, scope } of lex(command, 0, null, ids, 0).out) {
     const dir = dirOf(scope);
-    if (base[0] === "cd" && base.length <= 2) {
-      dirs.set(scope, resolveDir(dir, base[1] ?? process.env.HOME ?? dir));
+    const to = base[0] === "cd" && base.slice(1).filter((word) => !/^(?:--|-[LPe]+)$/.test(word));
+    if (to && to.length <= 1) {
+      dirs.set(scope, resolveDir(dir, to[0] ?? process.env.HOME ?? dir));
       continue;
     }
     for (const words of expand(base)) {
@@ -506,7 +526,7 @@ function checkOne(words, dir) {
   let found = risk(call);
   // The push rules hold even where the repository cannot be read.
   if (call.sub === "push") {
-    const shared = sharedPush(call.dir, call.args);
+    const shared = sharedPush(call.dir, call.args, call.elsewhere);
     if (shared || !found) return shared;
   }
   if (!found) return null;

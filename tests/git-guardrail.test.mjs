@@ -523,12 +523,47 @@ describe("pushes to a default branch", () => {
     for (const c of ["git checkout -- a.txt && git push", "git rebase main && git push", "git branch --list && git push", "git switch main && git push -n origin main"]) expect([c, hook(c).status]).toEqual([c, 0]);
   });
 
+  test("help is not a push", () => {
+    const { hook } = repo();
+    for (const c of ["git push --help", "git push -h"]) expect([c, hook(c).status]).toEqual([c, 0]);
+    for (const c of ["git push -o --help", "git push origin main -h"]) expect([c, hook(c).status]).toEqual([c, 2]);
+  });
+
+  test("--repo is read as the push target, and a named remote wins over it", () => {
+    const { work, git, hook } = repo("feat");
+    git(work, "remote", "add", "fork", "https://example.com/x.git");
+    git(work, "symbolic-ref", "refs/remotes/fork/HEAD", "refs/remotes/fork/feat");
+    for (const c of ["git push --repo=fork", "git push --repo fork", "git push --rep=fork"]) expect([c, hook(c).reason]).toEqual([c, expect.stringContaining("blocked a push to feat")]);
+    expect(hook("git push --repo=fork origin feat").status).toBe(0);
+  });
+
+  test("a push that lands by the branch of a repository it cannot read is blocked, and a named branch passes", () => {
+    const { work, root, hook } = repo("feat");
+    for (const c of ['cd "$(git rev-parse --show-toplevel)" && git push', 'cd "$PWD" && git push', 'git -C "$(git rev-parse --show-toplevel)" push origin HEAD', "cd - && git push", "git clone x fresh && cd fresh && git push", `git --git-dir=${work}/.git push`, `git --git-dir ${work}/.git push -u origin HEAD`, `git --work-tree=${root} push`, "cd \"$PWD\" && git push --all", "cd \"$PWD\" && git push origin :"]) {
+      expect([c, hook(c).status]).toEqual([c, 2]);
+      expect(hook(c).reason).toContain("Run these as two commands");
+    }
+    for (const c of ['cd "$(git rev-parse --show-toplevel)" && git push -u origin feat', `git --git-dir=${work}/.git push origin HEAD:feat`]) expect([c, hook(c).status]).toEqual([c, 0]);
+    for (const c of ['cd "$PWD" && git push origin main', `git --git-dir=${work}/.git push origin main`]) expect(hook(c).reason).toContain("blocked a push to main");
+  });
+
+  test("cd -- and a cd in a subshell are followed as the shell follows them", () => {
+    const a = repo();
+    const b = repo("feat");
+    expect(b.hook(`cd -- ${a.work} && git push`).status).toBe(2);
+    expect(b.hook(`cd -P ${a.work} && git push`).status).toBe(2);
+    expect(b.hook(`(cd ${a.work} && git log -1); git push`).status).toBe(0);
+    expect(b.hook(`(cd ${a.work} && git push)`).status).toBe(2);
+    expect(a.hook(`(cd ${b.work}; (cd ${a.work}); git push)`).status).toBe(0);
+    expect(a.hook(`(cd ${b.work}); git push`).status).toBe(2);
+  });
+
   describe("allowDirectPushRepos", () => {
     const listed = { allowDirectPushRepos: ["Me/Notes"] };
     // A clone on main whose push URL is `url`, with the user's and the repository's gates.
     function clone(url, user, repository) {
       const { root, work, git } = repo();
-      git(work, "remote", "set-url", "--push", "origin", url);
+      git(work, "config", "remote.origin.pushurl", url);
       for (const [dir, gates] of [[root, user], [work, repository]]) {
         if (!gates) continue;
         mkdirSync(dirname(join(dir, REPO_FILE)));
@@ -543,12 +578,23 @@ describe("pushes to a default branch", () => {
     test.each(["https://github.com/me/notes.git", "git@github.com:me/notes.git", "ssh://git@github.com/me/notes"])("a listed repository takes a plain push to its default branch: %s", (url) => {
       const run = clone(url, listed);
       for (const c of ["git push", "git push origin main", "git push origin $(git branch --show-current)"]) expect(run(c)).toEqual([c, 0]);
-      for (const c of ["git push --force-with-lease", "git push -f origin main", "git push origin :main", "git checkout main && git push"]) expect(run(c)).toEqual([c, 2]);
+      for (const c of ["git push --force-with-lease", "git push -f origin main", "git push origin :main", "git checkout main && git push", "git push --repo=https://github.com/me/other.git", "git push --repo https://github.com/me/other.git", "git --git-dir=.git push origin main", "git --work-tree . push", "cd \"$PWD\" && git push origin main"]) expect(run(c)).toEqual([c, 2]);
     });
 
     test.each([
       ["another repository", "https://github.com/me/other.git", listed, null],
       ["another host", "https://example.com/github.com/me/notes.git", listed, null],
+      ["a query before the userinfo", "http://127.0.0.1:9?@github.com/me/notes.git", listed, null],
+      ["the same over https", "https://127.0.0.1?@github.com/me/notes.git", listed, null],
+      ["a userinfo with a colon", "https://a:b@github.com/me/notes.git", listed, null],
+      ["a fragment before the userinfo", "https://127.0.0.1#@github.com/me/notes.git", listed, null],
+      ["a backslash before the userinfo", "https://127.0.0.1\\@github.com/me/notes.git", listed, null],
+      ["a host before an scp path", "evil.example:x@github.com:me/notes", listed, null],
+      ["an option for a user", "-oProxyCommand@github.com:me/notes", listed, null],
+      ["a remote helper", "git::https://github.com/me/notes.git", listed, null],
+      ["an ext helper", "ext::sh@github.com:me/notes", listed, null],
+      ["plain http", "http://github.com/me/notes.git", listed, null],
+      ["a port", "https://github.com:8443/me/notes.git", listed, null],
       ["a lookalike host", "https://notgithub.com/me/notes.git", listed, null],
       ["the repository's own file", "https://github.com/me/notes.git", null, listed],
       ["a gates file that does not parse", "https://github.com/me/notes.git", '{"allowDirectPushRepos": "me/notes"}', null],
