@@ -1,6 +1,6 @@
 {
   "name": "pstack",
-  "version": "0.9.148",
+  "version": "0.9.149",
   "description": "potluck is an agent workflow system built on Lauren Tan's pstack and Michael Denyer's multi-harness port. Rigorous agent workflows you can parallelize with confidence. Ported from cursor/plugins/pstack to Antigravity. Original pstack by Lauren Tan (poteto).",
   "author": "Thomas-Melonesoda",
   "logo": "assets/pstack-icon.png",
