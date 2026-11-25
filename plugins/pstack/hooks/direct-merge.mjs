@@ -4,24 +4,25 @@
 //
 // It reads each simple command the guardrail's lexer finds, past assignments
 // and wrappers, up to gh, a shell, or a command whose words are only data. A
-// script handed to a shell, eval, or a runner such as trap or parallel is read
-// the same way. It judges only what it can read there; a script or word it
-// cannot read passes, so text that mentions a merge is never one.
+// script handed to a shell, eval, or a runner such as trap or ssh is read the
+// same way, where the runner is the command itself. An argument with a space
+// in it is text, and a script or word it cannot read passes.
 //
 // It reads `gh pr merge`, gh aliases for it, and `gh api` on a merge endpoint
-// or with a GraphQL merge mutation. Out of its reach: a script in a file or
-// read from stdin (a heredoc, a herestring, a pipe into a shell), gh called
-// from another language, a script, subcommand, or request built when the
-// command runs (a substitution, a variable) or read from a file, an alias set
-// earlier, a wrapper it does not know that takes a script as one word (tmux),
-// and curl. It stops an agent's shortcut, not a deliberate evasion.
+// or with a GraphQL merge mutation. Out of its reach: a script from a file or
+// stdin, gh called from another language, anything built when the command runs
+// or read from a file, an alias set earlier, a script given as one word to a
+// wrapper it does not know (tmux, env -S), and curl. It stops an agent's
+// shortcut, not a deliberate evasion.
 
 import { commands } from "./git-guardrail.mjs";
 
 // Commands whose later words are data, never a command to run.
 const DATA = new Set(["echo", "printf", "cat", "ls", "grep", "egrep", "fgrep", "rg", "ag", "ack", "sed", "awk", "jq", "test", "[", "[[", "cd", "rm", "cp", "mv", "mkdir", "touch", "head", "tail", "wc", "sort", "diff", "for", "case", "select", "export", "read", "which", "type", "man", "open", "code"]);
-// Commands that run a script given as one word.
-const RUNNERS = new Set(["su", "parallel", "trap", "watch", "ssh", "script", "env", "flock", "entr"]);
+// Wrappers and runners: the short options that take a value, and how many
+// words come before the command. A runner's command is a line of its own.
+const WRAPPERS = { env: ["uC", 0], timeout: ["ks", 1], gtimeout: ["ks", 1], nice: ["n", 0], sudo: ["ugpCDhRTU", 0], xargs: ["IJnPLEds", 0], exec: ["a", 0], stdbuf: ["ioe", 0], caffeinate: ["tw", 0], ...Object.fromEntries(["nohup", "command", "builtin", "noglob", "time", "then", "do", "else", "elif", "if", "while", "until", "!", "{"].map((name) => [name, ["", 0]])) };
+const RUNNERS = { su: ["", 0], parallel: ["jSNnLPIa", 0], trap: ["", 0], watch: ["n", 0], ssh: ["bcDEeFIiJLlmOopQRSWw", 1], script: ["cEIoOTBm", 1], flock: ["wE", 1], entr: ["", 0] };
 const SHELL = /^(?:ba|z|da|k|mk|fi|c|tc)?sh$/;
 const ASSIGN = /^[A-Za-z_]\w*=/;
 const COMPUTED = /^(?:\$\w+|\$\{[^{}]*\}|\$\([\s\S]*\)|`[\s\S]*`)$/;
@@ -32,6 +33,15 @@ const ENDPOINT = /^(?:https?:\/\/[^/]+|§)?\/?(?:api\/v3\/)?(?:repos\/(?:[^/]+\/
 const MUTATION = /\b(?:mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|mergeBranch)\s*\(/;
 
 const base = (word) => word.replace(/^.*\//, "");
+
+// Where the command after a wrapper's or runner's options and `count` words starts.
+function after(words, i, [valued, count]) {
+  for (; i < words.length; i++) {
+    if (/^-./.test(words[i])) i += words[i].length === 2 && valued.includes(words[i][1]) ? 1 : 0;
+    else if (!ASSIGN.test(words[i]) && count-- <= 0) break;
+  }
+  return i;
+}
 
 // What in `line` merges a pull request directly, or null.
 export function directMerge(line, depth = 0) {
@@ -47,22 +57,25 @@ export function directMerge(line, depth = 0) {
 function inCommand(words, depth) {
   const script = (text) => directMerge(text, depth + 1);
   const scripts = (list) => list.reduce((found, text) => found ?? script(text), null);
-  let runner = false;
+  let head = after(words, 0, ["", 0]);
+  while (Object.hasOwn(WRAPPERS, base(words[head] ?? ""))) head = after(words, head + 1, WRAPPERS[base(words[head])]);
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
     if (ASSIGN.test(word)) continue;
     const name = base(word);
-    const rest = words.slice(i + 1);
-    if (name === "gh") return inGh(rest, depth);
-    if (COMPUTED.test(word) && /^(?:pr|api)$/.test(rest[0] ?? "")) return inGh(rest, depth);
-    if (SHELL.test(name)) return inShell(rest, script);
-    if (name === "eval") return script(rest.join(" "));
-    if (name === "alias") return scripts(rest.map((a) => a.slice(a.indexOf("=") + 1)));
-    if (name === "git") return scripts(rest.filter((a) => /^alias\.[^=]*=!/.test(a)).map((a) => a.slice(a.indexOf("!") + 1)));
+    const rest = () => words.slice(i + 1);
+    if (name === "gh") return inGh(rest(), depth);
+    if (COMPUTED.test(word) && /^(?:pr|api)$/.test(words[i + 1] ?? "")) return inGh(rest(), depth);
+    if (SHELL.test(name)) return inShell(rest(), script);
+    if (name === "eval") return script(rest().join(" "));
+    if (name === "alias") return scripts(rest().map((a) => a.slice(a.indexOf("=") + 1)));
+    if (name === "git") return scripts(rest().filter((a) => /^alias\.[^=]*=!/.test(a)).map((a) => a.slice(a.indexOf("!") + 1)));
     if (DATA.has(name)) return null;
-    if (RUNNERS.has(name)) runner = true;
-    else if (runner && /\s/.test(word)) {
-      const found = script(word);
+    if (i === head && Object.hasOwn(RUNNERS, name)) {
+      const start = after(words, i + 1, RUNNERS[name]);
+      const command = words.slice(start).map((w, k) => (k && /\s/.test(w) ? `'${w.replaceAll("'", "'\\''")}'` : w));
+      // su takes its script with -c anywhere, script only among its options.
+      const found = inShell(name === "su" ? rest() : name === "script" ? words.slice(i, start) : [], script) ?? script(command.join(" "));
       if (found) return found;
     }
   }
@@ -77,9 +90,13 @@ function inShell(args, script) {
 
 // Each substitution, variable, and gh placeholder as one character.
 function parts(word) {
-  let text = word;
-  for (let before; before !== text; ) [before, text] = [text, text.replace(/\$\([^()]*\)|`[^`]*`|\$\{[^{}]*\}|\$\w+|\([^()]*\)/g, (m) => (m[0] === "(" ? "" : "§"))];
-  return text;
+  let [text, depth] = ["", 0];
+  for (const c of word) {
+    if (c === "(" && depth++ === 0) text = text.endsWith("$") ? `${text.slice(0, -1)}§` : text;
+    else if (c === ")" && depth) depth--;
+    else if (!depth) text += c;
+  }
+  return text.replace(/`[^`]*`|\$\{[^{}]*\}|\$\w+/g, "§");
 }
 
 function inGh(words, depth) {
@@ -104,9 +121,7 @@ function inGh(words, depth) {
   if (args[0] === "pr" && args[1] === "merge") return "`gh pr merge`";
   if (args[0] !== "api") return null;
   const endpoint = parts(args[1] ?? "");
-  if (/(?:^|\/)graphql\/?(?:\?.*)?$/.test(endpoint)) {
-    return queries.some((q) => MUTATION.test(q)) ? "a GraphQL merge mutation" : null;
-  }
+  if (/(?:^|\/)graphql\/?(?:\?.*)?$/.test(endpoint)) return queries.some((q) => MUTATION.test(q)) ? "a GraphQL merge mutation" : null;
   const reads = /^(?:GET|HEAD)$/i.test(method ?? (fields ? "POST" : "GET"));
   return !reads && ENDPOINT.test(endpoint) ? "`gh api` on a merge endpoint" : null;
 }

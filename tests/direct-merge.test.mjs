@@ -23,17 +23,14 @@ test.each(["gh pr view 5", "git commit -m 'never run gh pr merge'", "node x/merg
   expect(hook(line).status).toBe(0);
 });
 
-// The corpus is command lines that should block or pass: "seen" from reviewers
-// of earlier versions, "fresh" written before this reader first ran on them,
-// "tests" from its own tests, and "unseen" by an agent that had not read it,
-// and "ordinary" from a verifier whose lines an earlier version blocked. A
-// recorded miss is a direct merge that passes; a false block is the reverse.
-// Both only go down: a case keeps its place and label, and one that was read
-// right stays right.
+// The corpus is lines that should block or pass: "seen" from earlier reviewers,
+// "fresh" written before this reader first ran, "tests" from its own tests,
+// "unseen" by an agent that had not read it, "ordinary" and "runners" around
+// lines a review found wrongly blocked. A recorded miss is a direct merge that
+// passes, a false block the reverse. A case keeps its place and label, and one
+// that was read right stays right.
 const CORPUS = "tests/direct-merge-corpus.json";
 const corpus = JSON.parse(readFileSync(join(root, CORPUS), "utf8"));
-const LABELS = ["block", "pass"];
-const WRONG = ["misses", "falseBlocks"];
 
 // The ways `head` is looser than `base`; empty when it holds or improves.
 function loosened(base, head) {
@@ -42,8 +39,8 @@ function loosened(base, head) {
     const now = head[set];
     if (!now) problems.push(`${set}: removed`);
     else {
-      for (const label of LABELS) for (const cmd of was[label]) if (!now[label].includes(cmd)) problems.push(`${set}: ${label} case removed or relabelled: ${cmd}`);
-      for (const list of WRONG) for (const cmd of now[list]) if (!was[list].includes(cmd)) problems.push(`${set}: ${list} gains ${cmd}`);
+      for (const label of ["block", "pass"]) for (const cmd of was[label]) if (!now[label].includes(cmd)) problems.push(`${set}: ${label} case removed or relabelled: ${cmd}`);
+      for (const list of ["misses", "falseBlocks"]) for (const cmd of now[list]) if (!was[list].includes(cmd)) problems.push(`${set}: ${list} gains ${cmd}`);
     }
   }
   return problems;
