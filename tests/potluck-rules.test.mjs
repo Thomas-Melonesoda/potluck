@@ -11,6 +11,7 @@ const RULES = [
   { row: "S3-A1", file: "poteto-mode/playbooks/autopilot-full.md", phrase: "The operator's go starts the program; after it, no merge waits for a person." },
   { row: "S3-A3", file: "poteto-mode/playbooks/autopilot-full.md", phrase: "Before the first owner starts, tell the operator the size of the program" },
   { row: "S3-A6", file: "poteto-mode/playbooks/autopilot-full.md", phrase: "Choose one, without waiting for the operator: a fresh owner that tries a different approach, splitting the PR into smaller ones, or parking it as a draft with the decision written in the trail." },
+  { row: "S3-A6", file: "poteto-mode/playbooks/autopilot-full.md", phrase: "Before each fix-forward the owner runs `node` on `skills/poteto-mode/scripts/fix-rounds.mjs`" },
   { row: "S3-A8", file: "poteto-mode/playbooks/autopilot-full.md", phrase: "never with `gh pr merge` or `--auto` directly" },
   { row: "S3-A8", file: "poteto-mode/playbooks/shipping.md", phrase: "Never run `gh pr merge` yourself." },
   { row: "S3-A8", file: "poteto-mode/playbooks/shipping.md", phrase: "Never arm `--auto`" },
