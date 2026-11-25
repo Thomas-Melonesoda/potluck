@@ -4,11 +4,12 @@
 // fixture and records every call, so no test touches GitHub.
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { CONTEXT, FLOOR_GUARD, OVERVIEW, guardSource, refusals } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
+import { REPO_FILE } from "../plugins/pstack/skills/poteto-mode/scripts/gates.mjs";
 import { prTrigger } from "../plugins/pstack/skills/poteto-mode/scripts/pr-trigger.mjs";
 
 const script = join(import.meta.dir, "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs");
@@ -260,7 +261,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
       f.statuses = [status, ...f.statuses];
       writeFileSync(join(dir, "fixture.json"), JSON.stringify(f));
     };
-    return { run, runAt, calls, head, work: repoDir.work, setView, addStatus, dir };
+    return { run, runAt, calls, head, work: repoDir.work, setView, addStatus, dir, home: join(dir, "home") };
   }
   // Stands for the fixture's PR head in a command line.
   const SHA = "<head>";
@@ -950,6 +951,67 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const r = fake({ runs: [], setup: { base: repoGates, remove: [".potluck/gates.json"] } }).run(...merge, "--dry-run");
     expect(r.json.kind).toBe("held");
     expect(r.json.reasons[0]).toContain("from .potluck/gates.json at the PR's base");
+  });
+
+  // A planted change in the repository's file, or in the user's file where the
+  // user keeps it in a repository and links to it, refuses before any gh call.
+  describe("a gates file with uncommitted changes", () => {
+    const reason = (r) => [r.json.kind, r.json.reasons.slice(0, 1).join(), r.json.reasons.at(-1)];
+    const refused = (path) => ["refused", expect.stringContaining(`${path} has uncommitted changes`), expect.stringContaining("ask the user to check the change")];
+    const g = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { env: gitEnv, stdio: ["ignore", "pipe", "pipe"] });
+    function linked() {
+      const f = fake();
+      const notes = join(f.home, "notes");
+      mkdirSync(notes);
+      writeFileSync(join(notes, "mine.json"), JSON.stringify({ noCI: "wait" }));
+      g(notes, "init", "-q", "-b", "main");
+      g(notes, "add", "mine.json");
+      g(notes, "commit", "-q", "-m", "gates");
+      symlinkSync(join(notes, "mine.json"), join(f.home, REPO_FILE));
+      return { ...f, notes, mine: join(notes, "mine.json") };
+    }
+
+    test("the user's linked file merges as committed, and refuses once changed, staged, deleted, or hidden from git", () => {
+      const f = linked();
+      expect(f.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+      writeFileSync(f.mine, "{}");
+      expect(reason(f.run(...merge, "--dry-run"))).toEqual(refused(f.mine));
+      rmSync(join(f.dir, "calls"));
+      expect(reason(f.run(...merge))).toEqual(refused(f.mine));
+      expect(existsSync(join(f.dir, "calls"))).toBe(false);
+      g(f.notes, "add", "mine.json");
+      expect(reason(f.run(...merge))).toEqual(refused(f.mine));
+      g(f.notes, "commit", "-q", "-m", "the user's change");
+      expect(f.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+      g(f.notes, "update-index", "--assume-unchanged", "mine.json");
+      writeFileSync(f.mine, '{"foreignRepos": "ask"}');
+      expect(f.run(...merge, "--dry-run").json.reasons[0]).toContain(`${f.mine} is marked so that git ignores changes to it`);
+      g(f.notes, "update-index", "--no-assume-unchanged", "mine.json");
+      rmSync(f.mine);
+      expect(reason(f.run(...merge, "--dry-run"))).toEqual(refused(f.mine));
+    });
+
+    test("the repository's file refuses when added, changed, or deleted in the checkout", () => {
+      const added = fake();
+      mkdirSync(dirname(join(added.work, REPO_FILE)));
+      writeFileSync(join(added.work, REPO_FILE), "{}");
+      expect(reason(added.run(...merge, "--dry-run"))).toEqual(refused(REPO_FILE));
+      const kept = fake({ setup: { base: repoGates } });
+      expect(kept.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+      writeFileSync(join(kept.work, REPO_FILE), "{}");
+      expect(reason(kept.run(...merge, "--dry-run"))).toEqual(refused(REPO_FILE));
+      rmSync(dirname(join(kept.work, REPO_FILE)), { recursive: true });
+      expect(reason(kept.run(...merge, "--dry-run"))).toEqual(refused(REPO_FILE));
+    });
+
+    test("a user's file outside git, or in a repository with no commit, has nothing to compare with", () => {
+      const f = fake({ gates: { noCI: "wait" } });
+      expect(f.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+      g(f.home, "init", "-q", "-b", "main");
+      expect(f.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+      g(f.home, "commit", "-q", "--allow-empty", "-m", "x");
+      expect(reason(f.run(...merge, "--dry-run"))).toEqual(refused(join(f.home, REPO_FILE)));
+    });
   });
 
   test("a repository's gates file the PR adds holds it too", () => {

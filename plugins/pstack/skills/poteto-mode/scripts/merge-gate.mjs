@@ -9,6 +9,8 @@
 // on that exact head, so the result is a fact GitHub holds, not a comment.
 //
 // `merge` only checks facts, then merges. It refuses unless every one holds:
+//   - neither the user's nor the repository's gates file holds uncommitted
+//     changes (gates-committed.mjs), since only the user changes one
 //   - the PR is open, not a draft, not conflicting, and its head is the
 //     verified SHA
 //   - that head carries a `potluck/verdict` status of success
@@ -67,7 +69,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { parseGates, REPO_FILE, strictest, userFile } from "./gates.mjs";
+import { parseGates, REPO_FILE, repoRoot, strictest, userFile } from "./gates.mjs";
+import { gatesNotCommitted } from "./gates-committed.mjs";
 import { prTrigger } from "./pr-trigger.mjs";
 
 export const CONTEXT = "potluck/verdict";
@@ -467,6 +470,11 @@ function run(argv) {
   if (command === "merge") {
     if (!/^\d+$/.test(values.pr ?? "")) return usage("--pr must be a number");
     const pr = Number(values.pr);
+    const changed = gatesNotCommitted(repoRoot(process.cwd()));
+    if (changed.length) {
+      const hint = "an agent never changes or commits a gates file, so ask the user to check the change and commit or undo it";
+      return out({ kind: "refused", repo, pr, sha, reasons: [...changed.map((reason) => `operator's gates: ${reason}`), hint] });
+    }
     const facts = readFacts(repo, pr, sha);
     const reasons = refusals(facts, sha);
     if (reasons.length) return out({ kind: "refused", repo, pr, sha, reasons });
