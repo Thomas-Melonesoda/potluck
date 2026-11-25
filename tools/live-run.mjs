@@ -4,41 +4,37 @@
 //
 //   node tools/live-run.mjs --max-budget-usd <amount> --prompt <text> [options]
 //
-//   --confirm-paid           run the paid step; without it the preflight runs
-//                            and the command is printed. Spending money needs
-//                            the owner's direct word for this run first.
+//   --confirm-paid           run the paid step, which needs the owner's direct word for
+//                            this run first; without it the command is only printed
 //   --cwd <dir>              where claude runs (default: here)
-//   --setting-sources <list> default "project", so only the change under test
-//                            brings settings, hooks and permission rules
-//   --keep-user-endpoint     pass the ANTHROPIC_ values of the user's settings
-//                            to claude when --setting-sources leaves them out
-//   --plugin-dir, --model, --allowedTools, --disallowedTools,
-//   --permission-mode, --output-format, --strict-mcp-config, --verbose,
-//   --no-session-persistence go to claude as given. No other flag does, so
-//                            none can change what the preflight checked.
+//   --setting-sources <list> default "project", so only the change under test brings
+//                            settings, hooks and permission rules
+//   --keep-user-endpoint     pass the ANTHROPIC_ values of the user's settings to
+//                            claude when --setting-sources leaves them out
+// --plugin-dir, --model, --allowedTools, --disallowedTools, --permission-mode,
+// --output-format, --strict-mcp-config, --verbose and --no-session-persistence go to
+// claude as given. No other flag does, so none can change what the preflight checked.
 //
 // The preflight, which sends no model request:
 //   claude    it is on PATH and has `auth status`
-//   settings  --setting-sources does not drop the user's endpoint and model
-//             mapping (settings env ANTHROPIC_*), and neither the project's
-//             settings nor the shell sends the run to an endpoint the free
-//             check cannot see
-//   login     claude is logged in with the same settings sources, environment
-//             and folder as the paid step. This shows a login or token is
-//             there, not that the server accepts it.
-//   endpoint  the API address claude reads is the one the settings give, and
-//             it accepts a TCP connection. The connection is direct, so a
-//             machine that reaches the API only through a proxy fails here.
+//   settings  --setting-sources does not drop the user's endpoint and model mapping
+//             (settings env ANTHROPIC_*), and neither the project's settings nor the
+//             shell sends the run to an endpoint the free check cannot see
+//   login     claude has a login or token with the paid step's settings sources,
+//             environment and folder, which does not show the server accepts it
+//   endpoint  the API address claude reads is the one the settings give, and takes a
+//             direct TCP connection, so a machine that needs a proxy fails here
 //
-// The checks name settings but never print a value, so their output can go in a
-// PR. In the version, the printed command and what the paid step prints, these
-// are redacted: secret-looking values and API or proxy addresses (with host and
-// hostname) from the environment and the settings read here, and the home and
-// work folders. Read paid output before posting it: anything else the model or
-// a server prints (a resolved IP, a user name, a file's text) stays.
+// The checks print setting names and claude's version number, never a value.
+// The printed command and the paid output hide the values the script knows:
+// secret-looking values and API or proxy addresses (with host and hostname) from the
+// environment and the settings read here, and the home and work folders. A person must
+// read both before they go in a public PR. Not hidden: a resolved IP, a user name, bare
+// IPv6, a proxy password printed alone, secrets under 8 characters or under a plain
+// name, a symlinked home's real path, a file's text, or anything else it does not know.
 // The budget is checked after a call, so a run can end slightly over the cap.
-// Exit 0 when the preflight passes, 1 when it fails, 2 on a usage error, and
-// claude's own status after a paid step.
+// Exit 0 when the preflight passes, 1 when it fails, 2 on a usage error, and claude's
+// own status after a paid step.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
@@ -48,12 +44,11 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 const usage = (message) => {
-  process.stderr.write(`tools/live-run.mjs: ${message}\nusage: node tools/live-run.mjs --max-budget-usd <amount> --prompt <text> [--confirm-paid] [options]\n`);
+  process.stderr.write(`tools/live-run.mjs: ${message}\nusage: node tools/live-run.mjs --max-budget-usd <amount> --prompt <text> [--confirm-paid] [options]\nPaid output hides only the values this script knows; a person must read it before it goes in a public PR.\n`);
   process.exit(2);
 };
 
-const text = { type: "string" };
-const flag = { type: "boolean" };
+const text = { type: "string" }, flag = { type: "boolean" };
 const PASSED = {
   "plugin-dir": { ...text, multiple: true },
   model: text, allowedTools: text, disallowedTools: text, "permission-mode": text, "output-format": text,
@@ -61,10 +56,11 @@ const PASSED = {
 };
 const OWN = {
   "max-budget-usd": text, prompt: text, "keep-user-endpoint": flag, "confirm-paid": flag,
-  cwd: { ...text, default: "." },
-  "setting-sources": { ...text, default: "project" },
+  cwd: { ...text, default: "." }, "setting-sources": { ...text, default: "project" },
 };
 
+// Node's own error report can quote a value, such as one that holds a null byte.
+process.on("uncaughtException", (error) => (console.error(`tools/live-run.mjs: stopped on an unexpected error (${error.code ?? "no code"})`), process.exit(1)));
 let opts, cwd;
 try {
   opts = parseArgs({ options: { ...PASSED, ...OWN } }).values;
@@ -127,10 +123,12 @@ const kept = opts["keep-user-endpoint"] ? Object.fromEntries(named(user, /^ANTHR
 const env = { ...process.env, ...kept };
 
 const hidden = [process.env, user, project, local].flatMap(Object.entries).flatMap(([key, value]) => {
-  if (/TOKEN|KEY|SECRET|PASSWORD|HEADERS/i.test(key)) return String(value).split(/\s+/).filter((part) => part.length >= 8);
-  if (!/^ANTHROPIC_.*URL$|_PROXY$/i.test(key) || !URL.canParse(value)) return [];
-  const { host, hostname } = new URL(value);
-  return [String(value).trim().replace(/\/+$/, ""), host, hostname];
+  const raw = String(value).trim();
+  if (/TOKEN|KEY|SECRET|PASSWORD|HEADERS/i.test(key)) return [raw, ...raw.split(/\s+/)].filter((part) => part.length >= 8);
+  if (!/^ANTHROPIC_.*URL$|_PROXY$/i.test(key) || /(^|_)NO_PROXY$/i.test(key)) return [];
+  const full = /^[^/]*:\/\/|^https?:/i.test(raw) ? raw : `http://${raw}`;
+  const { host, hostname } = URL.canParse(full) ? new URL(full) : { host: "", hostname: "" };
+  return [raw.replace(/\/+$/, ""), host, hostname];
 });
 // claude names its per-project folders after the path, with dashes.
 for (const path of [homedir(), cwd, resolve(opts.cwd)]) if (path !== "/") hidden.push(path, path.replace(/[^a-zA-Z0-9]/g, "-"));
@@ -145,7 +143,7 @@ async function preflight() {
   if (version.error || version.status !== 0) return report(false, "claude", "claude is not on PATH or did not start");
   // Without the subcommand the words `auth status` would be a prompt, so a paid call.
   if (!/\bauth status\b/.test(free(["auth", "status", "--help"]).stdout ?? "")) return report(false, "claude", "this claude has no `auth status` command");
-  report(true, "claude", redact(version.stdout.trim()));
+  report(true, "claude", /^\d+\.\d+\.\d+(?!\S)/.exec(version.stdout)?.[0] ?? "it printed no plain version number");
 
   const dropped = sources.includes("user") ? [] : named(user, /^ANTHROPIC_/);
   if (dropped.length) report(opts["keep-user-endpoint"], "settings", `--setting-sources ${sources.join()} skips the user's ${dropped.join(", ")}; ${opts["keep-user-endpoint"] ? "--keep-user-endpoint passes them in the environment" : "add --keep-user-endpoint to pass them, or user to --setting-sources"}`);
@@ -158,9 +156,8 @@ async function preflight() {
   if (!failed && !dropped.length) report(true, "settings", "--setting-sources skips no endpoint settings");
 
   const auth = (form) => free([`--setting-sources=${sources.join()}`, "auth", "status", form]).stdout ?? "";
-  const login = json(() => auth("--json"));
-  const loggedIn = login?.loggedIn === true;
-  report(loggedIn, "login", loggedIn ? `logged in (${/^\w+$/.exec(login.authMethod)?.[0] ?? "unknown method"})` : "claude is not logged in as this run would see it; one started from a sandboxed tool may not see the login, so run this in your own terminal");
+  const loggedIn = json(() => auth("--json"))?.loggedIn === true;
+  report(loggedIn, "login", loggedIn ? "logged in" : "claude is not logged in as this run would see it; one started from a sandboxed tool may not see the login, so run this in your own terminal");
 
   const fromUser = (sources.includes("user") || opts["keep-user-endpoint"]) && user.ANTHROPIC_BASE_URL;
   const whose = fromUser ? "the address in the user's settings" : env.ANTHROPIC_BASE_URL ? "the address in the shell's ANTHROPIC_BASE_URL" : "the default API address";

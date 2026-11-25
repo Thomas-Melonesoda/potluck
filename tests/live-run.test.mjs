@@ -2,7 +2,7 @@
 // No test makes a paid call: the fake only records how it was called.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,16 +56,12 @@ afterAll(() => {
 
 const ARGS = ["--max-budget-usd", "0.20", "--prompt", "say hi"];
 let n = 0;
-function live(args, { user, project, shell = {}, claude = true } = {}) {
-  const dir = join(root, String(++n));
-  const home = join(dir, "home"), cwd = join(dir, "work"), bin = join(dir, "bin"), log = join(dir, "calls");
+function live(args, { user, project, local, shell = {}, claude = true } = {}) {
+  const dir = join(root, String(++n)), home = join(dir, "home"), cwd = join(dir, "work"), bin = join(dir, "bin"), log = join(dir, "calls");
   for (const d of [join(home, ".claude"), join(cwd, ".claude"), bin]) mkdirSync(d, { recursive: true });
-  if (claude) {
-    writeFileSync(join(bin, "claude"), FAKE);
-    chmodSync(join(bin, "claude"), 0o755);
-  }
+  if (claude) writeFileSync(join(bin, "claude"), FAKE, { mode: 0o755 });
   if (user !== undefined) writeFileSync(join(home, ".claude/settings.json"), typeof user === "string" ? user : JSON.stringify({ env: user }));
-  if (project) writeFileSync(join(cwd, ".claude/settings.json"), JSON.stringify({ env: project }));
+  for (const [file, set] of Object.entries({ settings: project, "settings.local": local })) if (set) writeFileSync(join(cwd, `.claude/${file}.json`), JSON.stringify({ env: set }));
   const r = spawnSync(node, [script, ...args], { cwd, encoding: "utf8", env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home, FAKE_LOG: log, ...shell } });
   const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
   return { status: r.status, out: r.stdout + r.stderr, calls, paid: calls.filter((c) => !/^--version$|auth status/.test(c)) };
@@ -87,12 +83,12 @@ describe("the paid step", () => {
   });
 
   test("runs once with --confirm-paid, with the cap, the prompt, the flags and claude's exit status, and no token in its output", () => {
-    const r = live([...ARGS, "--confirm-paid", "--plugin-dir", "p", "--allowedTools", "Bash(ls *),Read", "--verbose", "--strict-mcp-config"], { shell: { ...good().shell, FAKE_EXIT: "3", ANTHROPIC_CUSTOM_HEADERS: "X-Auth: fixture-header" } });
+    const r = live([...ARGS, "--confirm-paid", "--plugin-dir", "p", "--allowedTools", "Bash(ls *),Read", "--verbose", "--strict-mcp-config"], { shell: { ...good().shell, FAKE_EXIT: "3", ANTHROPIC_CUSTOM_HEADERS: "X-Auth: fixture-header", FAKE_SAY: "fixture-header" } });
     expect(r.status, r.out).toBe(3);
     expect(r.paid).toEqual(["-p --setting-sources=project --max-budget-usd=0.20 --plugin-dir=p --allowedTools=Bash(ls *),Read --strict-mcp-config --verbose"]);
     expect(r.out).toContain("PAID prompt=say hi token=[redacted]");
     expect(r.out).toContain("err [redacted]");
-    expect(r.out).not.toContain("fixture-");
+    expect(r.out).not.toMatch(/fixture-|X-Auth/);
   });
 
   test.each([["the shell", () => ({ shell: { ...good().shell, ANTHROPIC_BASE_URL: `${up}/` } })], ["kept settings", () => ({ user: settings() })]])("prints a gateway's 502 without the API address, host or hostname from %s", (_, options) => {
@@ -103,8 +99,14 @@ describe("the paid step", () => {
     expect(r.out).not.toContain(hostname);
   });
 
-  test("prints no path of this machine and no secret that --version or the project's settings give", () => {
-    const r = live([...ARGS, "--confirm-paid"], { project: { DEPLOY_SECRET: "hidden-in-project" }, shell: { ...good().shell, A_KEY: "hidden-in", FAKE_SAY: "hidden-in-project", FAKE_VERSION: TOKEN } });
+  test.each([["10.1.2.3:3128", "10.1.2.3:3128"], ["//proxyhost.corp:3128", "proxyhost.corp:3128"], ["proxyhost.corp:3128", "proxyhost.corp:3128"], ["proxyhost.corp/", "proxyhost.corp"], ["usr:pw@10.1.2.3:3128", "10.1.2.3:3128"], ["http://10.1.2.3:3128", "10.1.2.3:3128"]])("prints claude's proxy warning without the proxy %s, and leaves NO_PROXY alone", (proxy, host) => {
+    const text = (shown) => `Invalid proxy URL in HTTPS_PROXY: "${shown}" cannot be parsed as a URL.`;
+    const r = live([...ARGS, "--confirm-paid"], { shell: { ...good().shell, HTTPS_PROXY: proxy, NO_PROXY: "parsed", FAKE_SAY: `${text(proxy)} ${host} ${host.split(":")[0]}` } });
+    expect(r.out).toContain(`${text(proxy.endsWith("/") ? "[redacted]/" : "[redacted]")} [redacted] [redacted]`);
+  });
+
+  test.each(["project", "local"])("prints no path of this machine and no secret that --version or the %s settings give", (source) => {
+    const r = live([...ARGS, "--confirm-paid", "--setting-sources", "project,local"], { [source]: { DEPLOY_SECRET: "hidden-in-project" }, shell: { ...good().shell, A_KEY: "hidden-in", FAKE_SAY: "hidden-in-project", FAKE_VERSION: `${TOKEN}-project` } });
     expect(r.status, r.out).toBe(0);
     for (const value of [root, root.replace(/[^a-zA-Z0-9]/g, "-"), "-project", TOKEN]) expect(r.out).not.toContain(value);
   });
@@ -177,6 +179,7 @@ describe("the preflight stops the paid step", () => {
     const out = stopped(() => ({ user: `{ "env": { "ANTHROPIC_AUTH_TOKEN": "${TOKEN}" `, ...good() }));
     expect(out).toMatch(/FAIL +settings +the user settings file is not valid JSON/);
     expect(out).not.toContain(root);
+    expect(stopped(() => ({ user: { ...settings(), ANTHROPIC_MODEL: "null\0byte" } }), "--keep-user-endpoint")).not.toMatch(/null.*byte/);
     mkdirSync(join(root, "config/settings.json"), { recursive: true });
     expect(stopped(() => ({ shell: { ...good().shell, CLAUDE_CONFIG_DIR: join(root, "config") } }))).toMatch(/^FAIL +settings .*cannot be read/);
   });
