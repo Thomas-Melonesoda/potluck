@@ -41,7 +41,7 @@
 // claude's own status after a paid step.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -77,9 +77,11 @@ if (!opts.prompt?.trim()) usage("--prompt must be given");
 const sources = opts["setting-sources"].split(",");
 if (sources.some((s) => !["user", "project", "local"].includes(s))) usage("--setting-sources takes user, project and local, comma-separated");
 try {
-  if (statSync(opts.cwd).isDirectory()) cwd = realpathSync(opts.cwd);
-} catch {}
-if (!cwd) usage("--cwd is not a folder that can be read");
+  cwd = realpathSync(opts.cwd);
+  readdirSync(cwd);
+} catch {
+  usage("--cwd is not a folder that can be read");
+}
 
 let failed = false;
 const report = (ok, name, detail) => {
