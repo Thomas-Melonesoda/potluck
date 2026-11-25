@@ -36,8 +36,8 @@
 //     and each check the base branch's rulesets or protection require has
 //     reported. One that has not reported refuses while CI may still start, and
 //     after --ci-wait minutes (default 10) from the head's push it refuses as
-//     CI that did not start. A workflow limited to some paths or branches is
-//     waited for only once it runs.
+//     CI that did not start. A workflow limited to some paths or branches
+//     is waited for when the PR touches them, and skipped when it does not.
 //   - a PR with no such check and no CI result has "no checks": potluck's
 //     default merges it on the verdict alone, and the operator's gates
 //     (gates.mjs) can hold it for a person with noCI "wait" in the user's
@@ -255,16 +255,19 @@ export function floor({ repo, pr, sha, view, cosigned = null, cwd = process.cwd(
     if (opaque.length) return { ok: false, reasons: opaque.map((f) => `floor: [binary-source] ${f}: git reads this file as binary, so the floor cannot check it; remove the NUL or control bytes, or use a binary format's usual extension`) };
     // Workflows count from the base or the head, so a PR cannot escape the
     // no-CI rule by deleting or renaming the CI it would have to pass.
-    const hasWorkflows = (rev) => isolated(["ls-tree", "--name-only", rev, ".github/workflows/"]).split("\n").some((f) => /\.ya?ml$/.test(f));
-    const workflows = hasWorkflows(base) || hasWorkflows("HEAD");
+    const workflowFiles = (rev) => isolated(["ls-tree", "--name-only", "-z", rev, ".github/workflows/"]).split("\0").filter((f) => /\.ya?ml$/.test(f));
+    const workflows = [base, "HEAD"].some((rev) => workflowFiles(rev).length);
     // The workflows that run on this PR, read from the base or the head, so a
     // PR cannot drop one it would have to pass by deleting or editing it. Path
     // filters read the PR's own diff, from where it left its base.
-    const into = { base: view.baseRefName, changed: isolated(["diff", "--name-only", "-z", `${base}...HEAD`]).split("\0").filter(Boolean) };
+    const into = {
+      base: view.baseRefName,
+      changed: isolated(["diff", "--name-only", "--ignore-submodules=none", "-z", `${base}...HEAD`]).split("\0").filter(Boolean),
+      commits: Number(isolated(["rev-list", "--count", `${base}..HEAD`])),
+    };
     const prWorkflows = new Set();
     for (const rev of [base, "HEAD"]) {
-      const files = isolated(["ls-tree", "--name-only", rev, ".github/workflows/"]).split("\n").filter((f) => /\.ya?ml$/.test(f));
-      for (const file of files) if (prTrigger(isolated(["cat-file", "blob", `${rev}:${file}`]), into)) prWorkflows.add(file);
+      for (const file of workflowFiles(rev)) if (prTrigger(isolated(["cat-file", "blob", `${rev}:${file}`]), into)) prWorkflows.add(file);
     }
     // A PR that changes the workflows, or whose head skips CI, may be why it
     // has no checks. The repository's gates count from the base and the head,

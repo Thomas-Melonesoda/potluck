@@ -7,12 +7,14 @@ const PR_EVENTS = ["pull_request", "pull_request_target"];
 // types GitHub uses when a trigger names none.
 const PUSH_TYPES = new Set(["opened", "synchronize", "reopened"]);
 // GitHub may not run a paths-filtered workflow for a match past a diff's
-// first 300 files, so a diff of 300 or more counts as matching any filter.
-const PATHS_LIMIT = 300;
+// first 300 files, so a diff of 300 or more counts as matching any filter. It
+// runs one whose push has more than 1,000 commits.
+const PATHS_LIMIT = 300, COMMITS_LIMIT = 1000;
 const NAMED_PR_EVENT = /(^|[\s[{,-])["']?pull_request(_target)?["']?\s*(:|,|\]|\}|$)/m;
 
-// Whether the workflow in `text` runs on a PR into `base` that changes `changed`.
-export function prTrigger(text, { base, changed }) {
+// Whether the workflow in `text` runs on a PR into `base` that changes
+// `changed` over `commits` commits.
+export function prTrigger(text, { base, changed, commits = 0 }) {
   let on;
   try {
     on = onValue(text);
@@ -29,23 +31,30 @@ export function prTrigger(text, { base, changed }) {
   if (!PR_EVENTS.some((e) => e in events) && NAMED_PR_EVENT.test(keyLines(onLines(text)).join("\n"))) return true;
   return PR_EVENTS.filter((e) => e in events).some((e) => {
     try {
-      return runs(events[e], base, changed);
+      return runs(events[e], base, changed, commits);
     } catch {
-      return true; // a filter pattern that cannot be read here
+      return true; // a limit that cannot be read here
     }
   });
 }
 
-function runs(config, base, changed) {
+function runs(config, base, changed, commits) {
   if (config === null || config === "") return true;
   if (typeof config !== "object" || Array.isArray(config)) return true;
-  const list = (key) => (config[key] === undefined ? null : [config[key]].flat().map(String));
+  const list = (key) => {
+    if (config[key] === undefined) return null;
+    const items = [config[key]].flat();
+    if (!items.length || items.some((v) => typeof v !== "string" || !v)) throw new Error(`unreadable ${key}`);
+    // GitHub asks for a positive pattern beside an exclusion.
+    if ((key === "paths" || key === "branches") && items.every((v) => v.startsWith("!"))) throw new Error(`${key} only excludes`);
+    return items;
+  };
   const types = list("types");
   if (types && !types.some((t) => PUSH_TYPES.has(t))) return false;
   const branches = list("branches"), ignoreBranches = list("branches-ignore");
   if (branches && !matches(branches, base)) return false;
   if (ignoreBranches && matches(ignoreBranches, base)) return false;
-  if (changed.length >= PATHS_LIMIT) return true;
+  if (changed.length >= PATHS_LIMIT || commits > COMMITS_LIMIT) return true;
   // GitHub documents \ as the escape in branch filters and says nothing of it
   // in path filters, so an escaped path pattern never excludes a file.
   const escaped = (p) => p.includes("\\"), negated = (p) => p.startsWith("!");
@@ -68,11 +77,13 @@ function matches(patterns, name) {
 
 // Throws on a pattern it cannot read: a \ inside brackets, at the end, or before
 // any other character (\? too, which read literally is an optional backslash),
-// or one that makes no regular expression.
+// brackets that are unclosed, empty, or negated, a ? or + after a wildcard or
+// another ? or +, or one that makes no regular expression.
 function glob(pattern) {
-  let re = "";
+  let re = "", repeatable = false;
   for (let i = 0; i < pattern.length; i++) {
-    const c = pattern[i];
+    const c = pattern[i], one = repeatable;
+    repeatable = !"*?+".includes(c);
     if (c === "\\") {
       if (!/[*+![\]\\]/.test(pattern[++i] ?? "")) throw new Error(`unreadable escape in ${pattern}`);
       re += `\\${pattern[i]}`;
@@ -83,22 +94,21 @@ function glob(pattern) {
         re += "(?:.*/)?";
       } else re += ".*";
     } else if (c === "*") re += "[^/]*";
-    else if (c === "?" || c === "+") re += c;
-    else if (c === "[") {
+    else if (c === "?" || c === "+") {
+      if (!one) throw new Error(`nothing to repeat in ${pattern}`);
+      re += c;
+    } else if (c === "[") {
       const end = pattern.indexOf("]", i);
-      if (end < 0) re += "\\[";
-      else {
-        if (pattern.slice(i, end).includes("\\")) throw new Error(`unreadable escape in ${pattern}`);
-        re += pattern.slice(i, end + 1);
-        i = end;
-      }
+      if (!/^[^\\^!][^\\]*$/.test(pattern.slice(i + 1, Math.max(end, i)))) throw new Error(`unreadable brackets in ${pattern}`);
+      re += pattern.slice(i, end + 1);
+      i = end;
     } else re += c.replace(/[.^$|(){}/]/g, "\\$&");
   }
-  return new RegExp(`^${re}$`);
+  return new RegExp(`^${re}$`, "s");
 }
 
 // The on: line's value and the lines under it (on, "on", or YAML 1.1's true),
-// or null when there is none. Throws on anchors and aliases.
+// or null when there is none. Throws on anchors, aliases, and tags.
 function onLines(text) {
   const lines = text.replace(/\r/g, "").split("\n").map(stripComment).filter((l) => l.trim() && !/^\s*(---|\.\.\.)\s*$/.test(l));
   const at = lines.findIndex((l) => /^(["']?)(on|true)\1\s*:/.test(l));
@@ -111,8 +121,8 @@ function onLines(text) {
     if (!/^\s/.test(line) && !flowOpen && !indentless) break;
     body.push(line);
   }
-  // Anchors and aliases are outside the subset read here.
-  if ([rest, ...body].some((l) => /(^|[\s[{,:-])[&*][\w-]/.test(l))) throw new Error("anchor or alias");
+  // Anchors, aliases, and tags are outside the subset read here.
+  if ([rest, ...body].some((l) => /(^|[\s[{,:-])[&*][\w-]|(^|[[{,]|[:-]\s)\s*[&*!]/.test(l))) throw new Error("anchor, alias, or tag");
   return { rest, body };
 }
 
@@ -133,7 +143,7 @@ function keyLines(found) {
   let scalarAt = -1;
   for (const line of found.body) {
     if (scalarAt >= 0 && indentOf(line) > scalarAt) continue;
-    scalarAt = /:\s+[|>][+-]?\d*$/.test(line) ? indentOf(line) : -1;
+    scalarAt = /:\s+[|>][+-]?\d*[+-]?$/.test(line) ? indentOf(line) : -1;
     out.push(line);
   }
   return out;
@@ -145,7 +155,7 @@ function stripComment(line) {
     const c = line[i];
     if (quote) {
       if (c === quote) quote = null;
-    } else if (c === "'" || c === '"') quote = c;
+    } else if ((c === "'" || c === '"') && (i === 0 || /[\s[{,:'"]/.test(line[i - 1]))) quote = c;
     else if (c === "#" && (i === 0 || /\s/.test(line[i - 1]))) return line.slice(0, i).trimEnd();
   }
   return line.trimEnd();
@@ -188,8 +198,9 @@ function block(lines) {
     else last.body.push(line);
   }
   const lines2 = (body) => body.map((l) => l.trim());
+  // A block scalar (| or >) is not a limit read here, so it reads as no text.
   const value = (rest, body) => {
-    if (/^[|>][+-]?\d*$/.test(rest)) return lines2(body).join("\n");
+    if (/^[|>]/.test(rest)) return {};
     if (/^[[{"']/.test(rest)) return flow([rest, ...lines2(body)].join(" "));
     // A plain value is text to the end of its line, continued on deeper ones.
     if (rest) return scalar([rest, ...lines2(body)].join(" "));
