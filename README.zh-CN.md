@@ -15,7 +15,7 @@ potluck 是一个开源的 agent 工作系统。它想同时做到两件事：ag
 
 potluck 和各上游不一样的每一处，都登记在 [`tools/forks.json`](tools/forks.json) 里。
 
-> **现状：施工中。** 目前本仓库的内容和 Michael Denyer 的 pstack-claude v0.9.146 一致，只改了对外名称。插件安装后的内部 ID 仍是 `pstack`，各个 skill 也保留上游的名字（比如 `poteto-mode`），这样跟进上游更新的成本最低。阶段 3 的政策调整已经加进来，阶段 4 正在加借用的 skill，进度见[路线图](docs/roadmap.md)。
+> **现状：施工中。** 本仓库建立在 Michael Denyer 的 pstack-claude v0.9.146 之上。插件安装后的内部 ID 仍是 `pstack`，各个 skill 也保留上游的名字（比如 `poteto-mode`），这样跟进上游更新的成本最低。阶段 3 的政策调整、阶段 4 借用的 skill 和阶段 6 的大部分都已经加进来，进度见[路线图](docs/roadmap.md)，和各上游的每一处不同见[决定记录](docs/decisions.md)。
 
 把目标告诉 `poteto-mode`，它会为这个任务选对工作流程，让代码保持简洁、简单、经过验证。
 
@@ -51,7 +51,7 @@ codex plugin add pstack@potluck
 
 凡是写到 `gates.json` 或 `.potluck` 的 shell 命令也会被拦，因为[操作者的门](docs/operator-gates.md#only-the-user-changes-a-gates-file)只有你能改。唯一的例外是读 potluck 自己放在那里的 `~/.potluck/decisions`、`trash`、`backup`，以及往决策记录里追加。
 
-钩子只读命令行，所以脚本文件、运行时才拼出来的名字或命令拦不住。Codex 没法暂停命令来问你，所以在 Claude Code 上会问你的检查，在 Codex 上直接拦下；Codex 的钩子还没有真实跑过。其他工具没有这个钩子。
+钩子只读命令行，所以脚本文件、运行时才拼出来的名字或命令拦不住。Codex 没法暂停命令来问你，所以在 Claude Code 上会问你的检查，在 Codex 上直接拦下，由你自己运行；Codex 的钩子还没有真实跑过。其他工具没有这个钩子。还没补上的漏洞写在[已知漏洞](docs/operator-gates.md#known-gaps)（英文）里。
 
 ## 开始使用
 

@@ -187,9 +187,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "S3-D2",
-      "ruling": "Use Michael's checkpoint location and kept artifacts (S3-D2). Stage 5 issue 11: one checkpoint pointer per folder and task, so projects in one repository or vault stop overwriting each other, and folders outside Git get checkpoints too. A checkpoint the user asks for without asking to stop is not a pause, and the session keeps going.",
-      "ruling_zh": "采用 Michael 的检查点位置和保留的产物（S3-D2）。阶段 5 第 11 条：每个文件夹加任务各有一个检查点指针，一个仓库或 vault 里的几个项目不会再覆盖彼此的指针；Git 之外的文件夹也能存检查点。用户要求存档但没说停下时，存完检查点继续做，这不算暂停。",
+      "row": "S3-D1, S3-D2",
+      "ruling": "Use Michael's resume.mjs, which writes a checkpoint in a fixed form (S3-D1), and his checkpoint location and kept artifacts (S3-D2). Stage 5 issue 11 changed resume.mjs, which has no entry of its own because it is not an upstream file: one checkpoint pointer per folder and task, so projects in one repository or vault stop overwriting each other, and folders outside Git get checkpoints too, and each pause records HEAD. A checkpoint the user asks for without asking to stop is not a pause, and the session keeps going.",
+      "ruling_zh": "采用 Michael 用 resume.mjs 写固定格式检查点的做法（S3-D1），以及他的检查点位置和保留的产物（S3-D2）。阶段 5 第 11 条改了 resume.mjs（它不是上游文件，所以没有自己的登记）：每个文件夹加任务各有一个检查点指针，一个仓库或 vault 里的几个项目不会再覆盖彼此的指针；Git 之外的文件夹也能存检查点，每次暂停记录 HEAD。用户要求存档但没说停下时，存完检查点继续做，这不算暂停。",
       "decided": "2026-11-23"
     },
     "plugins/pstack/skills/poteto-mode/playbooks/session-pickup.md": {
@@ -379,9 +379,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "S3-B5",
-      "ruling": "Use Michael's evidence rules (S3-B5).",
-      "ruling_zh": "采用 Michael 的证据规则（S3-B5）。",
+      "row": "S3-B5, S3-E4",
+      "ruling": "Use Michael's evidence rules (S3-B5). Principles carry user-invocable: false instead of Lauren's disable-model-invocation: true, so the model can load them itself (S3-E4); the generator makes that change on all 24 leaves, listed in [decision-rows.md](decision-rows.md).",
+      "ruling_zh": "采用 Michael 的证据规则（S3-B5）。原则用 user-invocable: false，不用 Lauren 的 disable-model-invocation: true，模型可以自己调用（S3-E4）；这处改动由生成脚本在全部 24 个原则文件上做，清单见 [decision-rows.md](decision-rows.md)。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/principle-prove-it-works/SKILL.md": {
@@ -391,9 +391,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "S3-B1",
-      "ruling": "Use Michael's evidence rules (S3-B1).",
-      "ruling_zh": "采用 Michael 的证据规则（S3-B1）。",
+      "row": "S3-B1, S3-E4",
+      "ruling": "Use Michael's evidence rules (S3-B1). Principles carry user-invocable: false instead of Lauren's disable-model-invocation: true, so the model can load them itself (S3-E4); the generator makes that change on all 24 leaves, listed in [decision-rows.md](decision-rows.md).",
+      "ruling_zh": "采用 Michael 的证据规则（S3-B1）。原则用 user-invocable: false，不用 Lauren 的 disable-model-invocation: true，模型可以自己调用（S3-E4）；这处改动由生成脚本在全部 24 个原则文件上做，清单见 [decision-rows.md](decision-rows.md)。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/principle-test-behavior-not-implementation/SKILL.md": {
@@ -403,9 +403,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "S3-B6",
-      "ruling": "Use Michael's evidence rules (S3-B6).",
-      "ruling_zh": "采用 Michael 的证据规则（S3-B6）。",
+      "row": "S3-B6, S3-E4",
+      "ruling": "Use Michael's evidence rules (S3-B6). Principles carry user-invocable: false instead of Lauren's disable-model-invocation: true, so the model can load them itself (S3-E4); the generator makes that change on all 24 leaves, listed in [decision-rows.md](decision-rows.md).",
+      "ruling_zh": "采用 Michael 的证据规则（S3-B6）。原则用 user-invocable: false，不用 Lauren 的 disable-model-invocation: true，模型可以自己调用（S3-E4）；这处改动由生成脚本在全部 24 个原则文件上做，清单见 [decision-rows.md](decision-rows.md)。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/recall/SKILL.md": {
@@ -439,9 +439,9 @@
       "upstream": "not-proposed",
       "source": "lauren",
       "choice": "michael",
-      "row": "S3-H",
-      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
-      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
+      "row": "S3-E12, S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H). The SessionStart routing hook is on by default and can be turned off (S3-E12); this skill holds the switch, and the hook's own files are in [decision-rows.md](decision-rows.md).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。SessionStart 分流钩子默认开启，可以关掉（S3-E12）；开关在这个 skill 里，钩子自己的文件见 [decision-rows.md](decision-rows.md)。",
       "decided": "2026-11-21"
     },
     "plugins/pstack/skills/show-me-your-work/SKILL.md": {
@@ -710,8 +710,8 @@
       "source": "addy",
       "choice": "compromise",
       "row": "S4-D5, S3-A8, S3-B5",
-      "ruling": "Fix the three floor-guard faults the first pilot found (the skill's own template refused, full-width colons, shared rule keys) as bugs. Then, stage 5 issue 1: look for the forbidden forms in every file that runs (code, .mdx, notebook code, CI configuration) and skip only plain .md; always run the bar checks on CONSTRAINTS.md; widening the skip list loosens a check and needs the root agent's co-sign and a register entry; CI carries two canaries that must both hold, the template as written passes and a code file with a deliberate suppression is stopped. Issue 2: rule names split on either colon, with Chinese tests. Issue 3: a duplicate rule name is an error. Issue 7: recognize Swift test files and XCTSkip, and report a test step removed from CI, with canaries. Issue 17: a test file that was only renamed passes, found by git's rename detection; a changed assertion value goes to the root agent, which checks the verifier's evidence that the behavior changed and co-signs without waiting for a person, and the co-sign goes into a decision log.",
-      "ruling_zh": "第一次试点发现的三个底线检查问题（skill 自己的模板过不了、全角冒号、共用规则名）当作 bug 修好。然后是阶段 5 第 1 条：禁用写法对所有会运行的文件都查（代码、.mdx、notebook 代码格子、CI 配置），只有纯 .md 不查；CONSTRAINTS.md 的质量线检查照查；把文件类型加进不查名单算放松检查，要 root agent 会签并登记；CI 里放两个埋雷测试，两个都对才算检查没坏：原样的模板必须通过，故意写了禁用注释的代码文件必须被拦。第 2 条：规则名的分隔认两种冒号，补中文测试。第 3 条：规则名重名直接报错。第 7 条：识别 Swift 测试文件和 XCTSkip，CI 配置里删掉测试步骤要报，补埋雷测试。第 17 条：测试文件只是改名，用 git 的改名识别自动放行；断言值改了交给 root agent，它核对验证者的证据，确认功能确实改了，会签后放行，不等人，会签记进决定日志。",
+      "ruling": "Borrowed Addy's Floor as a script inside the merge gate (S4-D5, S3-A8). Stage 5 then fixed bugs in it. First, fix the three floor-guard faults the first pilot found (the skill's own template refused, full-width colons, shared rule keys) as bugs. Then, stage 5 issue 1: look for the forbidden forms in every file that runs (code, .mdx, notebook code, CI configuration) and skip only plain .md; always run the bar checks on CONSTRAINTS.md; widening the skip list loosens a check and needs the root agent's co-sign and a register entry; CI carries two canaries that must both hold, the template as written passes and a code file with a deliberate suppression is stopped. Issue 2: rule names split on either colon, with Chinese tests. Issue 3: a duplicate rule name is an error. Issue 7: recognize Swift test files and XCTSkip, and report a test step removed from CI, with canaries. Issue 17: a test file that was only renamed passes, found by git's rename detection; a changed assertion value goes to the root agent, which checks the verifier's evidence that the behavior changed and co-signs without waiting for a person, and the co-sign goes into a decision log.",
+      "ruling_zh": "借用 Addy 的底线，做成脚本放进合并门里（S4-D5、S3-A8）。阶段 5 又修了它的 bug。先是第一次试点发现的三个底线检查问题（skill 自己的模板过不了、全角冒号、共用规则名）当作 bug 修好。然后是阶段 5 第 1 条：禁用写法对所有会运行的文件都查（代码、.mdx、notebook 代码格子、CI 配置），只有纯 .md 不查；CONSTRAINTS.md 的质量线检查照查；把文件类型加进不查名单算放松检查，要 root agent 会签并登记；CI 里放两个埋雷测试，两个都对才算检查没坏：原样的模板必须通过，故意写了禁用注释的代码文件必须被拦。第 2 条：规则名的分隔认两种冒号，补中文测试。第 3 条：规则名重名直接报错。第 7 条：识别 Swift 测试文件和 XCTSkip，CI 配置里删掉测试步骤要报，补埋雷测试。第 17 条：测试文件只是改名，用 git 的改名识别自动放行；断言值改了交给 root agent，它核对验证者的证据，确认功能确实改了，会签后放行，不等人，会签记进决定日志。",
       "decided": "2026-11-23"
     }
   },
