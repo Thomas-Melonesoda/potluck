@@ -1019,7 +1019,7 @@ else if (line.includes("POST")) process.stdout.write("{}");
       expect(f.run(...merge, "--dry-run").json.kind).toBe("would-merge");
       g(f.notes, "update-index", "--assume-unchanged", "mine.json");
       writeFileSync(f.mine, '{"foreignRepos": "ask"}');
-      expect(f.run(...merge, "--dry-run").json.reasons[0]).toContain(`${f.mine} is marked so that git ignores changes to it`);
+      expect(reason(f.run(...merge, "--dry-run"))).toEqual(refused(f.mine));
       g(f.notes, "update-index", "--no-assume-unchanged", "mine.json");
       rmSync(f.mine);
       expect(reason(f.run(...merge, "--dry-run"))).toEqual(refused(f.mine));
