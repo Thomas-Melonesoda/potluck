@@ -153,6 +153,8 @@ test.each([
   ["types: []"],
   ["branches: {a: b}"],
   ["branches: |2-\n        main"],
+  ["branches-ignore: >+\n      main"],
+  ["paths-ignore: |-\n      src/app.js"],
   ["paths: ['!docs/**']"],
   ["branches: ['!release/**']"],
   ["paths: ['**/?rc/app.js']"],
