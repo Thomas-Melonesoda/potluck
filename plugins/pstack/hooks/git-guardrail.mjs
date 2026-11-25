@@ -47,14 +47,15 @@ const git = (cwd, args) => execFileSync("git", ["-C", cwd, ...args], { encoding:
 // its word, and its commands come before the command that holds it, since they
 // run first. A guardrail, not a parser.
 export function commands(line) {
-  return lex(line, 0, null, { next: 0, parent: new Map() }, 0).out.map((c) => c.words);
+  return lex(line).out.map((c) => c.words).filter((words) => words.length);
 }
 
 // The commands from `start` up to `stop` (the `)` or backtick that closes a
 // substitution) or the end, each with the `scope` it runs in: 0 for the
 // command line, a new number for each substitution, whose `cd` does not reach
-// past it. `end` is the index of the closing character.
-function lex(line, start, stop, ids, scope) {
+// past it. An entry with no words is an `event`: a subshell or substitution that
+// opens or closes, or `;;`. `end` is the index of the closing character.
+function lex(line, start = 0, stop = null, ids = { next: 0, parent: new Map() }, scope = 0) {
   const out = [];
   let words = [];
   let word = null;
@@ -67,11 +68,16 @@ function lex(line, start, stop, ids, scope) {
     if (word !== null) target = false;
     word = null;
   };
-  const outer = [];
+  // The subshells and cases still open: a case pattern's `)` closes neither.
+  const nest = [];
+  const event = (name) => out.push({ words: [], scope, event: name });
   const split = () => {
     end();
     target = false;
     if (words.length) out.push({ words, scope });
+    const head = words[leads(words)];
+    if (head === "case") nest.push(head);
+    else if (head === "esac" && nest.at(-1) === "case") nest.pop();
     words = [];
   };
   // Reads the substitution that opens at `at`, adds its commands, and returns
@@ -81,7 +87,9 @@ function lex(line, start, stop, ids, scope) {
     const child = ++ids.next;
     ids.parent.set(child, scope);
     const sub = lex(line, at + (tick ? 1 : 2), tick ? "`" : ")", ids, child);
+    event("(");
     out.push(...sub.out);
+    event(")");
     return { raw: line.slice(at, sub.end + 1), close: sub.end };
   };
   const opens = (j) => (line[j] === "$" && line[j + 1] === "(") || line[j] === "`";
@@ -147,14 +155,11 @@ function lex(line, start, stop, ids, scope) {
     } else if (c === "(" || c === ")") {
       depth += c === "(" ? 1 : -1;
       split();
-      // A subshell is a scope of its own: its `cd` ends with it.
-      if (c === "(") {
-        outer.push(scope);
-        ids.parent.set(++ids.next, scope);
-        scope = ids.next;
-      } else scope = outer.pop() ?? scope;
+      if (c === "(") nest.push(c);
+      if (c === "(" || (nest.at(-1) === "(" && nest.pop())) event(c);
     } else if (";&|".includes(c) && !(c === "&" && line[i + 1] === ">")) {
       split();
+      if (c === ";" && line[i + 1] === ";") event(";;");
     } else if (c === "<" || c === ">" || (c === "&" && line[i + 1] === ">")) {
       // A redirect (`2>&1`, `>>`, `&>`, `<<<`): its fd number and its target
       // are not words; `<(` and `>(` keep the commands they run.
@@ -169,17 +174,24 @@ function lex(line, start, stop, ids, scope) {
     }
   }
   split();
+  for (const open of nest) if (open === "(") event(")");
   return { out, end: i };
 }
 
 const PREFIXES = new Set(["command", "sudo", "env", "time", "nohup", "exec", "builtin", "then", "do", "else", "elif", "if", "while", "until", "!", "{", "}", "xargs"]);
 const SHELLS = /(^|\/)(?:ba|z|da|k)?sh$/;
 
+// How many words stand before the command itself.
+function leads(words) {
+  let i = 0;
+  while (i < words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]) || PREFIXES.has(words[i]))) i++;
+  return i;
+}
+
 // The commands a simple command runs: itself, or the script it hands to
 // `sh -c` or `eval`.
 export function expand(words, depth = 0) {
-  let i = 0;
-  while (i < words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]) || PREFIXES.has(words[i]))) i++;
+  let i = leads(words);
   if (words[i] === "timeout") i += 2;
   const head = words[i];
   const inner = (script) => (depth < 4 ? commands(script).flatMap((w) => expand(w, depth + 1)) : []);
@@ -192,20 +204,56 @@ export function expand(words, depth = 0) {
   return [words.slice(i)];
 }
 
+// The word that closes each compound command.
+const CLOSERS = new Map([["if", "fi"], ["case", "esac"], ["while", "done"], ["until", "done"], ["for", "done"], ["select", "done"], ["{", "}"]]);
+
+// Calls `visit` with each command a line runs and the folder it runs in, until
+// one returns a reason. A shell is its `dir`, null where that cannot be told,
+// and the compound commands open in it. Each branch starts where its compound
+// command did, and one whose body changed the folder leaves it unknown, since
+// the body may not have run.
+function walk(line, visit, shell, depth = 0) {
+  const shells = [shell];
+  for (const { words, event } of lex(line).out) {
+    if (event === ")") shells.pop();
+    const now = shells.at(-1);
+    if (event === "(") shells.push({ dir: now.dir, blocks: [] });
+    let k = leads(words);
+    for (const word of event === ";;" ? [event] : words.slice(0, k + 1)) {
+      const block = now.blocks.at(-1);
+      if (CLOSERS.has(word)) now.blocks.push({ closer: CLOSERS.get(word), entry: now.dir });
+      else if (block && (["else", "elif", ";;"].includes(word) || word === block.closer)) {
+        block.moved ||= now.dir !== block.entry;
+        now.dir = word === block.closer && block.moved ? null : block.entry;
+        if (word === block.closer) now.blocks.pop();
+      }
+    }
+    if (words[k] === "timeout") k += 2;
+    const [head = "", ...args] = words.slice(k);
+    if (head === "cd") now.dir = enter(now.dir, ...args.filter((word) => !/^(?:--|-[LPe]+)$/.test(word)));
+    else if (head === "pushd" || head === "popd") now.dir = null;
+    const script = head === "eval" ? args.join(" ") : SHELLS.test(head) ? args.find((_, j) => /^-[a-z]*c[a-z]*$/.test(args[j - 1])) : undefined;
+    const inner = head === "eval" ? now : { dir: now.dir, blocks: [] };
+    const reason = script === undefined ? visit([head, ...args], now.dir) : depth < 4 && walk(script, visit, inner, depth + 1);
+    if (reason) return reason;
+  }
+  return null;
+}
+
 // The git subcommand a simple command runs, with the directory it runs in.
-export function gitCall(words, cwd) {
-  let i = 0;
-  while (i < words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]) || PREFIXES.has(words[i]))) i++;
+export function gitCall(words, cwd, resolve = resolveDir) {
+  let i = leads(words);
   if (!/(^|\/)git$/.test(words[i] ?? "")) return null;
   i++;
   let dir = cwd;
   let elsewhere = false;
   while (i < words.length && words[i].startsWith("-")) {
     const option = words[i];
+    if (option === "--help") return null;
     if (/^--(?:git-dir|work-tree)(?:=|$)/.test(option)) elsewhere = true;
-    if (option === "-C") dir = resolveDir(dir, words[++i] ?? ".");
-    else if (option === "--work-tree") dir = resolveDir(dir, words[++i] ?? ".");
-    else if (option.startsWith("--work-tree=")) dir = resolveDir(dir, option.slice("--work-tree=".length));
+    if (option === "-C") dir = resolve(dir, words[++i] ?? ".");
+    else if (option === "--work-tree") dir = resolve(dir, words[++i] ?? ".");
+    else if (option.startsWith("--work-tree=")) dir = resolve(dir, option.slice("--work-tree=".length));
     else if (option === "-c" || option === "--git-dir" || option === "--namespace") i++;
     i++;
   }
@@ -216,6 +264,13 @@ export function gitCall(words, cwd) {
 const resolveDir = (base, path) => {
   const home = path === "~" || path.startsWith("~/") ? join(process.env.HOME ?? "~", path.slice(1)) : path;
   return isAbsolute(home) ? home : join(base, home);
+};
+// Where a `cd` from `base` leads, or null where that cannot be told: a path the
+// shell computes, `-`, a folder that is not there, or a step from an unknown one.
+const enter = (base, path = "~", ...more) => {
+  if (more.length || /^-|[$`]/.test(path) || (base === null && !/^[/~]/.test(path))) return null;
+  const dir = resolveDir(base ?? "/", path);
+  return existsSync(`${dir}/`) ? dir : null;
 };
 const shortFlags = (args) => args.filter((a) => /^-[^-]/.test(a)).join("");
 
@@ -366,12 +421,13 @@ function directPushAllowed(read, remote) {
 // default branch, and no deleted remote branch. A forced push passes only when
 // every branch it writes can be read and none is a default branch. `elsewhere`
 // is a push with --git-dir or --work-tree, whose repository is not `dir`'s.
-function sharedPush(dir, args, elsewhere = false) {
+// `older` leaves out the rules on a push that is not forced.
+function sharedPush({ dir, args, elsewhere }, older) {
   const plan = pushPlan(args);
   if (!plan) return null;
   const read = (args) => {
     try {
-      return git(dir, args).trim();
+      return dir === null ? "" : git(dir, args).trim();
     } catch {
       return "";
     }
@@ -430,6 +486,7 @@ function sharedPush(dir, args, elsewhere = false) {
   if (forced.includes(null)) {
     return `potluck git guardrail: blocked a force push whose branch it cannot read (${known ? "the branch is computed when the command runs" : "the repository it runs in could not be read"}). A force push that may land on a default branch is blocked, so name the branch plainly (\`git push --force-with-lease origin <branch>\`); it passes when that branch is not a default branch.`;
   }
+  if (older) return null;
   const unnamed = (spec) => spec.every || spec.implicit || !spec.dst || computed(spec.dst);
   if ((elsewhere || !known) && (plan.every || specs.some((s) => !s.delete && unnamed(s)))) {
     return "potluck git guardrail: blocked a push that lands by the branch of a repository this check cannot read (its folder is worked out when the command runs, or named with --git-dir or --work-tree). Run these as two commands: cd into the repository first, then push. Or name a branch of your own (`git push -u origin <branch>`).";
@@ -471,26 +528,39 @@ function inProgress(dir) {
 }
 
 export function check(command, cwd) {
+  let switches = false;
+  let pushes = false;
+  const judged = new Set();
+  const judge = (call, older) => {
+    const key = JSON.stringify(call);
+    if (judged.has(key)) return null;
+    judged.add(key);
+    return checkOne(call, older);
+  };
+  const blocked = walk(command, (words, dir) => {
+    const call = gitCall(words, dir, enter);
+    switches ||= switchesBranch(call, words);
+    pushes ||= call?.sub === "push" && pushPlan(call.args) !== null;
+    return judge(call);
+  }, { dir: cwd, blocks: [] });
+  if (blocked) return blocked;
+  // The rules on forced pushes, deletions, and lost work also keep the reading
+  // they had before `walk`, which follows only a leading `cd`, so nothing they
+  // block passes because a `cd` is now followed.
   // The directory each scope is in: a `cd` inside a substitution stays there,
   // and reaches the substitutions nested in it.
   const ids = { next: 0, parent: new Map() };
   const dirs = new Map([[0, cwd]]);
-  let switches = false;
-  let pushes = false;
   const dirOf = (scope) => dirs.get(scope) ?? dirOf(ids.parent.get(scope) ?? 0);
-  for (const { words: base, scope } of lex(command, 0, null, ids, 0).out) {
+  for (const { words: base, scope } of lex(command, 0, null, ids).out) {
     const dir = dirOf(scope);
-    const to = base[0] === "cd" && base.slice(1).filter((word) => !/^(?:--|-[LPe]+)$/.test(word));
-    if (to && to.length <= 1) {
-      dirs.set(scope, resolveDir(dir, to[0] ?? process.env.HOME ?? dir));
+    if (base[0] === "cd" && base.length <= 2) {
+      dirs.set(scope, resolveDir(dir, base[1] ?? process.env.HOME ?? dir));
       continue;
     }
     for (const words of expand(base)) {
-      const reason = checkOne(words, dir);
+      const reason = judge(gitCall(words, dir), true);
       if (reason) return reason;
-      const call = gitCall(words, dir);
-      switches ||= switchesBranch(call, words);
-      pushes ||= call?.sub === "push" && pushPlan(call.args) !== null;
     }
   }
   if (!switches || !pushes) return null;
@@ -520,16 +590,15 @@ function switchesBranch(call, words) {
   return sub === "switch" || (["symbolic-ref", "rebase"].includes(sub) && named.length > 1);
 }
 
-function checkOne(words, dir) {
-  const call = gitCall(words, dir);
+function checkOne(call, older) {
   if (!call) return null;
   let found = risk(call);
   // The push rules hold even where the repository cannot be read.
   if (call.sub === "push") {
-    const shared = sharedPush(call.dir, call.args, call.elsewhere);
+    const shared = sharedPush(call, older);
     if (shared || !found) return shared;
   }
-  if (!found) return null;
+  if (!found || call.dir === null) return null;
   try {
     git(call.dir, ["rev-parse", "--git-dir"]);
   } catch {

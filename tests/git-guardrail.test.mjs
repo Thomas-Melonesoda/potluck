@@ -3,7 +3,7 @@
 // Claude Code sends before a Bash call.
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -525,7 +525,7 @@ describe("pushes to a default branch", () => {
 
   test("help is not a push", () => {
     const { hook } = repo();
-    for (const c of ["git push --help", "git push -h"]) expect([c, hook(c).status]).toEqual([c, 0]);
+    for (const c of ["git push --help", "git push -h", "git --help push"]) expect([c, hook(c).status]).toEqual([c, 0]);
     for (const c of ["git push -o --help", "git push origin main -h"]) expect([c, hook(c).status]).toEqual([c, 2]);
   });
 
@@ -547,16 +547,45 @@ describe("pushes to a default branch", () => {
     for (const c of ['cd "$PWD" && git push origin main', `git --git-dir=${work}/.git push origin main`]) expect(hook(c).reason).toContain("blocked a push to main");
   });
 
-  test("cd -- and a cd in a subshell are followed as the shell follows them", () => {
-    const a = repo();
-    const b = repo("feat");
-    expect(b.hook(`cd -- ${a.work} && git push`).status).toBe(2);
-    expect(b.hook(`cd -P ${a.work} && git push`).status).toBe(2);
-    expect(b.hook(`(cd ${a.work} && git log -1); git push`).status).toBe(0);
-    expect(b.hook(`(cd ${a.work} && git push)`).status).toBe(2);
-    expect(a.hook(`(cd ${b.work}; (cd ${a.work}); git push)`).status).toBe(0);
-    expect(a.hook(`(cd ${b.work}); git push`).status).toBe(2);
-  });
+  // A repository on main and one on feat, each reachable from the other as ../main and ../feat.
+  const pair = () => {
+    const main = repo();
+    const feat = repo("feat");
+    symlinkSync(main.work, join(feat.root, "main"));
+    symlinkSync(feat.work, join(main.root, "feat"));
+    for (const { work } of [main, feat]) mkdirSync(join(work, "sub"));
+    return { main, feat };
+  };
+
+  test("a cd is followed through subshells, braces, if, loops, case, sh -c, and eval", () => {
+    const { main, feat } = pair();
+    const forms = (to) => [`cd -- ${to} && git push`, `cd -P ${to} && git push`, `(cd ${to} && git push)`, `(cd ${to}; (cd /); git push)`, `bash -c "cd ${to} && git push"`, `bash -lc 'cd "${to}" && git push'`, `zsh -c "cd ${to} && git push"`, `sh -c 'cd ${to}; git push origin HEAD'`, `if [ -d ${to} ]; then cd ${to} && git push; fi`, `if cd ${to}; then git push; fi`, `{ cd ${to} && git push; } 2>&1 | tail -3`, `for r in 1 2; do cd ${to} && git push; done`, `builtin cd ${to} && git push`, `! cd ${to} || git push`, `eval "cd ${to}" && git push`, `case a in a) cd ${to}; git push;; esac`, `if false; then cd /; else cd ${to}; git push; fi`];
+    for (const c of forms("../main")) expect([c, feat.hook(c).reason]).toEqual([c, expect.stringContaining("blocked a push to main")]);
+    for (const c of [...forms("../feat"), `bash -lc "cd ${feat.work} && git push -u origin HEAD"`]) expect([c, main.hook(c).status]).toEqual([c, 0]);
+    // Inside sh -c or a subshell the cd ends with it; a case pattern's ) ends nothing.
+    for (const c of ['bash -c "cd ../main"; git push', "(cd ../main && git log -1); git push", "x=$(cd ../main && git log -1); git push", "(case a in (a) cd ../main;; esac); git push", "case a in a) cd ../main;; b) git push;; esac"]) expect([c, feat.hook(c).status]).toEqual([c, 0]);
+    expect(feat.hook("(cd ../main; case x in y) ls;; esac; git push)").status).toBe(2);
+    expect(feat.hook("(cd ../main; case x in y) ls;; esac; git push --force-with-lease)").status).toBe(2);
+  }, 120_000);
+
+  test("in a folder it cannot tell, an unnamed push is blocked and a named branch passes", () => {
+    const { main, feat } = pair();
+    const places = ["for r in main; do cd ../$r && PUSH; cd -; done", 'ls -d ../main | while read -r d; do cd "$d" && PUSH; done', 'S=../main/sub; cd "$S/.." && PUSH', 'cd "$(git rev-parse --git-common-dir)/.." && PUSH', 'S=../main; git -C "$S/.." PUSH', "pushd ../main && PUSH; popd", "if [ -d ../main ]; then cd ../main; fi; PUSH", "case a in a) cd ../main;; esac; PUSH", "for i in 1; do cd ../main; done; PUSH", "f() { cd ../main; }; f; PUSH", "cd nosuch; cd ..; PUSH", "cd a.txt; PUSH"];
+    for (const place of places) {
+      const line = (push) => place.replace("PUSH", place.includes("git -C") ? push : `git ${push}`);
+      for (const h of [main.hook, feat.hook]) expect([place, h(line("push")).reason]).toEqual([place, expect.stringContaining("Run these as two commands")]);
+      expect([place, feat.hook(line("push -u origin feat")).status]).toEqual([place, 0]);
+      expect([place, feat.hook(line("push origin main")).status]).toEqual([place, 2]);
+    }
+    for (const c of ['for d in sub; do (cd "$d" && ls); done; git push', "if cd sub; then ls; cd ..; fi; git push", "cd .. && cd work && git push"]) expect([c, feat.hook(c).status]).toEqual([c, 0]);
+  }, 120_000);
+
+  test("following a cd never unblocks a force push, a deletion, or lost work", () => {
+    const { main, feat } = pair();
+    for (const c of ['bash -c "cd ../feat && git push --force-with-lease"', "(cd ../feat && ls); git push -f", "if true; then cd ../feat && git push origin +HEAD; fi"]) expect([c, main.hook(c).status]).toEqual([c, 2]);
+    writeFileSync(join(feat.work, "b.txt"), "x");
+    for (const c of ["pushd sub; git reset --hard", "if true; then cd ..; fi; git clean -fd", 'S=x; git -C "$S/.." reset --hard', "(cd ../main); git push origin :feat"]) expect([c, feat.hook(c).status]).toEqual([c, 2]);
+  }, 120_000);
 
   describe("allowDirectPushRepos", () => {
     const listed = { allowDirectPushRepos: ["Me/Notes"] };
@@ -578,7 +607,7 @@ describe("pushes to a default branch", () => {
     test.each(["https://github.com/me/notes.git", "git@github.com:me/notes.git", "ssh://git@github.com/me/notes"])("a listed repository takes a plain push to its default branch: %s", (url) => {
       const run = clone(url, listed);
       for (const c of ["git push", "git push origin main", "git push origin $(git branch --show-current)"]) expect(run(c)).toEqual([c, 0]);
-      for (const c of ["git push --force-with-lease", "git push -f origin main", "git push origin :main", "git checkout main && git push", "git push --repo=https://github.com/me/other.git", "git push --repo https://github.com/me/other.git", "git --git-dir=.git push origin main", "git --work-tree . push", "cd \"$PWD\" && git push origin main"]) expect(run(c)).toEqual([c, 2]);
+      for (const c of ["git push --force-with-lease", "git push -f origin main", "git push origin :main", "git checkout main && git push", "git push --repo=https://github.com/me/other.git", "git push --repo https://github.com/me/other.git", "git --git-dir=.git push origin main", "git --work-tree . push", "cd \"$PWD\" && git push origin main", 'for r in .; do cd "$r"; git push origin main; done', "sh -c 'cd ..; git push origin main'", "if cd nosuch; then git push origin main; fi", "{ pushd . && git push origin main; }", 'S=x; cd "$S/.." && git push origin main', 'ls | while read d; do cd "$d" && git push origin main; done']) expect(run(c)).toEqual([c, 2]);
     });
 
     test.each([
