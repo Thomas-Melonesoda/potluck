@@ -1,8 +1,6 @@
-// potluck: whether a gates file holds changes nobody committed (second and
-// third round answers, section D). Only the user changes and commits a gates
-// file, and a file-editing tool the lock does not read, such as Codex's patch
-// tool, can still reach one. The merge gate asks this before it merges, so the
-// user sees such a change before it counts.
+// potluck: whether a gates file holds changes nobody committed (third round
+// answers, section D). Only the user changes one, and a tool the lock does not
+// read, such as Codex's patch tool, can reach it, so the merge gate asks first.
 //
 // It reads the user's file, the repository's file, and each link on the way to
 // either, following links as the system does, and compares the bytes with the
@@ -66,8 +64,9 @@ function repository(path) {
   }
 }
 
-// Why the file at `path` is not as committed, or null. A missing file counts
-// when its repository has it.
+// Why the file at `path` is not as committed, or null. A missing one counts when
+// the commit or the index has it, a folder in its place, or a link or submodule
+// above it, whatever the letter case, since the disk no longer tells the name.
 function uncommitted(path) {
   const top = repository(path);
   if (!top) return null;
@@ -78,13 +77,17 @@ function uncommitted(path) {
     return null;
   }
   const name = relative(top, path).split(sep).join("/");
+  const stat = lstat(path);
+  if (!stat) {
+    const fold = (text) => text.normalize("NFC").toLowerCase();
+    const names = fold(Buffer.from(read(top, "ls-tree", "-r", "-z", "--name-only", "--full-tree", "HEAD") + read(top, "ls-files", "-z"), "latin1").toString()).split("\0");
+    return names.some((held) => held && `${fold(name)}/`.startsWith(`${held}/`) || held.startsWith(`${fold(name)}/`)) ? `${path} has uncommitted changes` : null;
+  }
   // `<mode> blob <oid>` in the commit, `<mode> <oid> <stage>` in the index.
   const commit = read(top, "ls-tree", "-z", "--full-tree", "HEAD", "--", name).split("\t")[0];
   const index = read(top, "ls-files", "-s", "-z", "--", name).split("\t")[0];
-  const stat = lstat(path);
   const [mode, type, oid] = commit.split(" ");
-  if (!commit && !index && !stat) return null;
-  const same = stat && type === "blob" && index === `${mode} ${oid} 0` && (mode === "120000") === stat.isSymbolicLink();
+  const same = type === "blob" && index === `${mode} ${oid} 0` && (mode === "120000") === stat.isSymbolicLink();
   if (!same) return `${path} has uncommitted changes`;
   const bytes = stat.isSymbolicLink() ? readlinkSync(path, "buffer") : readFileSync(path);
   // A checkout may convert line endings, which mean nothing in JSON.

@@ -1,9 +1,8 @@
-// potluck: whether a gates file holds changes nobody committed, in
-// plugins/pstack/skills/poteto-mode/scripts/gates-committed.mjs. Each case is a
-// real repository; merge-gate.test.mjs covers the refusal through the gate.
+// potluck: gates-committed.mjs on real repositories; merge-gate.test.mjs covers
+// the refusal through the gate.
 import { afterAll, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,20 +16,19 @@ afterAll(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true 
 function setup() {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "potluck-committed-")));
   dirs.push(dir);
-  const notes = join(dir, "notes");
-  const file = join(notes, "Mine.json");
+  const [notes, file] = [join(dir, "notes"), join(dir, "notes/Mine.json")];
   mkdirSync(notes);
   const git = (...args) => execFileSync("git", ["-C", notes, ...args], { encoding: "utf8", env: gitEnv, stdio: ["ignore", "pipe", "pipe"] });
+  const commit = () => (git("add", "."), git("commit", "-q", "-m", "x"));
   git("init", "-q", "-b", "main");
   writeFileSync(file, '{"a": 1}\n');
-  git("add", ".");
-  git("commit", "-q", "-m", "one");
+  commit();
   const ask = (user = file, env = {}) => {
     const r = spawnSync("node", ["--input-type=module", "-e", `import { gatesNotCommitted } from ${JSON.stringify(module)}; process.stdout.write(JSON.stringify(gatesNotCommitted(${JSON.stringify(dir)}, ${JSON.stringify(user)})))`], { encoding: "utf8", env: { ...process.env, HOME: dir, ...env } });
     return JSON.parse(r.stdout);
   };
   const change = () => writeFileSync(file, '{"a": 2}\n');
-  return { dir, notes, file, git, ask, change };
+  return { dir, notes, file, git, commit, ask, change };
 }
 const changed = [expect.stringContaining("has uncommitted changes")];
 const unread = [expect.stringContaining("could not be read")];
@@ -38,6 +36,8 @@ const unread = [expect.stringContaining("could not be read")];
 test("a committed file passes, and a changed or untracked one, or one whose index entry differs, is named", () => {
   const s = setup();
   expect(s.ask()).toEqual([]);
+  writeFileSync(s.file, '{"a": 1}\r\n');
+  expect(s.ask()).toEqual([]); // a checkout converts line endings
   s.change();
   expect(s.ask()).toEqual([`${s.file} has uncommitted changes`]);
   s.git("add", ".");
@@ -51,29 +51,20 @@ test("a committed file passes, and a changed or untracked one, or one whose inde
   expect(s.ask(join(s.notes, "none.json"))).toEqual([]);
 });
 
-test("line endings a checkout converts are not a change", () => {
-  const s = setup();
-  writeFileSync(s.file, '{"a": 1}\r\n');
-  expect(s.ask()).toEqual([]);
-});
-
-// Finding 1: git status runs the clean filter, which can hide a change.
 test("no clean filter, filter process, or fsmonitor runs, and none hides a change", () => {
-  for (const config of [["filter.x.clean"], ["filter.x.process"], ["core.fsmonitor"]]) {
+  for (const config of ["filter.x.clean", "filter.x.process", "core.fsmonitor"]) {
     const s = setup();
-    const marker = join(s.dir, "ran");
-    const script = join(s.dir, "run.sh");
+    const [marker, script] = [join(s.dir, "ran"), join(s.dir, "run.sh")];
     writeFileSync(script, `#!/bin/sh\ntouch '${marker}'\nprintf '{"a": 1}\\n'\n`, { mode: 0o755 });
-    s.git("config", config[0], script);
+    s.git("config", config, script);
     writeFileSync(join(s.notes, ".git/info/attributes"), "*.json filter=x\n");
     utimesSync(s.file, 1, 1);
-    expect([config[0], s.ask(), existsSync(marker)]).toEqual([config[0], [], false]);
+    expect([config, s.ask(), existsSync(marker)]).toEqual([config, [], false]);
     s.change();
-    expect([config[0], s.ask(), existsSync(marker)]).toEqual([config[0], changed, false]);
+    expect([config, s.ask(), existsSync(marker)]).toEqual([config, changed, false]);
   }
 });
 
-// Finding 2: the same file under another case, where the file system has no case.
 test("a link whose target differs in letter case reads the file the system opens", () => {
   const s = setup();
   if (!existsSync(join(s.notes, "mine.json"))) return;
@@ -84,7 +75,6 @@ test("a link whose target differs in letter case reads the file the system opens
   expect(s.ask(link)).toEqual([`${s.file} has uncommitted changes`]);
 });
 
-// Finding 3: only no repository and no commit pass without a comparison.
 test.each([
   ["an unreadable .git", (s) => chmodSync(join(s.notes, ".git"), 0)],
   ["no HEAD", (s) => rmSync(join(s.notes, ".git/HEAD"))],
@@ -103,24 +93,13 @@ test.each([
   expect(reasons).toEqual(unread);
 });
 
-test("core.bare and core.worktree do not hide a change", () => {
-  for (const [key, value] of [["core.bare", "true"], ["core.worktree", "/"]]) {
-    const s = setup();
-    s.git("config", key, value);
-    expect([key, s.ask()]).toEqual([key, []]);
-    s.change();
-    expect([key, s.ask()]).toEqual([key, changed]);
-  }
-});
-
 test("a linked worktree is compared with its own commit", () => {
   const s = setup();
   const tree = join(s.dir, "tree");
   s.git("worktree", "add", "-q", "-b", "side", tree);
   expect(s.ask(join(tree, "Mine.json"))).toEqual([]);
   writeFileSync(join(tree, "Mine.json"), "{}");
-  expect(s.ask(join(tree, "Mine.json"))).toEqual(changed);
-  expect(s.ask()).toEqual([]);
+  expect([s.ask(join(tree, "Mine.json")), s.ask()]).toEqual([changed, []]);
 });
 
 test("a file outside git and one in a repository with no commit pass", () => {
@@ -134,7 +113,6 @@ test("a file outside git and one in a repository with no commit pass", () => {
   expect(s.ask()).toEqual([]);
 });
 
-// Finding 4: a link is followed as the system follows it.
 test("links are followed through folders and long chains, and a loop refuses", () => {
   const s = setup();
   mkdirSync(join(s.dir, "far/deep"), { recursive: true });
@@ -144,10 +122,10 @@ test("links are followed through folders and long chains, and a loop refuses", (
   symlinkSync("dots.json", join(s.dir, "0.json"));
   for (let i = 1; i < 20; i++) symlinkSync(`${i - 1}.json`, join(s.dir, `${i}.json`));
   const far = join(s.dir, "far/notes/Mine.json");
-  for (const link of ["dots.json", "19.json"]) expect(s.ask(join(s.dir, link))).toEqual([]);
-  writeFileSync(far, '{"a": 2}\n');
   for (const link of ["dots.json", "19.json"]) {
-    expect(readFileSync(join(s.dir, link), "utf8")).toBe('{"a": 2}\n');
+    writeFileSync(far, '{"a": 1}\n');
+    expect(s.ask(join(s.dir, link))).toEqual([]);
+    writeFileSync(join(s.dir, link), '{"a": 2}\n');
     expect(s.ask(join(s.dir, link))).toEqual([`${far} has uncommitted changes`]);
   }
   symlinkSync("loop.json", join(s.dir, "loop.json"));
@@ -156,10 +134,9 @@ test("links are followed through folders and long chains, and a loop refuses", (
 
 test("a link kept in git refuses once it points elsewhere, and a deleted target once it is gone", () => {
   const s = setup();
-  symlinkSync("Mine.json", join(s.notes, "link.json"));
-  s.git("add", ".");
-  s.git("commit", "-q", "-m", "link");
   const link = join(s.notes, "link.json");
+  symlinkSync("Mine.json", link);
+  s.commit();
   expect(s.ask(link)).toEqual([]);
   rmSync(link);
   symlinkSync(join(s.dir, "elsewhere.json"), link);
@@ -167,8 +144,7 @@ test("a link kept in git refuses once it points elsewhere, and a deleted target 
   const sub = join(s.notes, "a/b/deep.json");
   mkdirSync(join(s.notes, "a/b"), { recursive: true });
   writeFileSync(sub, "{}");
-  s.git("add", ".");
-  s.git("commit", "-q", "-m", "deep");
+  s.commit();
   writeFileSync(sub, '{"a": 2}');
   expect(s.ask(sub)).toEqual([`${sub} has uncommitted changes`]);
   rmSync(sub);
@@ -180,9 +156,34 @@ test("a link kept in git refuses once it points elsewhere, and a deleted target 
   expect(s.ask(join(s.dir, "folder/Mine.json"))).toEqual([`${s.file} has uncommitted changes`]);
 });
 
-test.each(["--assume-unchanged", "--skip-worktree"])("%s does not hide a change", (flag) => {
+// What is missing, asked by any case, where git holds it, a link above it, or a submodule above it.
+test.each([
+  ["a file by another case", "mine.JSON", (s) => rmSync(s.file)],
+  ["a file removed from the index too", "MINE.json", (s) => s.git("rm", "-q", "Mine.json")],
+  ["a staged file", "NEW.json", (s) => (writeFileSync(join(s.notes, "new.json"), ""), s.git("add", "."), rmSync(join(s.notes, "new.json")))],
+  ["a folder by another case", "A/b.json", (s) => rmSync(join(s.notes, "a"), { recursive: true })],
+  ["a link by another case", "LINK.json", (s) => rmSync(join(s.notes, "link.json"))],
+  ["a folder link", "d/Mine.json", (s) => rmSync(join(s.notes, "d"))],
+  ["a folder link replaced by a folder", "D/Mine.json", (s) => (rmSync(join(s.notes, "d")), mkdirSync(join(s.notes, "d")))],
+  ["a folder where the file was asked", "a", (s) => rmSync(join(s.notes, "a"), { recursive: true })],
+  ["a submodule's folder", "sub/Mine.json", (s) => rmSync(join(s.notes, "sub"), { recursive: true, force: true })],
+])("%s, once gone, refuses", (_, name, remove) => {
   const s = setup();
-  s.git("update-index", flag, "Mine.json");
+  mkdirSync(join(s.notes, "a"));
+  writeFileSync(join(s.notes, "a/b.json"), "{}");
+  symlinkSync("Mine.json", join(s.notes, "link.json"));
+  symlinkSync("a", join(s.notes, "d"));
+  s.git("update-index", "--add", "--cacheinfo", `160000,${s.git("rev-parse", "HEAD").trim()},sub`);
+  s.git("add", "a", "d", "link.json");
+  s.git("commit", "-q", "-m", "x");
+  for (const other of ["a/none.json", "b/none.json", "Mine.json.old"]) expect(s.ask(join(s.notes, other))).toEqual([]);
+  remove(s);
+  expect(s.ask(join(s.notes, name))).toEqual(changed);
+});
+
+test.each(["update-index --assume-unchanged Mine.json", "update-index --skip-worktree Mine.json", "config core.bare true", "config core.worktree /"])("git %s does not hide a change", (args) => {
+  const s = setup();
+  s.git(...args.split(" "));
   expect(s.ask()).toEqual([]);
   s.change();
   expect(s.ask()).toEqual(changed);
@@ -193,7 +194,6 @@ test("the caller's GIT_* variables, replace refs, and other configuration do not
   const env = { GIT_INDEX_FILE: join(s.dir, "none"), GIT_OBJECT_DIRECTORY: join(s.dir, "none"), GIT_DIR: join(s.dir, "none") };
   expect(s.ask(s.file, env)).toEqual([]);
   s.change();
-  const now = s.git("hash-object", "-w", "Mine.json").trim();
-  s.git("replace", s.git("rev-parse", "HEAD:Mine.json").trim(), now);
+  s.git("replace", s.git("rev-parse", "HEAD:Mine.json").trim(), s.git("hash-object", "-w", "Mine.json").trim());
   expect(s.ask(s.file, env)).toEqual(changed);
 });

@@ -1044,58 +1044,70 @@ else if (line.includes("POST")) process.stdout.write("{}");
     const reason = (r) => [r.json.kind, r.json.reasons.slice(0, 1).join(), r.json.reasons.at(-1)];
     const refused = (path) => ["refused", expect.stringContaining(`${path} has uncommitted changes`), expect.stringContaining("ask the user to check the change")];
     const g = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { env: gitEnv, stdio: ["ignore", "pipe", "pipe"] });
-    function linked() {
-      const f = fake();
-      const notes = join(f.home, "notes");
-      mkdirSync(notes);
-      writeFileSync(join(notes, "mine.json"), JSON.stringify({ noCI: "wait" }));
-      g(notes, "init", "-q", "-b", "main");
-      g(notes, "add", "mine.json");
-      g(notes, "commit", "-q", "-m", "gates");
-      symlinkSync(join(notes, "mine.json"), join(f.home, REPO_FILE));
-      return { ...f, notes, mine: join(notes, "mine.json") };
-    }
+    const commit = (dir) => (g(dir, "init", "-q", "-b", "main"), g(dir, "add", "."), g(dir, "commit", "-q", "-m", "gates"));
+    const dry = (f) => f.run(...merge, "--dry-run");
 
     test("the user's linked file merges as committed, and refuses once changed, staged, deleted, or hidden from git", () => {
-      const f = linked();
-      expect(f.run(...merge, "--dry-run").json.kind).toBe("would-merge");
-      writeFileSync(f.mine, "{}");
-      expect(reason(f.run(...merge, "--dry-run"))).toEqual(refused(f.mine));
+      const f = fake();
+      const [notes, mine] = [join(f.home, "notes"), join(f.home, "notes/mine.json")];
+      mkdirSync(notes);
+      writeFileSync(mine, JSON.stringify({ noCI: "wait" }));
+      commit(notes);
+      symlinkSync(mine, join(f.home, REPO_FILE));
+      expect(dry(f).json.kind).toBe("would-merge");
       rmSync(join(f.dir, "calls"));
-      expect(reason(f.run(...merge))).toEqual(refused(f.mine));
+      writeFileSync(mine, "{}");
+      for (const run of [dry(f), f.run(...merge), (g(notes, "add", "."), f.run(...merge))]) expect(reason(run)).toEqual(refused(mine));
       expect(existsSync(join(f.dir, "calls"))).toBe(false);
-      g(f.notes, "add", "mine.json");
-      expect(reason(f.run(...merge))).toEqual(refused(f.mine));
-      g(f.notes, "commit", "-q", "-m", "the user's change");
-      expect(f.run(...merge, "--dry-run").json.kind).toBe("would-merge");
-      g(f.notes, "update-index", "--assume-unchanged", "mine.json");
-      writeFileSync(f.mine, '{"foreignRepos": "ask"}');
-      expect(reason(f.run(...merge, "--dry-run"))).toEqual(refused(f.mine));
-      g(f.notes, "update-index", "--no-assume-unchanged", "mine.json");
-      rmSync(f.mine);
-      expect(reason(f.run(...merge, "--dry-run"))).toEqual(refused(f.mine));
+      commit(notes);
+      expect(dry(f).json.kind).toBe("would-merge");
+      g(notes, "update-index", "--assume-unchanged", "mine.json");
+      writeFileSync(mine, '{"foreignRepos": "ask"}');
+      expect(reason(dry(f))).toEqual(refused(mine));
+      rmSync(mine);
+      expect(reason(dry(f))).toEqual(refused(mine));
+    });
+
+    // The gates would go with the file: clean is held, and gone must not merge.
+    test.each([
+      ["a target by another case", "notes/real/MINE.json", "notes/real/mine.json"],
+      ["a target under a committed folder link", "notes/d/mine.json", "notes/d"],
+      ["a gates folder the home repository commits as a link", null, dirname(REPO_FILE)],
+    ])("%s refuses once deleted", (_, link, gone) => {
+      const f = fake({ runs: [] });
+      mkdirSync(join(f.home, "notes/real"), { recursive: true });
+      writeFileSync(join(f.home, "notes/real", link ? "mine.json" : REPO_FILE.split("/")[1]), JSON.stringify({ noCI: "wait" }));
+      symlinkSync("real", join(f.home, "notes/d"));
+      if (!link) rmSync(join(f.home, gone), { recursive: true });
+      symlinkSync(link ? join(f.home, link) : "notes/real", join(f.home, link ? REPO_FILE : gone));
+      commit(link ? join(f.home, "notes") : f.home);
+      if (!existsSync(join(f.home, REPO_FILE))) return; // a file system with case
+      expect(f.run(...merge).json.kind).toBe("held");
+      rmSync(join(f.home, gone));
+      expect(f.run(...merge).json.kind).toBe("refused");
+      expect(f.calls().some((a) => a[1] === "merge")).toBe(false);
     });
 
     test("the repository's file refuses when added, changed, or deleted in the checkout", () => {
       const added = fake();
       mkdirSync(dirname(join(added.work, REPO_FILE)));
       writeFileSync(join(added.work, REPO_FILE), "{}");
-      expect(reason(added.run(...merge, "--dry-run"))).toEqual(refused(REPO_FILE));
+      expect(reason(dry(added))).toEqual(refused(REPO_FILE));
       const kept = fake({ setup: { base: repoGates } });
-      expect(kept.run(...merge, "--dry-run").json.kind).toBe("would-merge");
-      writeFileSync(join(kept.work, REPO_FILE), "{}");
-      expect(reason(kept.run(...merge, "--dry-run"))).toEqual(refused(REPO_FILE));
-      rmSync(dirname(join(kept.work, REPO_FILE)), { recursive: true });
-      expect(reason(kept.run(...merge, "--dry-run"))).toEqual(refused(REPO_FILE));
+      expect(dry(kept).json.kind).toBe("would-merge");
+      for (const change of [(file) => writeFileSync(file, "{}"), (file) => rmSync(dirname(file), { recursive: true })]) {
+        change(join(kept.work, REPO_FILE));
+        expect(reason(dry(kept))).toEqual(refused(REPO_FILE));
+      }
     });
 
     test("a user's file outside git, or in a repository with no commit, has nothing to compare with", () => {
       const f = fake({ gates: { noCI: "wait" } });
-      expect(f.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+      expect(dry(f).json.kind).toBe("would-merge");
       g(f.home, "init", "-q", "-b", "main");
-      expect(f.run(...merge, "--dry-run").json.kind).toBe("would-merge");
+      expect(dry(f).json.kind).toBe("would-merge");
       g(f.home, "commit", "-q", "--allow-empty", "-m", "x");
-      expect(reason(f.run(...merge, "--dry-run"))).toEqual(refused(join(f.home, REPO_FILE)));
+      expect(reason(dry(f))).toEqual(refused(join(f.home, REPO_FILE)));
     });
   });
 
