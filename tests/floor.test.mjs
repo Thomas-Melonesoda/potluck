@@ -452,4 +452,254 @@ describe("floor.mjs on a scratch repository", () => {
     const flagged = r.json.reasons.map((l) => l.match(/^floor: \[silenced-checker\] (.+?): /)?.[1]).filter(Boolean);
     expect(flagged.sort()).toEqual(Object.keys(files).filter((f) => f !== "notes.md").sort());
   });
+
+  test("CONSTRAINTS.md is plain Markdown, yet a lowered number in it is stopped", () => {
+    const before = "# Constraints\n\n- Coverage: changed lines at least 80% covered\n";
+    const r = pr({ change: { path: "CONSTRAINTS.md", text: before.replace("80%", "70%") }, setup: { base: { "CONSTRAINTS.md": before } } }).run();
+    expect(r.json.reasons).toEqual(["floor: [threshold-loosened] CONSTRAINTS.md: - Coverage: changed lines at least 80% covered  ->  - Coverage: changed lines at least 70% covered"]);
+  });
+
+  // Build the lever (S3-B5): the floor counts as working only while both canaries hold.
+  describe("floor canaries", () => {
+    test("the skill's CONSTRAINTS.md template passes as written", () => {
+      expect(pr({ change: { path: "CONSTRAINTS.md", text: TEMPLATE } }).run().json.kind).toBe("pass");
+    });
+
+    test("a code file with a deliberate suppression is stopped", () => {
+      const r = pr({ change: { path: "src/app.ts", text: `// @ts-${"ignore"}\nexport const answer: number = "42";\n` } }).run();
+      expect(r.json.reasons).toEqual([`floor: [silenced-checker] src/app.ts: // @ts-${"ignore"}`]);
+    });
+  });
+
+
+  test("a PR's own .gitattributes cannot hide a finding", () => {
+    const { run } = pr({ change: { path: ".gitattributes", text: "* -diff\n" }, setup: { base: { [TEST]: ASSERT }, files: { [TEST]: `${ASSERT}test.${"skip"}("later", () => {});\n` } } });
+    const r = run();
+    expect(r.json.kind).toBe("fail");
+    expect(r.json.reasons.some((l) => l.includes("[test-made-easier]"))).toBe(true);
+  });
+
+  test("renaming a test file away counts as deleting it", () => {
+    const { run } = pr({ change: { path: "src/note.js", text: "export {};\n" }, setup: { base: { [TEST]: ASSERT }, move: [TEST, "src/app.check.js"] } });
+    const r = run();
+    expect(r.json.kind).toBe("fail");
+    expect(r.json.reasons.some((l) => l.includes("[test-deleted] src/app.test.js"))).toBe(true);
+  });
+
+  // Stage 5 issue 17: a renamed test is only renamed.
+
+  test("a test file renamed to another test name passes", () => {
+    const { run } = pr({ setup: { base: { [TEST]: TWO }, move: [TEST, "src/sum.test.js"] } });
+    expect(run().json.kind).toBe("pass");
+  });
+
+  test("a renamed test file's old skip does not read as new", () => {
+    const { run } = pr({ setup: { base: { [TEST]: `${TWO}test.${"skip"}("later", () => {});\n` }, move: [TEST, "src/sum.test.js"] } });
+    expect(run().json.kind).toBe("pass");
+  });
+
+  test("a test renamed with edits was not only renamed, so it reads as deleted, as on main", () => {
+    const fewer = TWO.replace(`  ${"expect"}(2 + 2).toBe(4);\n`, "");
+    const { run } = pr({ setup: { base: { [TEST]: TWO }, files: { [TEST]: fewer }, move: [TEST, "src/sum.test.js"] } });
+    expect(run().json.reasons).toEqual([`floor: [test-deleted] ${TEST}: file deleted`]);
+  });
+
+  test("a rename that changes the content, or drops one of two naming forms, reads as deleted", () => {
+    const py = "pkg/test_math_test.py", rb = "test/test_user_test.rb", js = "src/a.test.js";
+    const pyText = "def test_add():\n    assert 1 + 1 == 2\n", rbText = "require 'minitest/autorun'\n";
+    const setup = { base: { [py]: pyText, [rb]: rbText, [js]: TWO }, files: { "pkg/math_test.py": pyText, "test/user_test.rb": rbText, "src/b.test.js": `${TWO}// renamed\n` }, remove: [py, rb, js] };
+    expect(pr({ setup }).run().json.reasons.sort()).toEqual([py, rb, js].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
+  });
+
+  test("a CONSTRAINTS.md renamed away reads as every rule removed", () => {
+    const bar = "# Constraints\n\n- Coverage: changed lines at least 80% covered\n";
+    const { run } = pr({ setup: { base: { "CONSTRAINTS.md": bar }, move: ["CONSTRAINTS.md", "old-rules.md"] } });
+    expect(run().json.reasons).toEqual(["floor: [rule-removed] CONSTRAINTS.md: - Coverage: changed lines at least 80% covered"]);
+  });
+
+  test("an assertion moved within its test file waits for the co-sign too", () => {
+    const swapped = `test("adds", () => {\n  ${"expect"}(2 + 2).toBe(4);\n  ${"expect"}(1 + 1).toBe(2);\n});\n`;
+    const r = pr({ setup: { base: { [TEST]: TWO }, files: { [TEST]: swapped } } }).run();
+    expect(r.json.reasons[0]).toStartWith(`floor: [assertion-moved] ${TEST}: `);
+    expect(r.json.reasons.at(-1)).toContain("needs the root agent's co-sign");
+  });
+
+  test("a test renamed to a name no runner picks up still reads as deleted", () => {
+    const go = "mathx/add_test.go", py = "tests/test_math.py", pyText = "def test_add():\n    assert 1 + 1 == 2\n";
+    const setup = { base: { [TEST]: TWO, [go]: "package mathx\n", [py]: pyText }, files: { "src/app.test.js.disabled": TWO, "mathx/testdata/add_test.go": "package mathx\n", "tests/latest_math.py": pyText }, remove: [TEST, go, py] };
+    expect(pr({ setup }).run().json.reasons.sort()).toEqual([go, TEST, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
+  test("a test moved to another runner's naming, or into a folder runners skip, still reads as deleted", () => {
+    const go = "mathx/add_test.go", py = "tests/test_math.py", js = "src/math.test.js", nm = "src/b.test.js";
+    const goText = "package mathx\n", pyText = "def test_add():\n    assert 1 + 1 == 2\n", jsText = TWO.replace("adds", "math");
+    const setup = { base: { [go]: goText, [py]: pyText, [js]: jsText, [nm]: TWO }, files: { "mathx/add.test.go": goText, "tests/math.test.py": pyText, "src/test_math.js": jsText, "node_modules/x/b.test.js": TWO }, remove: [go, py, js, nm] };
+    expect(pr({ setup }).run().json.reasons.sort()).toEqual([go, nm, js, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
+  test("a test renamed in its folder to a name a runner's discovery skips reads as deleted", () => {
+    const js = "src/a.test.mjs", swift = "Tests/AppTests/BTests.swift", rb = "test/a_test.rb", py = "pkg/test_math.py", py2 = "pkg/test_calc.py";
+    const pyText = "def test_add():\n    assert 1 + 1 == 2\n";
+    const base = { [js]: TWO, [swift]: "import XCTest\nfinal class BTests: XCTestCase {}\n", [rb]: "require 'minitest/autorun'\n", [py]: pyText, [py2]: pyText.replace("add", "sub") };
+    const files = { "src/.a.test.mjs": base[js], "Tests/AppTests/.BTests.swift": base[swift], "test/.a_test.rb": base[rb], "pkg/test_math-old.py": base[py], "pkg/test_calc.old.py": base[py2] };
+    const r = pr({ setup: { base, files, remove: Object.keys(base) } }).run();
+    expect(r.json.reasons.sort()).toEqual([swift, js, rb, py2, py].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
+  });
+
+  test("a rename git scores R100 whose content still changed reads as deleted", () => {
+    const before = `test("t", () => {\n  ${"expect"}(1 + 1).toBe(3);\n  return;\n});\n`;
+    const after = `test("t", () => {\n  return;\n  ${"expect"}(1 + 1).toBe(3);\n});\n`;
+    const r = pr({ setup: { base: { "src/a.test.js": before }, files: { "src/b.test.js": after }, remove: ["src/a.test.js"] } }).run();
+    expect(r.json.reasons).toEqual(["floor: [test-deleted] src/a.test.js: file deleted"]);
+  });
+
+  test("a folder at a renamed test's old path is still read", () => {
+    const r = pr({ setup: { base: { "src/a.test.js": TWO }, files: { "src/b.test.js": TWO, "src/a.test.js/x.ts": `// @ts-${"ignore"}\nexport const x = 1;\n` }, remove: ["src/a.test.js"] } }).run();
+    expect(r.json.reasons).toEqual([`floor: [silenced-checker] src/a.test.js/x.ts: // @ts-${"ignore"}`]);
+  });
+
+  test("a rename that changes what any runner's default naming reads reads as deleted", () => {
+    const js = "src/test-foo.spec.js", py = "pkg/testing_test.py", rb = "test/testing_test.rb";
+    const base = { [js]: TWO, [py]: "def test_add():\n    assert 1 + 1 == 2\n", [rb]: "require 'minitest/autorun'\n" };
+    const files = { "src/foo.spec.js": base[js], "pkg/foo_test.py": base[py], "test/foo_test.rb": base[rb] };
+    const r = pr({ setup: { base, files, remove: Object.keys(base) } }).run();
+    expect(r.json.reasons.sort()).toEqual([py, js, rb].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
+  });
+
+  test("a rename minitest or test-unit stops reading, or one that orphans a snapshot, reads as deleted", () => {
+    const rb = "test/test_parser.rb", rb2 = "test/test_lexer.rb", js = "src/foo.test.js";
+    const base = { [rb]: "require 'minitest/autorun'\n", [rb2]: "require 'minitest/autorun' # lexer\n", [js]: TWO, "src/__snapshots__/foo.test.js.snap": "exports[`adds 1`] = `2`;\n" };
+    const files = { "test/testparser.rb": base[rb], "test/test-lexer.rb": base[rb2], "src/bar.test.js": TWO };
+    const r = pr({ setup: { base, files, remove: [rb, rb2, js] } }).run();
+    expect(r.json.reasons.sort()).toEqual([js, rb2, rb].map((f) => `floor: [test-deleted] ${f}: file deleted`).sort());
+  });
+
+  test("a CI file with a test-like name moved out of the CI paths still reads as its test step removed", () => {
+    const UNIT = ".github/workflows/unit_test.yml", step = WORKFLOW("      - run: npm test\n");
+    const r = pr({ setup: { base: { [UNIT]: step }, files: { ".github/unit_test.yml": step }, remove: [UNIT] } }).run();
+    expect(r.json.reasons.sort()).toEqual([`floor: [ci-test-removed] ${UNIT}: - run: npm test`, `floor: [test-deleted] ${UNIT}: file deleted`]);
+  });
+
+  test("a test moved to another folder reads as deleted, as on main, since the folder decides what runs it", () => {
+    const swift = "Tests/AppTests/MathTests.swift", rb = "test/test_user.rb";
+    const swiftText = "import XCTest\nfinal class MathTests: XCTestCase {}\n", rbText = "require 'minitest/autorun'\n";
+    const setup = { base: { [TEST]: TWO, [swift]: swiftText, [rb]: rbText }, files: { "src/__tests__/app.test.js": TWO, "Archive/MathTests.swift": swiftText, "lib/test_user.rb": rbText }, remove: [TEST, swift, rb] };
+    expect(pr({ setup }).run().json.reasons.sort()).toEqual([swift, TEST, rb].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
+  test("a test renamed in its folder to a name Go skips, or to another naming form, reads as deleted", () => {
+    const go = "mathx/add_test.go", sub = "mathx/sub_test.go", py = "tests/test_math.py", js = "src/math.test.js";
+    const goText = "package mathx\n", pyText = "def test_add():\n    assert 1 + 1 == 2\n", jsText = TWO.replace("adds", "math");
+    const setup = { base: { [go]: goText, [sub]: "package mathx // sub\n", [py]: pyText, [js]: jsText }, files: { "mathx/_add_test.go": goText, "mathx/sub_windows_test.go": "package mathx // sub\n", "tests/math_test.py": pyText, "src/math.spec.js": jsText }, remove: [go, sub, py, js] };
+    expect(pr({ setup }).run().json.reasons.sort()).toEqual([go, sub, js, py].map((f) => `floor: [test-deleted] ${f}: file deleted`));
+  });
+
+  test("a CI file renamed out of the CI paths still reads as its test step removed", () => {
+    const step = WORKFLOW("      - run: npm test\n");
+    const r = pr({ setup: { base: { [CI]: step }, files: { ".github/ci.yml.off": step }, remove: [CI] } }).run();
+    expect(r.json.reasons).toEqual([`floor: [ci-test-removed] ${CI}: - run: npm test`]);
+  });
+
+  test("a Markdown file renamed into code brings its forbidden forms with it", () => {
+    const text = `// @ts-${"ignore"}\nexport const x = 1;\n`;
+    const r = pr({ setup: { base: { "docs/snippet.md": text }, files: { "src/snippet.ts": text }, remove: ["docs/snippet.md"] } }).run();
+    expect(r.json.reasons).toEqual([`floor: [silenced-checker] src/snippet.ts: // @ts-${"ignore"}`]);
+  });
+
+  test("an assertion commented out is removed, not changed", () => {
+    const off = TWO.replace(`  ${"expect"}(2 + 2)`, `  // ${"expect"}(2 + 2)`);
+    const r = pr({ setup: { base: { [TEST]: TWO }, files: { [TEST]: off } } }).run();
+    expect(r.json.reasons).toEqual([`floor: [assertion-removed] ${TEST}: ${"expect"}(2 + 2).toBe(4);`]);
+  });
+
+  test("a colon in a code file's name does not make its finding look like Markdown", () => {
+    const { run } = pr({ change: { path: "src/x.md:y.js", text: `// eslint-${"disable"}\nexport {};\n` } });
+    const r = run();
+    expect(r.json.kind).toBe("fail");
+    expect(r.json.reasons.some((l) => l.includes("[silenced-checker] src/x.md:y.js"))).toBe(true);
+  });
+
+  test("the checkout's own git config cannot switch the floor off", () => {
+    const { run, work } = pr({ setup: { base: { [TEST]: ASSERT }, files: { [TEST]: `${ASSERT}test.${"skip"}("later", () => {});\n` } } });
+    git(work, "config", "diff.external", "true");
+    git(work, "config", "color.ui", "always");
+    const r = run();
+    expect(r.json.kind).toBe("fail");
+    expect(r.json.reasons.some((l) => l.includes("[test-made-easier]"))).toBe(true);
+  });
+
+  test("a PR's .gitattributes cannot re-encode a test file on checkout to hide it", () => {
+    // The file is written as UTF-16LE with a BOM, as the attribute says, so git
+    // stores it as UTF-8 and a checkout under the PR's attributes would write
+    // it back as UTF-16, which the guard reads as binary.
+    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`${ASSERT}test.${"skip"}("later", () => {});\n`, "utf16le")]);
+    const { run } = pr({ change: { path: ".gitattributes", text: "*.test.js working-tree-encoding=UTF-16LE-BOM\n" }, setup: { base: { [TEST]: ASSERT }, files: { [TEST]: utf16 } } });
+    const r = run();
+    // The fixture commits the attribute and the file together, so git converts
+    // the blob on add; either way the floor must see the change and refuse.
+    expect(r.json.kind).toBe("fail");
+    expect(r.json.reasons.every((l) => l.startsWith("floor: ["))).toBe(true);
+  });
+  test("deleting a committed binary file passes the binary check", () => {
+    const { run } = pr({ setup: { base: { ".DS_Store": Buffer.from([0, 1, 2, 3, 0]) }, remove: [".DS_Store"] } });
+    expect(run().json.kind).toBe("pass");
+  });
+
+  const FEATURE = "# Votes\n\nLets a club vote.\n\nFor: book clubs.\n\n## Done when\n\n- [ ] A member can vote once.\n";
+
+  test("a PR that changes a feature file without regenerating the overview fails", () => {
+    const { run } = pr({ change: { path: "docs/features/votes.md", text: FEATURE } });
+    const r = run();
+    expect(r.json.kind).toBe("fail");
+    expect(r.json.reasons[0]).toContain("overview: docs/overview.md is stale or missing");
+  });
+
+  test("a project with only an ADR passes without an overview", () => {
+    const { run } = pr({ change: { path: "docs/adr/0001-use-postgres.md", text: "# Use Postgres\n" } });
+    expect(run().json.kind).toBe("pass");
+  });
+
+  test("the overview is checked even when the floor's only findings are in Markdown", () => {
+    const { run } = pr({ change: { path: "docs/features/votes.md", text: FEATURE }, setup: { files: { "notes.md": `Never add @ts-${"ignore"}.\n` } } });
+    const r = run();
+    expect(r.json.kind).toBe("fail");
+    expect(r.json.reasons[0]).toContain("overview: docs/overview.md is stale or missing");
+  });
+
+  test("a PR that ticks a Done when item without proof fails", () => {
+    const { run } = pr({ change: { path: "docs/features/votes.md", text: FEATURE.replace("- [ ]", "- [x]") } });
+    const r = run();
+    expect(r.json.kind).toBe("fail");
+    expect(r.json.reasons[0]).toContain("ticked without proof");
+  });
+
+  test("a PR with its overview regenerated passes", () => {
+    const root = mkdtempSync(join(tmpdir(), "potluck-floor-ov-"));
+    dirs.push(root);
+    mkdirSync(join(root, "docs/features"), { recursive: true });
+    writeFileSync(join(root, "docs/features/votes.md"), FEATURE);
+    spawnSync("node", [OVERVIEW, "--root", root, "--write"]);
+    const overview = readFileSync(join(root, "docs/overview.md"), "utf8");
+    const { run } = pr({ change: { path: "docs/features/votes.md", text: FEATURE }, setup: { files: { "docs/overview.md": overview } } });
+    expect(run().json.kind).toBe("pass");
+  });
+
+  test("a NUL byte in an extension-less script is refused too", () => {
+    const { run } = pr({ change: { path: "bin/run", text: `#!/usr/bin/env node\n/*\0*/\n// eslint-${"disable"}\n` } });
+    const r = run();
+    expect(r.json.kind).toBe("fail");
+    expect(r.json.reasons[0]).toContain("[binary-source] bin/run");
+  });
+
+  test("a binary image passes the binary check", () => {
+    const { run } = pr({ change: { path: "logo.png", text: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3]) } });
+    expect(run().json.kind).toBe("pass");
+  });
+
+  test("a NUL byte that makes a source file binary is refused, since the floor cannot read it", () => {
+    const { run } = pr({ setup: { base: { [TEST]: ASSERT }, files: { [TEST]: `/*\0*/\n${ASSERT}test.${"skip"}("later", () => {});\n` } } });
+    const r = run();
+    expect(r.json.kind).toBe("fail");
+    expect(r.json.reasons[0]).toContain("[binary-source] src/app.test.js");
+  });
 });
