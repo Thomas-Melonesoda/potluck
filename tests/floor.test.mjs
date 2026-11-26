@@ -178,7 +178,9 @@ describe("floor.mjs on a scratch repository", () => {
     expect(r.json.cosign).toMatch(/^[0-9a-f]{16}$/);
     expect(r.json.reasons[0]).toBe(FINDING);
     expect(r.json.reasons[1]).toContain("needs the root agent's co-sign");
-    expect(r.json.reasons[1]).toContain(`potluck-cosign: ${head} ${r.json.cosign}`);
+    expect(r.json.reasons[1]).toContain(`potluck-cosign followed by the head ${head} and the fingerprint ${r.json.cosign}`);
+    // The hint describes the marker without forming one, so quoting it co-signs nothing.
+    expect(r.json.reasons[1]).not.toContain("potluck-cosign:");
   });
 
   test("the co-signed fingerprint clears those findings", () => {
