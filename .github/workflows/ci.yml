@@ -39,6 +39,46 @@ jobs:
       - name: Tool and invariant fixture tests
         run: bun test tests/
 
+  floor:
+    name: Quality floor and overview
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # to check out the PR's head and base
+      pull-requests: read # to read the PR's comments for the root agent's co-signs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      # The check runs from the base's copy of floor.mjs, the floor guard, and
+      # overview.mjs, so a PR that edits them is not judged by its own edit.
+      # Only a base that predates floor.mjs falls back to the head's copy. A
+      # changed assertion passes once the root agent comments
+      # `potluck-cosign: <head sha> <fingerprint>` on the PR and reruns this
+      # job; a co-sign names its head, so a new push needs a new one.
+      - name: Check the floor and the overview against the base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -eo pipefail
+          script=plugins/pstack/skills/poteto-mode/scripts/floor.mjs
+          tools="$RUNNER_TEMP/base"
+          git worktree add --quiet --detach "$tools" "$BASE_SHA"
+          if [ ! -f "$tools/$script" ]; then
+            echo "::warning::the base has no $script, so the head's copy runs"
+            tools=.
+          fi
+          bodies=$(gh api --paginate "repos/$REPO/issues/$PR/comments" --jq '.[].body')
+          cosigns=$(grep -oE "potluck-cosign: $HEAD_SHA [0-9a-f]{16}" <<< "$bodies" | cut -d' ' -f3 | paste -sd, - || true)
+          node "$tools/$script" --base "$BASE_SHA" --head "$HEAD_SHA" --cosign "$cosigns"
+
   windows-hooks:
     name: Windows session hooks
     runs-on: windows-latest

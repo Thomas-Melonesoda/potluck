@@ -67,9 +67,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
+import { FLOOR_GUARD, guardSource } from "./floor.mjs";
 import { parseGates, REPO_FILE, strictest, userFile } from "./gates.mjs";
 import { prTrigger } from "./pr-trigger.mjs";
 
+export { FLOOR_GUARD, guardSource };
 export const CONTEXT = "potluck/verdict";
 export const COSIGN = "potluck/cosign";
 // The only floor findings a co-sign clears. Every other finding refuses outright.
@@ -131,17 +133,6 @@ export function refusals({ view, statuses, runs }, sha) {
     else if (!GREEN.has(run.conclusion)) reasons.push(`check ${run.name} concluded ${run.conclusion}`);
   }
   return reasons;
-}
-
-export const FLOOR_GUARD = join(dirname(fileURLToPath(import.meta.url)), "../../constraint-driven-development/references/floor-guard.md");
-
-// The guard's code is the one fenced js block in floor-guard.md, so a sync of
-// Addy's skill updates the guard and nothing here copies it.
-export function guardSource(path = FLOOR_GUARD) {
-  const text = readFileSync(path, "utf8");
-  const blocks = [...text.matchAll(/^```js\n([\s\S]*?)^```$/gm)];
-  if (blocks.length !== 1) throw new Error(`${path} has ${blocks.length} js blocks, expected one`);
-  return blocks[0][1];
 }
 
 // Formats that are binary by nature. Any other changed file must diff as text.
