@@ -15,7 +15,7 @@
 // without proof is an error, so progress is never just an agent's word.
 //
 // The overview is read-only: its header names the hash of the sources it was
-// built from, and --check (which the merge gate runs) fails when the sources
+// built from, and --check (which the quality floor check runs) fails when the sources
 // changed and the overview was not regenerated, or when a tick has no proof.
 // Exit 0 ok (or no feature files and no overview), 1 stale or invalid, 2 usage.
 
