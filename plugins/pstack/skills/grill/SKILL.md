@@ -96,7 +96,7 @@ How a user gets to it: the Lists tab, then a list's Share button.
 - [ ] Someone who was never invited cannot open the list from its link.
 ```
 
-`docs/overview.md` is generated from these files by `scripts/overview.mjs` beside this skill (run it with `--write` under the installed plugin): what the project is, how many done conditions are met with proof, what is open, the quality bar, the decisions, and the terms. Never edit it by hand. Any change to a source regenerates it in the same commit, and the merge gate refuses a PR whose overview is stale.
+`docs/overview.md` is generated from these files by `scripts/overview.mjs` beside this skill (run it with `--write` under the installed plugin): what the project is, how many done conditions are met with proof, what is open, the quality bar, the decisions, and the terms. Never edit it by hand. Any change to a source regenerates it in the same commit, and the quality floor check refuses a PR whose overview is stale.
 
 ## When it is done
 

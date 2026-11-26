@@ -339,14 +339,14 @@ describe("the gates files are the user's to change", () => {
     expect([r.status, performance.now() - start < 4000]).toEqual([0, true]);
   }, 60_000);
 
-  // The user exempted potluck's own folders under ~/.potluck, for reads and the decision log's two writers.
+  // The user exempted potluck's own folders under ~/.potluck, for reads and the decision log's writer,
+  // log.sh. The retired merge gate's cosign wrote the log too, and is now blocked like any node script.
   const gate = "node /p/skills/poteto-mode/scripts/merge-gate.mjs cosign --repo o/r --pr 5 --sha abc";
   const exempt = (command) => {
     const s = setup({ gates: null });
     return lockRun(s, { tool_name: "Bash", tool_input: { command: command.replaceAll("<home>", s.home) }, cwd: s.work }).status;
   };
   test.each([
-    `${gate} --log ~/.potluck/decisions/a.tsv --evidence notes/v.md --why 'it is stricter (0 -> 2); checked'`,
     "bash /p/skills/show-me-your-work/scripts/log.sh $HOME/.potluck/decisions/a.tsv verify \"don't merge\" 'why' 'pr 5' ok",
     "ls ~/.potluck/trash", "ls -la <home>/.potluck/trash/2026-11-24 2>/dev/null | head -5", "cat ~/.potluck/decisions/a.tsv", "grep -c x ~/.potluck/backup/b.log && wc -l ~/.potluck/decisions/a.tsv",
   ])("an exempt folder passes: %s", (command) => expect(exempt(command)).toBe(0));
@@ -356,6 +356,7 @@ describe("the gates files are the user's to change", () => {
     "cat ~/.potluck/trash/*", "cat ~/.potluck/trash/{a,b}", "cat ~/.potluck/trash/`x`", "cat ~/.potluck/trash/$X", "cat ${HOME}/.potluck/trash/a", "cat \"~/.potluck/trash/a\"", "cat .potluck/trash/a", "HOME=/r cat $HOME/.potluck/trash/a",
     "cd ~/.potluck/trash && cat a", "cat ~/.potluck/trash/a && cd x && rm b", "cp -r ~/.potluck/trash/d/w/. .", "rsync -a ~/.potluck/trash/d/w/ ./", "mv ~/.potluck/trash/d/w w", "cat ~/.potluck/backup/w.tgz | tar -xzf -", "ls -d ~/.potluck/trash/w | xargs -J % cp -r % .",
     "cp -r $(ls -d ~/.potluck/trash/w) .", "D=~/.potluck/trash/w; cp -r $D .", "echo x > ~/.potluck/decisions/a.tsv", "cat ~/.potluck/trash/a > b", "node ~/.potluck/trash/w/merge-gate.mjs cosign --log ~/.potluck/decisions/a", "bash ~/.potluck/trash/log.sh a", "bash /p/log.sh ~/.potluck/trash/a b c d e f", "gh pr create --body 'see .potluck/gates.json'", `${gate} --log ~/.potluck/decisions/a --why 'see .potluck/x'`,
+    `${gate} --log ~/.potluck/decisions/a.tsv --evidence notes/v.md --why 'it is stricter (0 -> 2); checked'`,
   ])("everything else that names .potluck stays blocked: %s", (command) => expect(exempt(command)).toBe(2));
 
   test.each(["Edit", "Write", "MultiEdit", "NotebookEdit"])("the %s tool on a gates file is blocked, a link to it included", (tool) => {
