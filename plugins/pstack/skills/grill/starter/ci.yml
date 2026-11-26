@@ -1,6 +1,6 @@
 # potluck starter: run the project's check on every pull request and on the
 # default branch.
-# Keep the pull_request trigger. A merge gate reads a pull request's checks,
+# Keep the pull_request trigger. The merging agent reads a pull request's checks,
 # and checks that run only on main leave every pull request with none.
 # When the check needs a toolchain the runner lacks, add its setup step above
 # the check, pinned to a full commit SHA.
