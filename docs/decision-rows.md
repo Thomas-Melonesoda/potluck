@@ -10,7 +10,7 @@ In the tables, `hooks/` and `skills/` are under `plugins/pstack/`, and `scripts/
 
 | Row / 行号 | What / 内容 | Files / 文件 | Checked by, PR / 检查和 PR |
 | --- | --- | --- | --- |
-| S3-A8 | The merge gate / 合并门 | `scripts/merge-gate.mjs` (the playbook is in `decisions.md`) | `tests/merge-gate.test.mjs`; #8, #9, #19 |
+| S3-A8 | Merging: a verdict status, green CI, `gh pr merge --match-head-commit`; the merge gate script was retired on 2026-11-25 / 合并：verdict 状态、CI 通过、`gh pr merge --match-head-commit`；合并门脚本 2026-11-25 停用 | the Shipping and Autopilot-full playbooks (in `decisions.md`), `.github/workflows/ci.yml` (the floor job) | `tests/potluck-rules.test.mjs`, `tests/floor.test.mjs`; #8, #9, #19 |
 | S3-C3 | Worktree backup and removal / worktree 备份和移除 | `scripts/worktree-backup.mjs`, `scripts/worktree-remove.mjs` (the playbook is in `decisions.md`) | `tests/worktree-backup.test.mjs`, `tests/worktree-remove.test.mjs`; #10, #38, #42 |
 | S3-A6 | The limit of two fix rounds per PR, recorded by a script / 每个 PR 最多两轮修复，由脚本记录 | `scripts/fix-rounds.mjs`, potluck's own (the playbook, `autopilot-full`, is in `decisions.md`) | `tests/fix-rounds.test.mjs`, `tests/potluck-rules.test.mjs`; #58 |
 | S3-D1 | Checkpoints in a fixed form. Stage 5 issue 11 changed the script: one pointer per folder and task, folders outside Git, and HEAD recorded at each pause / 固定格式的检查点。阶段 5 第 11 条改了脚本：每个文件夹加任务一个指针，支持 Git 之外的文件夹，每次暂停记录 HEAD | `scripts/resume.mjs`, `skills/poteto-mode/references/resume-storage.md` (Michael's; Pause safely is in `decisions.md`) | `tests/resume.test.mjs`; #35, #40 |
@@ -42,7 +42,7 @@ Michael's files. potluck changed the six texts marked (#40) in that PR, to route
 | --- | --- | --- | --- |
 | S4-G1 to S4-G8 | `grill` | `skills/grill/SKILL.md`, potluck's own (the route to it, S4-G1 and S4-G8, is in `decisions.md`) | `tests/potluck-rules.test.mjs`; #20 |
 | S4-R1 | Sources in fixed places / 底层来源放在固定位置 | `skills/grill/SKILL.md` | `tests/potluck-rules.test.mjs`; #20 |
-| S4-R2, S4-R4 | Generated overview and staleness check / 生成的总览和脱节检查 | `skills/grill/scripts/overview.mjs`, run by `scripts/merge-gate.mjs`; potluck's own. The check is in the merge gate, not in a CI job (S4-R2 is in `decisions.md` as well) / 脱节检查在合并门里，不是单独的 CI 任务 | `tests/overview.test.mjs`, `tests/merge-gate.test.mjs`; #23, #25 |
+| S4-R2, S4-R4 | Generated overview and staleness check / 生成的总览和脱节检查 | `skills/grill/scripts/overview.mjs`, run by `scripts/floor.mjs`; potluck's own. Since 2026-11-25 the check runs in CI's floor job (S4-R2 is in `decisions.md` as well) / 2026-11-25 起脱节检查在 CI 的底线任务里 | `tests/overview.test.mjs`, `tests/floor.test.mjs`; #23, #25 |
 | S4-R6 | Project documents guide / 项目文档指南 | `docs/project-docs.md`, `docs/project-docs.zh-CN.md`, potluck's own; its questions in `skills/grill/SKILL.md` | `tests/potluck-rules.test.mjs`; #24 |
 | S4-M3 | Glossary format / 术语表格式 | `skills/domain-modeling/GLOSSARY-FORMAT.md`, synced from Matt Pocock (the skill's description, a borrow, is in `decisions.md`) | The sync; #17 |
 | S4-M4 | Decision record (ADR) format / 决定记录格式 | `skills/domain-modeling/ADR-FORMAT.md`, synced | The sync; #17 |
@@ -50,7 +50,7 @@ Michael's files. potluck changed the six texts marked (#40) in that PR, to route
 | S4-M10 | `wizard` | `skills/wizard/`, synced | The sync; #17 |
 | S4-M11 | Git guardrail / git 护栏 | `hooks/git-guardrail.mjs`, `hooks/git-guardrail.sh`, potluck's own, registered in `hooks/hooks.json` and `hooks/codex-hooks.json` | `tests/git-guardrail.test.mjs`; #16, #33, #41, #44, #45, #54 |
 | S4-D4 | `CONSTRAINTS.md` template / `CONSTRAINTS.md` 模板 | `skills/constraint-driven-development/SKILL.md` (step 3 holds the template) and its `scripts/quality-gate.mjs`, synced from Addy Osmani | The sync; #18 |
-| S4-D5 | The floor / 底线 | `references/floor-guard.md` of the same skill, a borrow in `decisions.md`, run by `scripts/merge-gate.mjs` | `tests/merge-gate.test.mjs`; #18, #19, #29, #36, #43 |
+| S4-D5 | The floor / 底线 | `references/floor-guard.md` of the same skill, a borrow in `decisions.md`, run by `scripts/floor.mjs` in CI | `tests/floor.test.mjs`; #18, #19, #29, #36, #43 |
 | S4-D7 | No rationalization table / 不要反借口表 | A rule in `tools/substitutions.json` drops it from `constraint-driven-development` | `bun tools/sync.mjs --check-rules`; #18 |
 | S4-D8 | Three eval layers / 三层 eval | Layers 1 and 2: `tools/eval.mjs`, `evals/triggers.json`, a step in `.github/workflows/ci.yml`. Layer 3: `plugins/pstack/evals/`, run on request. potluck's own (one description it led to is in `decisions.md`) | `tests/eval.test.mjs`; #15, #21, #22, #32 |
 
