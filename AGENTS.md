@@ -29,6 +29,10 @@
 - Commits use this repository's configured identity (a GitHub noreply address). Never commit with a personal or machine-local email.
 - Remote `michael` is fetch-only. Never push Michael's tags here.
 
+## Upstream
+- Michael's pstack-claude (remote `michael`) is reviewed for new changes on the first working day of each week. Anything worth taking comes in through a normal PR, with `tools/forks.json` entries; never merge Michael's commits straight in.
+- potluck's version numbers are its own and can collide with Michael's (both have a 0.9.149), so name an upstream state by its commit, not its version.
+
 ## AI self-merge (from 2026-11-21, set by the owner)
 No levels: apart from "always ask" below, the AI verifies and merges its own PRs; the owner does not review PRs. Trust comes from checks, tests, and the AI's own runtime verification, so none of these conditions may be skipped. Only the owner may waive a step that may not be skipped. The waiver is recorded with the owner's own words and the date. No agent may waive one, the root agent included.
 - **Before every merge**:
