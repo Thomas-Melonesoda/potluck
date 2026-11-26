@@ -16,8 +16,9 @@
 //
 // A changed or moved assertion is the one finding that can pass: when every
 // finding is one, the result names a fingerprint of them, and the root agent
-// co-signs it by posting `potluck-cosign: <head sha> <fingerprint>` on the PR
-// after checking the verifier's evidence. CI passes each fingerprint co-signed
+// co-signs it by posting a line of its own, `potluck-cosign <head sha>
+// <fingerprint>` with a colon after the word, on the PR after checking the
+// verifier's evidence. CI passes each fingerprint a collaborator co-signed
 // for the head to --cosign, so a new head or different findings need a new
 // co-sign.
 //
@@ -127,7 +128,7 @@ export function floor({ base, head = "HEAD", cosigned = [], cwd = process.cwd() 
       if (cosign && cosigned.includes(cosign)) return overviewCheck(tree, env);
       const reasons = (findings.length ? findings : lines).map((l) => `floor: ${l.trim()}`);
       if (!cosign) return { ok: false, reasons };
-      const hint = `a changed or moved assertion needs the root agent's co-sign: it checks the verifier's evidence that the behavior changed and that the new form is no weaker, then comments \`potluck-cosign: ${headSha} ${cosign}\` on the PR and reruns this check`;
+      const hint = `a changed or moved assertion needs the root agent's co-sign: it checks the verifier's evidence that the behavior changed and that the new form is no weaker, then comments on the PR, on a line of its own, potluck-cosign followed by the head ${headSha} and the fingerprint ${cosign}, and reruns this check`;
       return { ok: false, cosign, reasons: [...reasons, hint] };
     }
     return { ok: false, reasons: [`floor guard could not run: ${lines[0] ?? `exit ${run.status ?? run.signal}`}`] };
