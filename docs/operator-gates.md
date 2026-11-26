@@ -93,7 +93,12 @@ The record of a change is the file's git history: your personal repository for y
 
 ## Known gaps
 
-The two lists of what is out of reach, for the [shell hook](#who-reads-it) and for the [gates lock](#only-the-user-changes-a-gates-file), are above. These gaps are in merging:
+The two lists of what is out of reach, for the [shell hook](#who-reads-it) and for the [gates lock](#only-the-user-changes-a-gates-file), are above. Two gaps hold for every hook:
+
+- **A failed hook lets the call run.** Without `node` on PATH, and when a check crashes, cannot parse the JSON the harness sends, or runs past the hook's time limit (60 seconds for the shell hook and 30 for the edit hook on Claude Code), the harness runs the call. The gates lock is the exception, since 2026-11-26: a check that errors or exits with anything but 0 or 2 on a call whose input names `gates.json` or `.potluck` blocks it. A time-out still lets that call run, because the harness, not the hook, decides then.
+- **Only the shell tool and the edit tools pass through the hooks.** Claude Code sends Bash calls and Edit, Write, MultiEdit, and NotebookEdit calls to them, and Codex sends its shell calls. Any other tool that runs a command or writes a file, such as a terminal panel tool, an MCP server, or Codex's patch tool, is not checked.
+
+These gaps are in merging:
 
 - **A verdict is not signed by its verifier.** `potluck/verdict` is a commit status, and nothing checks who wrote it. The same holds for the root agent's `potluck-cosign` comment, which the floor job reads: it counts only a whole-line marker in a comment by the repository's owner, a member, or a collaborator, but cannot tell the root agent from another agent on the same account. The agents on one machine usually share one `gh` token, so an agent that wrote a change can, in principle, also write its passing verdict or its co-sign. A GitHub ruleset that requires the status cannot tell the two apart either. Closing it needs a GitHub identity that only the verifier uses. The owner decided (2026-11-24) to leave that until potluck has other users or this happens.
 - **CI that has not started can look like no CI** (since 2026-11-25). The retired merge gate script listed the checks a PR should get and refused while one had not reported, or after ten minutes as CI that did not start. Now the agent reads the PR's checks itself, so a PR read before its CI started, or whose workflows wait for a maintainer's approval, could pass for one with no checks. On potluck's own `main` the ruleset requires `potluck/verdict` but no CI check, so GitHub does not catch it either.

@@ -9,11 +9,25 @@
 # character ([, *, ?), the ways a command can spell gh without writing it out.
 # A call that names gates.json or .potluck goes to it as well, which blocks it. Codex's hooks file passes `codex`, which turns an ask into a
 # block, since Codex rejects "ask". Without node on PATH both are off and
-# every call runs, as it did before.
+# every call runs, as it did before. If either check fails (any exit but 0 or
+# 2) on a call that names gates.json or .potluck, the call is blocked, so the
+# gates lock fails closed; any other failed check lets the call run.
 command -v node >/dev/null 2>&1 || exit 0
 input=$(cat)
 here=$(dirname "$0")
-printf '%s' "$input" | node "$here/git-guardrail.mjs" || exit $?
+settle() {
+  case $1 in 0) return 0 ;; 2) exit 2 ;; esac
+  case $input in
+    *gates.json* | *.potluck*)
+      echo "potluck: a check failed (exit $1) on a call that names gates.json or .potluck, so it is blocked." >&2
+      exit 2 ;;
+  esac
+  exit "$1"
+}
+printf '%s' "$input" | node "$here/git-guardrail.mjs"
+settle $?
 case $input in
-  *gh* | *gates.json* | *.potluck* | *\'* | *\\* | *'$'* | *'`'* | *'['* | *'*'* | *'?'*) printf '%s' "$input" | node "$here/operator-gates.mjs" "$@" ;;
+  *gh* | *gates.json* | *.potluck* | *\'* | *\\* | *'$'* | *'`'* | *'['* | *'*'* | *'?'*)
+    printf '%s' "$input" | node "$here/operator-gates.mjs" "$@"
+    settle $? ;;
 esac

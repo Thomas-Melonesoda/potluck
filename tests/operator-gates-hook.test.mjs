@@ -460,3 +460,36 @@ describe("private terms in published gh text", () => {
     expect(r.reason).toContain("owned by stranger");
   });
 });
+
+// The gates lock fails closed: a check that errors on a call naming gates.json
+// or .potluck blocks it, and on any other call lets it run as before.
+describe("the gates lock fails closed", () => {
+  const hooks = join(import.meta.dir, "../plugins/pstack/hooks");
+  const gatesPath = [".potluck", "gates.json"].join("/");
+  const feed = (args, input, env = process.env) => spawnSync(args[0], args.slice(1), { input, encoding: "utf8", env });
+
+  test("an Edit whose check throws blocks a gates path and passes another", () => {
+    // A cwd that is not a string makes the path check throw.
+    const bad = feed(["node", hook], JSON.stringify({ tool_name: "Write", tool_input: { file_path: gatesPath }, cwd: 5 }));
+    expect(bad.status).toBe(2);
+    expect(bad.stderr).toContain("could not check this call");
+    expect(feed(["node", hook], JSON.stringify({ tool_name: "Write", tool_input: { file_path: "notes.md" }, cwd: 5 })).status).toBe(0);
+  });
+
+  test("input that is not JSON blocks when it names a gates file", () => {
+    expect(feed(["node", hook], `not json ${gatesPath}`).status).toBe(2);
+    expect(feed(["node", hook], "not json").status).toBe(0);
+  });
+
+  test.each(["gates-lock.sh", "git-guardrail.sh"])("%s blocks a gates call when node itself fails", (script) => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "potluck-failing-node-")));
+    dirs.push(dir);
+    writeFileSync(join(dir, "node"), "#!/bin/sh\necho crashed >&2\nexit 1\n", { mode: 0o755 });
+    const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+    const call = (tool_input) => feed(["sh", join(hooks, script)], JSON.stringify({ tool_name: script === "gates-lock.sh" ? "Write" : "Bash", tool_input, cwd: dir }), env);
+    const gates = call(script === "gates-lock.sh" ? { file_path: gatesPath } : { command: `cat ${gatesPath}` });
+    expect(gates.status).toBe(2);
+    expect(gates.stderr).toContain("so it is blocked");
+    expect(call(script === "gates-lock.sh" ? { file_path: "notes.md" } : { command: "ls" }).status).toBe(1);
+  });
+});

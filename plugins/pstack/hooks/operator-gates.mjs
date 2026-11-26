@@ -380,23 +380,35 @@ function ownFoldersOnly(command) {
   });
 }
 
+// The lock fails closed: when its own check errors on a call whose text names
+// gates.json or .potluck, the call is blocked instead of let through.
+const MAY_NAME_GATES = /gates\.json|\.potluck/i;
+const LOCK_FAILED = "potluck: the gates lock could not check this call, which names gates.json or .potluck, so it is blocked. Only the user changes a gates file (the operator's gates).";
+
 export function main(stdin, argv = []) {
-  let input;
-  try {
-    input = JSON.parse(stdin);
-  } catch {
-    return 0;
-  }
-  const cwd = input?.cwd || process.cwd();
   const block = (reason) => {
     process.stderr.write(`${reason}\n`);
     return 2;
   };
+  let input;
+  try {
+    input = JSON.parse(stdin);
+  } catch {
+    return MAY_NAME_GATES.test(stdin) ? block(LOCK_FAILED) : 0;
+  }
+  const cwd = input?.cwd || process.cwd();
+  const locked = (text, test) => {
+    try {
+      return test() ? block(LOCKED) : 0;
+    } catch {
+      return MAY_NAME_GATES.test(text) ? block(LOCK_FAILED) : 0;
+    }
+  };
   const file = input?.tool_input?.file_path ?? input?.tool_input?.notebook_path;
-  if (typeof file === "string") return isGatesFile(file, cwd) ? block(LOCKED) : 0;
+  if (typeof file === "string") return locked(file, () => isGatesFile(file, cwd));
   const command = input?.tool_input?.command;
   if (typeof command !== "string") return 0;
-  if (namesGates(command)) return block(LOCKED);
+  if (locked(command, () => namesGates(command))) return 2;
   let reason;
   try {
     reason = check(command, input.cwd || process.cwd());
