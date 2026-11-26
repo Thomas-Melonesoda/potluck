@@ -2,7 +2,7 @@
 
 This file is the release changelog, with one `## <version> - <title>` entry per release, newest first. The Cursor-to-Claude rewrite rules live in [`tools/substitutions.json`](tools/substitutions.json), and the [sync boundary](CONTRIBUTING.md#the-sync-boundary) in `CONTRIBUTING.md` defines how a change to upstream's skill content is declared.
 
-## Unreleased
+## 0.9.150 - merging the way Michael's port does, the floor in CI, and Lauren's test-first
 
 - **Merging the way Lauren's and Michael's playbooks do.** The owner retired potluck's merge gate script (2026-11-25). A verifier sets the `potluck/verdict` commit status with `gh api`, which the ruleset on potluck's `main` requires, and posts its verdict on the PR. The owner merges with `gh pr merge --squash --match-head-commit --author-email` once every check on the head is green, never with `--auto`, then reads the merge back. A PR with no CI result still waits for a person under the operator's `noCI: "wait"`, now as a playbook rule.
 - **The quality floor and the overview check run in CI.** `poteto-mode/scripts/floor.mjs` runs Addy Osmani's floor guard and grill's overview check on a PR head against its base, in a throwaway tree, as the gate did. CI's new "Quality floor and overview" job runs the base's copy on every pull request. A changed or moved assertion passes once the root agent comments `potluck-cosign: <head> <fingerprint>` on the PR and reruns the job, so the co-sign is a PR comment instead of a `potluck/cosign` status and a decision-log row. Where a repository's CI does not run the floor, the agent runs `floor.mjs` before merging. The gate's floor tests moved to `tests/floor.test.mjs`.
