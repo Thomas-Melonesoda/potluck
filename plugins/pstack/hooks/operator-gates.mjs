@@ -25,6 +25,13 @@
 // NotebookEdit on a gates file, is blocked. A name built when the command runs
 // is out of its reach.
 //
+// And with the owner's private privacy rules on this machine (see
+// private-rules.mjs), a gh command that publishes pull request or issue text
+// (gh pr create, edit, comment, or review, gh issue create, edit, or comment,
+// or gh api on a comments, pulls, or issues path) asks when its words, or a
+// body file it names, hold a private term or a vault note title. The term is
+// never printed. Without the rules file this check is off.
+//
 // hooks/git-guardrail.sh runs it on each call the guardrail lets through, and
 // hooks.json on each file-editing tool call. It reads the hook's JSON on
 // stdin. It prints a PreToolUse "ask" decision, or blocks with exit 2 and the
@@ -33,10 +40,12 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { loadGates, repoRoot, userFile } from "../skills/poteto-mode/scripts/gates.mjs";
 import { commands } from "./git-guardrail.mjs";
+import { loadPrivateRules, privateMatches } from "./private-rules.mjs";
 
 // gh subcommands that only read from GitHub (pr checkout and repo clone change
 // only the local checkout). Anything not listed may write.
@@ -287,6 +296,35 @@ export function check(command, cwd) {
   return foreign ? ask(`${found.what} writes to a repository owned by ${foreign.split("/")[0]}, which neither the gh account nor its organizations own, and which the user's trustRepos does not list`) : null;
 }
 
+// gh calls that publish pull request or issue text, and the files a body can
+// come from: --body-file, -F (gh pr and gh issue read it as --body-file, and
+// gh api reads -F body=@file), and gh api's --input.
+const PUBLISHES = /(?:^|[^\w-])gh\s+(?:pr\s+(?:create|edit|comment|review)|issue\s+(?:create|edit|comment)|api\s[^\n]*\/(?:comments|pulls|issues)\b)/;
+const BODY_FILE = /(?:--body-file|--input|(?<![\w-])-F)(?:=|\s+|(?=\S))(["']?)([^\s"';|&)]+)\1/g;
+
+// Why a gh command that publishes text needs the user's yes under the owner's
+// private privacy rules, or null. The text read is the whole command, which
+// holds an inline or heredoc body, plus each body file it names.
+export function privateText(command, cwd, rules = null) {
+  if (!PUBLISHES.test(command)) return null;
+  const found = rules ?? loadPrivateRules();
+  if (!found.source) return null;
+  const texts = [command];
+  for (const m of command.matchAll(BODY_FILE)) {
+    let path = m[2];
+    if (path.includes("=")) {
+      if (!/=@/.test(path)) continue;
+      path = path.slice(path.indexOf("=@") + 2);
+    }
+    if (path === "-") continue;
+    try {
+      texts.push(readFileSync(resolve(cwd, path.replace(/^~(?=\/)/, homedir())), "utf8"));
+    } catch { continue; }
+  }
+  if (!texts.some((text) => privateMatches(text, found).length)) return null;
+  return `potluck privacy: this gh command publishes text that matches the owner's private privacy rules (${found.source}); the matching term is not shown. Take it out of the title, body, or body file, or have the user approve it`;
+}
+
 // The gates files: any .potluck/gates.json, and the file ~/.potluck/gates.json
 // links to. A path is read with its links followed, its folder's too.
 function real(path) {
@@ -342,29 +380,48 @@ function ownFoldersOnly(command) {
   });
 }
 
+// The lock fails closed: when its own check errors on a call whose text names
+// gates.json or .potluck, the call is blocked instead of let through.
+const MAY_NAME_GATES = /gates\.json|\.potluck/i;
+const LOCK_FAILED = "potluck: the gates lock could not check this call, which names gates.json or .potluck, so it is blocked. Only the user changes a gates file (the operator's gates).";
+
 export function main(stdin, argv = []) {
-  let input;
-  try {
-    input = JSON.parse(stdin);
-  } catch {
-    return 0;
-  }
-  const cwd = input?.cwd || process.cwd();
   const block = (reason) => {
     process.stderr.write(`${reason}\n`);
     return 2;
   };
+  let input;
+  try {
+    input = JSON.parse(stdin);
+  } catch {
+    return MAY_NAME_GATES.test(stdin) ? block(LOCK_FAILED) : 0;
+  }
+  const cwd = input?.cwd || process.cwd();
+  const locked = (text, test) => {
+    try {
+      return test() ? block(LOCKED) : 0;
+    } catch {
+      return MAY_NAME_GATES.test(text) ? block(LOCK_FAILED) : 0;
+    }
+  };
   const file = input?.tool_input?.file_path ?? input?.tool_input?.notebook_path;
-  if (typeof file === "string") return isGatesFile(file, cwd) ? block(LOCKED) : 0;
+  if (typeof file === "string") return locked(file, () => isGatesFile(file, cwd));
   const command = input?.tool_input?.command;
   if (typeof command !== "string") return 0;
-  if (namesGates(command)) return block(LOCKED);
+  if (locked(command, () => namesGates(command))) return 2;
   let reason;
   try {
     reason = check(command, input.cwd || process.cwd());
   } catch {
     reason = /gh|[[*?$`]/.test(command) ? "potluck operator's gates: this command could not be read, and it may run gh, so it needs the user's yes." : null;
   }
+  let privacy;
+  try {
+    privacy = privateText(command, cwd);
+  } catch {
+    privacy = PUBLISHES.test(command) ? "potluck privacy: the private privacy rules could not be read for this gh command, which publishes text, so it needs the user's yes" : null;
+  }
+  if (privacy) reason = reason ? `${privacy}. Also, ${reason}` : `${privacy}.`;
   if (!reason) return 0;
   if (argv.includes("codex")) return block(`${reason} Codex cannot ask before a command runs, so ask the user in the conversation, and let them run it.`);
   process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: reason } })}\n`);

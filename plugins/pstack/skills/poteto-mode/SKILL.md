@@ -30,7 +30,7 @@ The remaining triggers live only here:
 - Before commit → `/deslop`. Before review → **no-comments**.
 - Shipping UI / IDE / CLI → the driver skill. `run` ships with Claude Code and the model can invoke it for CLIs, TUIs, servers, and browser or Electron apps. The bundled `verify` runs only when the user types `/verify`, so for UIs use the project `verify` skill at `.claude/skills/verify/` (generate it with `/create-verification-skill`) and fall back to `run` when the repo has none.
 - A number you measured → **benchmark-checklist**.
-- A change to the states a feature moves through (a flow, a status, a protocol) → run **statechart** on it and put the new diagram in your reply, unasked. The user can also ask for one at any time.
+- A change to the states a feature moves through (a flow, a status, a protocol) → when TLC is already installed (`TLA2TOOLS` is set, or `mise ls` lists both `http:tla2tools` and `java`), run **statechart** on it and put the new diagram in your reply, unasked. Otherwise propose the run, and say it would first install TLC and a Java runtime through mise, over the network. The user can also ask for one at any time.
 - A change that meets an item in a `docs/features/` Done when list → tick it in the same commit, with `Proof:` and the test, command, or verification that showed it, then rerun `skills/grill/scripts/overview.mjs --write` under the installed plugin. Never tick without proof.
 - PR status → the **Babysit** playbook, not the bundled **babysit** skill. Landing a green stack → the **Shipping** playbook.
 - Bot review comments → judge each on its merits, per `references/bugbot-triage.md`.

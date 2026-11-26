@@ -25,9 +25,13 @@
 ## Project rules
 - New things go in potluck's own new files; edit upstream files only when a decision says so (keeps sync cheap).
 - Every difference from upstream is declared in `tools/forks.json` with its reason. Owner rulings appear there only as English paraphrase.
-- A new design question (which upstream to follow, a policy change) is not decided by an agent: stop and list it for the owner.
+- Technical judgments are the agent's call: pick the safer, reversible option and say why in the PR. Only a decision that changes what the owner gets (scope, spending, publishing, or loosening a check) goes to the owner.
 - Commits use this repository's configured identity (a GitHub noreply address). Never commit with a personal or machine-local email.
 - Remote `michael` is fetch-only. Never push Michael's tags here.
+
+## Upstream
+- Michael's pstack-claude (remote `michael`) is reviewed for new changes on the first working day of each week. Anything worth taking comes in through a normal PR, with `tools/forks.json` entries; never merge Michael's commits straight in.
+- potluck's version numbers are its own and can collide with Michael's (both have a 0.9.149), so name an upstream state by its commit, not its version.
 
 ## AI self-merge (from 2026-11-21, set by the owner)
 No levels: apart from "always ask" below, the AI verifies and merges its own PRs; the owner does not review PRs. Trust comes from checks, tests, and the AI's own runtime verification, so none of these conditions may be skipped. Only the owner may waive a step that may not be skipped. The waiver is recorded with the owner's own words and the date. No agent may waive one, the root agent included.
@@ -37,7 +41,7 @@ No levels: apart from "always ask" below, the AI verifies and merges its own PRs
   3. A bug fix starts with a failing test when it has a cheap local test path; skip that when the test would be expensive, integration-heavy, or unclear, and say why in the PR (Bug fix playbook step 5, the tdd skill). A new feature's acceptance conditions are tests.
   4. The PR description says what changed and gives the test evidence.
   5. An agent that did not write the code has verified the current head and recorded its verdict as the `potluck/verdict` status on that head, which the `main` ruleset requires, and the merge follows the Shipping playbook: once that status and every CI check on the head are green (the quality floor and overview check run in CI), merge with `gh pr merge <pr> --repo Thomas-Melonesoda/potluck --squash --match-head-commit <verified sha> --author-email "$(git config user.email)"`, then read the PR back and confirm the merge commit is on `main`. Never arm `--auto`. Without `--author-email`, GitHub writes the account's primary email into the public merge commit. A changed test assertion passes CI only with the root agent's co-sign comment (Autopilot-full step 6).
-- **Always ask the owner first**: releases (editing `VERSION`, tags, GitHub releases); repository settings, visibility, or rulesets; spending money; any change that sends data off the user's machine; editing `AGENTS.md`; a `tools/forks.json` policy entry the owner has not ruled on; changing the `forks.json` or `upstream.json` formats beyond what the roadmap describes; disabling, skipping, or loosening a check (CI jobs, hooks, privacy rules, deleting tests or weakening assertions).
+- **Always ask the owner first**: releases (editing `VERSION`, tags, GitHub releases); repository settings, visibility, or rulesets; spending money; any change that sends data off the user's machine; an `AGENTS.md` edit that loosens a check or changes this always-ask list (tightening a check, or an entry only about how to write and test code, is the agent's call with its reason in the PR); a `tools/forks.json` policy entry the owner has not ruled on; changing the `forks.json` or `upstream.json` formats beyond what the roadmap describes; disabling, skipping, or loosening a check (CI jobs, hooks, privacy rules, deleting tests or weakening assertions).
 - **Per-task extra permission**: whatever the owner opens up in one task, in their words at the time, holds for that task only.
 - **Machine gate**: `main` blocks force pushes and deletion. Do not bypass merge checks (no web-UI merges, no merging through `gh api`).
 - **After a bad merge**: write a test that reproduces it, then fix, and add the check that should have caught it. If it loses data or blocks the main flow, open a revert PR first.

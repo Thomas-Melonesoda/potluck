@@ -394,3 +394,102 @@ test("on Codex a gh call that would ask is blocked with the reason", () => {
   expect(r.stderr).toContain("owned by stranger");
   expect(r.stderr).toContain("Codex cannot ask");
 });
+
+// With the owner's private privacy rules on this machine, a gh command that
+// publishes pull request or issue text asks when that text holds a private
+// term, with or without a gates file, and never prints the term.
+describe("private terms in published gh text", () => {
+  const term = "zebrafish-quartz";
+  function privacy({ terms = true } = {}) {
+    const s = setup({ gates: null });
+    const file = join(s.work, "..", "terms.txt");
+    if (terms) writeFileSync(file, `# a comment\n${term}\n`);
+    writeFileSync(join(s.work, "body.md"), `notes about ${term.toUpperCase()}\n`);
+    writeFileSync(join(s.work, "clean.md"), "nothing private\n");
+    const env = { POTLUCK_PRIVATE_TERMS: file };
+    return { ...s, env, ask: (command) => s.run(command, { env }) };
+  }
+
+  test.each([
+    `gh pr create --repo me/app --title t --body 'about ${term}'`,
+    `gh pr edit 5 -R me/app -b "${term}"`,
+    `gh issue comment 9 --repo me/app --body=${term}`,
+    "gh pr create --repo me/app --title t --body-file body.md",
+    "gh issue create -R me/app -t t -F body.md",
+    "gh pr comment 5 -R me/app --body-file=body.md",
+    `gh api repos/me/app/issues/1/comments -f body=${term}`,
+    "gh api -X POST repos/me/app/pulls -F body=@body.md -f title=t",
+    `gh pr create --title t --body "$(cat <<'X'\nfixes ${term}\nX\n)"`,
+  ])("asks for %s", (command) => {
+    const r = privacy().ask(command);
+    expect([r.status, r.decision]).toEqual([0, "ask"]);
+    expect(r.reason).toContain("potluck privacy");
+    expect(r.reason.toLowerCase()).not.toContain(term);
+  });
+
+  test.each([
+    "gh pr create --repo me/app --title t --body 'nothing private'",
+    "gh pr create --repo me/app --title t --body-file clean.md",
+    `git commit -m '${term}'`,
+    `gh pr view 5 --repo me/app --json ${term}`,
+  ])("passes %s", (command) => {
+    expect(privacy().ask(command).decision).toBe(null);
+  });
+
+  test("without the private rules file the check is off", () => {
+    expect(privacy({ terms: false }).ask(`gh pr create --repo me/app --title t --body '${term}'`).decision).toBe(null);
+  });
+
+  test("through the Bash wrapper, and blocked on Codex", () => {
+    const s = privacy();
+    const input = JSON.stringify({ tool_name: "Bash", tool_input: { command: `gh pr comment 5 --repo me/app -b '${term}'` }, cwd: s.work });
+    const env = { ...process.env, GH_REPO: "", HOME: s.home, PATH: `${s.bin}:${process.env.PATH}`, ...s.env };
+    const wrapped = spawnSync("sh", [join(import.meta.dir, "../plugins/pstack/hooks/git-guardrail.sh")], { input, encoding: "utf8", env });
+    expect(JSON.parse(wrapped.stdout).hookSpecificOutput.permissionDecision).toBe("ask");
+    const codex = spawnSync("sh", [join(import.meta.dir, "../plugins/pstack/hooks/git-guardrail.sh"), "codex"], { input, encoding: "utf8", env });
+    expect([codex.status, codex.stdout]).toEqual([2, ""]);
+    expect(codex.stderr).toContain("potluck privacy");
+  });
+
+  test("with foreignRepos: ask both reasons are given", () => {
+    const s = setup();
+    const file = join(s.work, "..", "terms.txt");
+    writeFileSync(file, `${term}\n`);
+    const r = s.run(`gh pr comment 5 --repo stranger/app -b '${term}'`, { env: { POTLUCK_PRIVATE_TERMS: file } });
+    expect(r.reason).toContain("potluck privacy");
+    expect(r.reason).toContain("owned by stranger");
+  });
+});
+
+// The gates lock fails closed: a check that errors on a call naming gates.json
+// or .potluck blocks it, and on any other call lets it run as before.
+describe("the gates lock fails closed", () => {
+  const hooks = join(import.meta.dir, "../plugins/pstack/hooks");
+  const gatesPath = [".potluck", "gates.json"].join("/");
+  const feed = (args, input, env = process.env) => spawnSync(args[0], args.slice(1), { input, encoding: "utf8", env });
+
+  test("an Edit whose check throws blocks a gates path and passes another", () => {
+    // A cwd that is not a string makes the path check throw.
+    const bad = feed(["node", hook], JSON.stringify({ tool_name: "Write", tool_input: { file_path: gatesPath }, cwd: 5 }));
+    expect(bad.status).toBe(2);
+    expect(bad.stderr).toContain("could not check this call");
+    expect(feed(["node", hook], JSON.stringify({ tool_name: "Write", tool_input: { file_path: "notes.md" }, cwd: 5 })).status).toBe(0);
+  });
+
+  test("input that is not JSON blocks when it names a gates file", () => {
+    expect(feed(["node", hook], `not json ${gatesPath}`).status).toBe(2);
+    expect(feed(["node", hook], "not json").status).toBe(0);
+  });
+
+  test.each(["gates-lock.sh", "git-guardrail.sh"])("%s blocks a gates call when node itself fails", (script) => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "potluck-failing-node-")));
+    dirs.push(dir);
+    writeFileSync(join(dir, "node"), "#!/bin/sh\necho crashed >&2\nexit 1\n", { mode: 0o755 });
+    const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+    const call = (tool_input) => feed(["sh", join(hooks, script)], JSON.stringify({ tool_name: script === "gates-lock.sh" ? "Write" : "Bash", tool_input, cwd: dir }), env);
+    const gates = call(script === "gates-lock.sh" ? { file_path: gatesPath } : { command: `cat ${gatesPath}` });
+    expect(gates.status).toBe(2);
+    expect(gates.stderr).toContain("so it is blocked");
+    expect(call(script === "gates-lock.sh" ? { file_path: "notes.md" } : { command: "ls" }).status).toBe(1);
+  });
+});

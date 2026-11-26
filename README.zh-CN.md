@@ -47,9 +47,9 @@ codex plugin add pstack@potluck
 
 ## git 护栏
 
-在 Claude Code 里（Codex 要你先在 `/hooks` 里信任这个钩子），agent 每次执行 shell 命令前，potluck 会先检查一下。仓库里有未提交的改动、未跟踪的文件，或者只有这里才有的提交时，它会拦住会弄丢这些东西的 git 命令：`reset --hard`、`clean -f`、会丢掉改动的 `checkout`、`switch` 或 `restore`、不带 `--force-with-lease` 的强推，以及删除一个提交只在它上面的分支。报错会告诉 agent 先怎么保存，所以它不用等你就能接着做。有两条 push 规则在仓库干净时也照样生效，因为共享分支上有别人的工作：不许强推默认分支（远程的默认分支、`main` 或 `master`），带不带 lease 都不行；不许删除远程分支（`git push origin :<分支>`、`--delete`、`--prune`、`--mirror`）。普通的 push，以及带 lease 强推到其他分支，都直接放行。这项检查需要电脑上有 `node`；没有的话，命令照常执行。
+在 Claude Code 里（Codex 要你先在 `/hooks` 里信任这个钩子），agent 每次执行 shell 命令前，potluck 会先检查一下。仓库里有未提交的改动、未跟踪的文件，或者只有这里才有的提交时，它会拦住会弄丢这些东西的 git 命令：`reset --hard`、`clean -f`、会丢掉改动的 `checkout`、`switch` 或 `restore`、不带 `--force-with-lease` 的强推，以及删除一个提交只在它上面的分支。报错会告诉 agent 先怎么保存，所以它不用等你就能接着做。有两条 push 规则在仓库干净时也照样生效，因为共享分支上有别人的工作：不许强推默认分支（远程的默认分支、`main` 或 `master`），带不带 lease 都不行；不许删除远程分支（`git push origin :<分支>`、`--delete`、`--prune`、`--mirror`）。普通的 push，以及带 lease 强推到其他分支，都直接放行。这项检查需要电脑上有 `node`；没有的话，命令照常执行。检查本身崩溃、读不懂工具传来的输入、或者超过钩子的时限时，命令也会照常执行；只有下面的门锁例外，检查失败而命令又提到了门文件时会拦下。只有 shell 工具和改文件的工具会经过这些钩子，用别的方式（比如终端面板工具）执行的命令不受检查。
 
-凡是写到 `gates.json` 或 `.potluck` 的 shell 命令也会被拦，因为[操作者的门](docs/operator-gates.md#only-the-user-changes-a-gates-file)只有你能改。唯一的例外是读 potluck 自己放在那里的 `~/.potluck/decisions`、`trash`、`backup`，以及往决策记录里追加。
+凡是提到 `gates.json` 或 `.potluck` 的 shell 命令也会被拦，读也算，不只是写，因为[操作者的门](docs/operator-gates.md#only-the-user-changes-a-gates-file)只有你能改。唯一的例外是读 potluck 自己放在那里的 `~/.potluck/decisions`、`trash`、`backup`，以及往决策记录里追加。
 
 钩子只读命令行，所以脚本文件、运行时才拼出来的名字或命令拦不住。Codex 没法暂停命令来问你，所以在 Claude Code 上会问你的检查，在 Codex 上直接拦下，由你自己运行；Codex 的钩子还没有真实跑过。其他工具没有这个钩子。还没补上的漏洞写在[已知漏洞](docs/operator-gates.md#known-gaps)（英文）里。
 

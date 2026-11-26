@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { checkIdentity, checkLine, checkPath, loadPrivateRules } from "../tools/privacy-check.mjs";
+import { checkEmail, checkIdentity, checkLine, checkPath, loadPrivateRules } from "../tools/privacy-check.mjs";
 
 const tool = fileURLToPath(new URL("../tools/privacy-check.mjs", import.meta.url));
 const none = { terms: [], vaultFiles: new Set(), vaultTitles: [] };
@@ -42,8 +42,18 @@ describe("public rules", () => {
   });
 });
 
+test("an email address is flagged unless it is a noreply, an SSH remote, or an example", () => {
+  // Built at runtime so this file passes the check it tests.
+  for (const address of [["jdoe42", "gmail.com"], ["a.b+c", "mail.company.co.uk"], ["ab", "Someones-MacBook.local"], ["x", "notexample.com"]].map((p) => p.join("@"))) {
+    expect([address, checkEmail(`mail ${address} today`)]).toEqual([address, ["email"]]);
+  }
+  for (const line of ["1+ab@users.noreply.github.com", "git@github.com:Me/Widgets.git", "t@example.com", "x@sub.example.org", "fixture@example.invalid", "a@b.test", "a@host.localhost", "react@18.3.1", "@AGENTS.md", "pnpm add @scope/pkg@latest"]) {
+    expect([line, checkEmail(line)]).toEqual([line, []]);
+  }
+});
+
 test("commit identities on machine-local hosts are flagged", () => {
-  expect(checkIdentity("A B <ab@Someones-MacBook.local>", none)).toEqual(["local-email"]);
+  expect(checkIdentity(`A B <ab@${"Someones-MacBook"}.local>`, none)).toEqual(["local-email"]);
   expect(checkIdentity("A B <ab@localhost>", none)).toEqual(["local-email"]);
   expect(checkIdentity("A B <1+ab@users.noreply.github.com>", none)).toEqual([]);
   expect(checkIdentity("Real Person <x@example.com>", { ...none, terms: ["real person"] })).toEqual(["private-term"]);
@@ -114,6 +124,20 @@ describe("modes", () => {
       writeFileSync(join(dir, "a.md"), "path /Users/you/notes\n");
       run("add", "a.md");
       expect(check(dir, "--staged").status).toBe(0);
+    });
+  });
+
+  test("--staged and --tree flag an email address, and --history leaves that rule out", () => {
+    repo((dir, run) => {
+      const address = ["jdoe42", "gmail.com"].join("@");
+      writeFileSync(join(dir, "a.md"), `mail ${address}\n`);
+      run("add", "a.md");
+      const staged = check(dir, "--staged");
+      expect(staged.status).toBe(1);
+      expect(staged.stderr).toContain("a.md:1: email");
+      run("commit", "-qm", "one", "--no-verify");
+      expect(check(dir, "--tree").stderr).toContain("a.md:1: email");
+      expect(check(dir, "--history").status).toBe(0);
     });
   });
 

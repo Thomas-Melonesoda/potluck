@@ -47,7 +47,7 @@ const RULES = [
   { row: "S4-G8", file: "grill/SKILL.md", phrase: "Nobody is present (an autonomous run, a loop, an overnight program): do not run it." },
   { row: "S4-R2", file: "grill/SKILL.md", phrase: "Never edit it by hand. Any change to a source regenerates it in the same commit, and the quality floor check refuses a PR whose overview is stale." },
   { row: "S4-R2", file: "poteto-mode/SKILL.md", phrase: "A change that meets an item in a `docs/features/` Done when list → tick it in the same commit, with `Proof:`" },
-  { row: "S4-R5", file: "poteto-mode/SKILL.md", phrase: "A change to the states a feature moves through (a flow, a status, a protocol) → run **statechart** on it and put the new diagram in your reply, unasked." },
+  { row: "S4-R5", file: "poteto-mode/SKILL.md", phrase: "A change to the states a feature moves through (a flow, a status, a protocol) → when TLC is already installed (`TLA2TOOLS` is set, or `mise ls` lists both `http:tla2tools` and `java`), run **statechart** on it and put the new diagram in your reply, unasked. Otherwise propose the run, and say it would first install TLC and a Java runtime through mise, over the network." },
   { row: "S4-R1", file: "grill/SKILL.md", phrase: "| `docs/features/<feature>.md` | One per feature, from the user's point of view" },
   { row: "S3-C4", file: "poteto-mode/playbooks/autopilot-full.md", phrase: "A rebase that stops on a conflict, or a push the lease refuses, goes to the root" },
   { row: "S3-D2", file: "poteto-mode/playbooks/pause-safely.md", phrase: "the task's folder, inside Git or not, plus a task name when another task may checkpoint in the same folder." },

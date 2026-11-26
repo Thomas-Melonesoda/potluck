@@ -11,11 +11,19 @@
 //   vault-name   the name of a personal notes vault
 //   env-file     a committed .env or .env.* file (.env.example passes)
 //   local-json   a committed *.local.json file
-//   local-email  a commit author or committer email on a machine-local host (name@host.local),
+//   local-email  a commit author or committer email on a machine-local host (`<name>@<host>.local`),
 //                which leaks the account and machine name; use a GitHub noreply address
+//   email        an email address in a file or file name, with --staged and --tree; a GitHub
+//                noreply address, an SSH remote such as git@github.com, and a reserved example
+//                domain (example.com, .net, .org, or a name under .example, .invalid, .test, or
+//                .localhost) pass. --history leaves this rule out, because the history already
+//                holds an upstream author's published address and test fixtures, and the owner
+//                never rewrites history
 //
 // Private rules, which run only where the owner keeps a terms file outside the repository
-// ($POTLUCK_PRIVATE_TERMS, else ${XDG_CONFIG_HOME:-~/.config}/potluck/private-terms.txt):
+// ($POTLUCK_PRIVATE_TERMS, else ${XDG_CONFIG_HOME:-~/.config}/potluck/private-terms.txt;
+// plugins/pstack/hooks/private-rules.mjs loads it, and the shell hook checks gh PR and issue
+// text against the same file):
 //   private-term     any line of that file, matched case-insensitively, in content, file names,
 //                    and commit author and committer identities
 //   vault-file       with a `vault: <dir>` line, a committed file whose name matches a file in
@@ -26,9 +34,12 @@
 // Exit status: 0 clean, 1 findings, 2 usage or git error.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { basename, extname, join } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
+
+import { loadPrivateRules, privateMatches } from "../plugins/pstack/hooks/private-rules.mjs";
+
+export { loadPrivateRules };
 
 const PLACEHOLDER_USERS = new Set(
   ["you", "name", "me", "user", "username", "example", "runner", "someone", "alice", "bob", "jane", "john", "dev", "admin", "shared", "public", "default", "guest"].map((s) => s.toLowerCase()),
@@ -38,9 +49,6 @@ const FIXTURE_USERS = new Set(["oscar"]);
 const HOME_PATH = /(?:\/Users\/|\/home\/|[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2})([A-Za-z0-9._-]+)/g;
 // Split so this file does not trip its own rule.
 const VAULT_NAME = new RegExp(["Main", "Vault"].join(""), "i");
-// Generic English note names ("template", "preferences") are not private; a vault name only
-// counts when it has a non-ASCII character or is long enough to be distinctive.
-const distinctive = (name) => /[^\x00-\x7f]/.test(name) ? [...name].length >= 4 : name.length >= 16;
 
 function git(args, cwd) {
   const r = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 1 << 30 });
@@ -49,44 +57,6 @@ function git(args, cwd) {
     process.exit(2);
   }
   return r.stdout;
-}
-
-export function loadPrivateRules(env = process.env) {
-  const file = env.POTLUCK_PRIVATE_TERMS || join(env.XDG_CONFIG_HOME || join(homedir(), ".config"), "potluck", "private-terms.txt");
-  const rules = { terms: [], vaultFiles: new Set(), vaultTitles: [], source: null };
-  if (!existsSync(file)) return rules;
-  rules.source = file;
-  for (const raw of readFileSync(file, "utf8").split("\n")) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const vault = line.match(/^vault:\s*(.+)$/);
-    if (vault) {
-      const dir = vault[1].replace(/^~(?=\/|$)/, homedir());
-      for (const f of walk(dir)) {
-        const stem = basename(f, extname(f));
-        if (distinctive(stem)) rules.vaultFiles.add(basename(f).toLowerCase());
-        if (extname(f) === ".md" && distinctive(stem)) rules.vaultTitles.push(stem.toLowerCase());
-      }
-      continue;
-    }
-    rules.terms.push(line.toLowerCase());
-  }
-  return rules;
-}
-
-function* walk(dir) {
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const e of entries) {
-    if (e.name.startsWith(".")) continue;
-    const p = join(dir, e.name);
-    if (e.isDirectory()) yield* walk(p);
-    else if (e.isFile()) yield p;
-  }
 }
 
 export function checkPath(path, rules) {
@@ -108,24 +78,29 @@ export function checkLine(line, rules) {
     }
   }
   if (VAULT_NAME.test(line)) found.push("vault-name");
-  const lower = line.toLowerCase();
-  if (rules.terms.some((t) => lower.includes(t))) found.push("private-term");
-  if (rules.vaultTitles.some((t) => lower.includes(t))) found.push("vault-file");
+  found.push(...privateMatches(line, rules));
   return found;
+}
+
+const EMAIL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b/g;
+const PUBLIC_EMAIL_DOMAIN = /^(?:users\.noreply\.github\.com|github\.com|(?:[\w-]+\.)*example\.(?:com|net|org)|(?:[\w-]+\.)*(?:example|invalid|test|localhost))$/i;
+
+// Whether a line holds an email address that is not a noreply, an SSH remote, or an example.
+export function checkEmail(line) {
+  return [...line.matchAll(EMAIL)].some((m) => !PUBLIC_EMAIL_DOMAIN.test(m[1])) ? ["email"] : [];
 }
 
 export function checkIdentity(ident, rules) {
   const found = [];
   if (/@(?:localhost|[^>\s]*\.(?:local|lan|localdomain|home|internal))>?\s*$/i.test(ident)) found.push("local-email");
-  const lower = ident.toLowerCase();
-  if (rules.terms.some((t) => lower.includes(t))) found.push("private-term");
+  if (privateMatches(ident, { ...rules, vaultTitles: [] }).length) found.push("private-term");
   return found;
 }
 
 function scanText(where, text, rules, out) {
   if (text.includes("\0")) return;
   text.split("\n").forEach((line, i) => {
-    for (const rule of checkLine(line, rules)) out.push(`${where}:${i + 1}: ${rule}`);
+    for (const rule of [...checkLine(line, rules), ...checkEmail(line)]) out.push(`${where}:${i + 1}: ${rule}`);
   });
 }
 
@@ -134,7 +109,7 @@ function stagedFindings(cwd, rules) {
   const names = git(["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"], cwd).split("\0").filter(Boolean);
   for (const path of names) {
     for (const rule of checkPath(path, rules)) out.push(`${path}: ${rule}`);
-    for (const rule of checkLine(path, rules)) out.push(`${path}: ${rule} (in the file name)`);
+    for (const rule of [...checkLine(path, rules), ...checkEmail(path)]) out.push(`${path}: ${rule} (in the file name)`);
     scanText(path, git(["show", `:${path}`], cwd), rules, out);
   }
   for (const role of ["AUTHOR", "COMMITTER"]) {
@@ -148,7 +123,7 @@ function treeFindings(cwd, rules) {
   const out = [];
   for (const path of git(["ls-files", "-z"], cwd).split("\0").filter(Boolean)) {
     for (const rule of checkPath(path, rules)) out.push(`${path}: ${rule}`);
-    for (const rule of checkLine(path, rules)) out.push(`${path}: ${rule} (in the file name)`);
+    for (const rule of [...checkLine(path, rules), ...checkEmail(path)]) out.push(`${path}: ${rule} (in the file name)`);
     const full = join(cwd, path);
     if (existsSync(full) && statSync(full).isFile()) scanText(path, readFileSync(full, "utf8"), rules, out);
   }
