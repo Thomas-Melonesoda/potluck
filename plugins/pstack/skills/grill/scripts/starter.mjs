@@ -31,7 +31,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { guardSource } from "../../poteto-mode/scripts/merge-gate.mjs";
+import { guardSource } from "../../poteto-mode/scripts/floor.mjs";
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "../starter");
 export const NO_CHECK = `echo "No check command yet: put the project's one check command here and in AGENTS.md." >&2; exit 1`;

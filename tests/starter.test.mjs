@@ -6,7 +6,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, st
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { guardSource } from "../plugins/pstack/skills/poteto-mode/scripts/merge-gate.mjs";
+import { guardSource } from "../plugins/pstack/skills/poteto-mode/scripts/floor.mjs";
 import { main, NO_CHECK, start } from "../plugins/pstack/skills/grill/scripts/starter.mjs";
 
 const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" };
