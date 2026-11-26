@@ -667,7 +667,7 @@
     },
     {
       "pattern": "| SHIP | `/ship` |",
-      "replacement": "| SHIP | before the merge: CI, and potluck's merge gate, which runs the floor guard |",
+      "replacement": "| SHIP | before the merge: CI, which runs the floor guard |",
       "rationale": "potluck: Addy Osmani's constraint skill, wired to pstack's skills and flow instead of his own pack",
       "files": "^SKILL\\.md$"
     },

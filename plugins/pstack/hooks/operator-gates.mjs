@@ -323,7 +323,7 @@ export function namesGates(command) {
 
 // The user's exemption: literal, unquoted paths in potluck's own folders under
 // ~/.potluck, in a line whose every command reads or appends to the decision
-// log (merge-gate.mjs cosign, log.sh). Copies stay out, since one can restore a
+// log (log.sh). Copies stay out, since one can restore a
 // worktree's gates file. Anything not plainly that is not exempt.
 const PLAIN_READS = new Set(["ls", "cat", "head", "tail", "wc", "stat", "du", "grep"]);
 function ownFoldersOnly(command) {
@@ -337,7 +337,7 @@ function ownFoldersOnly(command) {
   return commands(command).every((words) => {
     if (PLAIN_READS.has(words[0])) return true;
     const call = words[0] === "node" || words[0] === "bash" ? words.slice(1) : words;
-    const logs = words[0] === "node" ? /\/merge-gate\.mjs$/.test(call[0]) && call[1] === "cosign" : /\/log\.sh$/.test(call[0]);
+    const logs = words[0] !== "node" && /\/log\.sh$/.test(call[0]);
     return logs && words.every((w, i) => !w.includes(".potluck") || (w !== call[0] && /\.potluck\/decisions\//.test(w)));
   });
 }

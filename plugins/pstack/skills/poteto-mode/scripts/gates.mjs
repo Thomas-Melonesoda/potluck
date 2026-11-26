@@ -8,8 +8,8 @@
 // Each is a JSON object with any of these keys:
 //   "noCI": "wait"            a PR with no CI result (the repository has no CI,
 //                             or its CI does not run on pull requests) stops at
-//                             merge-ready, and the merge gate reports it held
-//                             for a person to merge (default "merge")
+//                             merge-ready for a person to merge (default
+//                             "merge")
 //   "foreignRepos": "ask"     a gh command that writes to a repository the gh
 //                             account and its organizations do not own stops
 //                             for the user's yes (default "allow")
@@ -42,7 +42,7 @@ export const LEVELS = { noCI: ["merge", "wait"], foreignRepos: ["allow", "ask"] 
 
 const SAYS = {
   noCI: {
-    wait: "A PR with no CI result (the repository has no CI, or its CI does not run on pull requests) stops at merge-ready: the merge gate reports it held, and a person merges it.",
+    wait: "A PR with no CI result (the repository has no CI, or its CI does not run on pull requests) stops at merge-ready, and a person merges it.",
   },
   foreignRepos: {
     ask: "A gh command that writes to a repository the gh account and its organizations do not own (a comment, review, issue, or pull request, an edit or state change to one, or a write through gh api) needs the user's yes first. On Claude Code, potluck's hook asks before every gh call it sees that is not a read or a plain write to an owned repository, so a write that names no repository asks too; to write to an owned repository without a prompt, run gh alone, every word literal, and name the repository (gh pr comment 44 --repo owner/name --body ...). Elsewhere, ask before running a write to a repository the account does not own.",
