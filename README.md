@@ -235,6 +235,8 @@ On Claude Code, and on Codex once you trust the hook in `/hooks`, potluck checks
 
 It also blocks any shell command that names `gates.json` or `.potluck`, since only you change [the operator's gates](docs/operator-gates.md#only-the-user-changes-a-gates-file). The one exemption is reading potluck's own folders there, `~/.potluck/decisions`, `trash`, and `backup`, and appending to the decision log.
 
+On a machine with the private privacy rules file, it also asks before a `gh` command publishes pull request or issue text that holds a private term; see [who reads it](docs/operator-gates.md#who-reads-it).
+
 A hook reads the command line, so a script file, or a name or command assembled at run time, gets past it. Codex cannot pause a command to ask you, so a check that asks on Claude Code blocks there and leaves the command for you to run, and the Codex hook has not been run live. Other harnesses have no such hook. The gaps that stay open are in [known gaps](docs/operator-gates.md#known-gaps).
 
 ## Getting started
