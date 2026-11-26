@@ -16,7 +16,7 @@
 | `AGENTS.md` | agent 在这里该怎么工作 | 你和 agent；改它永远由你决定 | 各工具都读它（`CLAUDE.md` 里只有一行 `@AGENTS.md`） |
 | `docs/features/<功能>.md` | 每个功能是什么、给谁用、做到什么算完成 | **grill**，按你的回答写 | "完成条件"只有附上证据才能打勾；只打勾不附证据，总览检查会拒绝 |
 | `GLOSSARY.md` | 项目里的词各是什么意思 | **grill** 和 **domain-modeling** | 用词和它冲突时立即指出 |
-| `CONSTRAINTS.md` | 做到多好才算够好 | **grill** 和 **constraint-driven-development** | 每条强制规则都写明由哪个命令判定；合并门的底线会拒绝放宽它的改动 |
+| `CONSTRAINTS.md` | 做到多好才算够好 | **grill** 和 **constraint-driven-development** | 每条强制规则都写明由哪个命令判定；质量底线检查会拒绝放宽它的改动 |
 | `docs/adr/NNNN-<标题>.md` | 一个不容易改回去的选择为什么这样做 | agent，只在 **domain-modeling** 的三个条件都满足时写 | 被取代的记录标出来，不删改 |
 | `docs/rulings.md` | 你做过的决定，用你自己的话 | **grill**；之后你在对话里做的决定，你要求时按同样方式加进去 | 每条都有日期、问题和你的原话 |
 | 使用说明（README 的一节，或 `docs/user-guide.md`） | 人怎样完成实际任务 | agent，在功能能用之后写 | 步骤对照运行中的程序检查过 |
@@ -27,7 +27,7 @@
 
 | 文件 | 从哪里来 | 怎样保持最新 |
 | --- | --- | --- |
-| `docs/overview.md` | 功能文件、`GLOSSARY.md`、`CONSTRAINTS.md`、ADR、裁定，以及 README 的标题和第一段（项目有功能文件之后） | 任何改动主来源的提交都用 `grill/scripts/overview.mjs --write` 重新生成；总览过期的 PR，合并门会拒绝；没有功能文件的项目没有总览 |
+| `docs/overview.md` | 功能文件、`GLOSSARY.md`、`CONSTRAINTS.md`、ADR、裁定，以及 README 的标题和第一段（项目有功能文件之后） | 任何改动主来源的提交都用 `grill/scripts/overview.mjs --write` 重新生成；总览过期的 PR，质量底线检查会拒绝；没有功能文件的项目没有总览 |
 | 某个功能的状态图 | 功能状态的模型，由 **statechart** 对照规则检查 | 改动碰到这个功能的状态逻辑时，自动附在回复里 |
 | 长时间运行的决定记录 | 运行本身，经由 **show-me-your-work** | 边运行边写 |
 
@@ -118,7 +118,7 @@ grill 结束时，`grill/scripts/starter.mjs` 补上项目缺的文件。已有�
 | --- | --- |
 | 新功能，或流程、完成标准变了 | 对应的功能文件（并重新生成总览） |
 | 新词，或一个词被用成了两种意思 | `GLOSSARY.md` |
-| 质量门槛变了 | `CONSTRAINTS.md`。agent 可以收紧；放宽它的改动会被合并门的底线拒绝，所以放宽只能由你自己改、自己合并 |
+| 质量门槛变了 | `CONSTRAINTS.md`。agent 可以收紧；放宽它的改动会被质量底线检查拒绝，所以放宽只能由你自己改、自己合并 |
 | 一个不容易改回去的技术选择 | 新的 ADR；旧的标为已取代 |
 | 你在对话里做的决定 | `docs/rulings.md`，你的原话和日期 |
 | 启动、配置或发布的方法变了 | `README.md` |
