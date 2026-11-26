@@ -61,5 +61,4 @@ Each synced component has its pin in `tools/upstream.json` and its rules, with a
 These come from the stage 5 answers, which number issues, not rows. [The roadmap](roadmap.md) describes each. / 来自阶段 5 的答复，只有条号，没有行号，内容见[路线图](roadmap.md)。
 
 - `scripts/gates.mjs`, `hooks/operator-gates.mjs`, `hooks/gates-lock.sh`: the operator's gates / 操作者的门 (#39, #44, #54).
-- `scripts/pr-trigger.mjs`: which checks a PR should get / PR 应该有哪些检查 (#50, #56).
 - `skills/grill/scripts/starter.mjs`, `skills/grill/starter/`: the new-project starter, issue 10 / 新项目起步文件，第 10 条 (#34, #47).
