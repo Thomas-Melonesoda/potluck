@@ -25,7 +25,7 @@ Instructions for agents in this repository. One line per item, with real command
 
 - One command runs every check (types, lint, tests, build): CHECK_COMMAND. CI runs it on every pull request and on the default branch.
 - The pre-commit hook runs the quality floor and a secret scan. A check that fails is fixed, never loosened or skipped.
-- A bug fix starts with a test that fails.
+- A bug fix starts with a failing test when it has a cheap local test path. Skip that when the test would be expensive, integration-heavy, or unclear, and say why in the PR.
 
 ## Project rules
 

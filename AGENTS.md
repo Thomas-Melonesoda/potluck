@@ -17,7 +17,7 @@
 - `git config core.hooksPath .githooks` (needs gitleaks on PATH)
 
 ## Check before saying done
-- `bun tools/generate.mjs --check` and `bun test tests/` must pass.
+- `bun tools/generate.mjs --check` and the test files for what you touched must pass locally. CI runs the full suite (`bun test tests/`) on every PR, and it must be green before the merge.
 - Touched sync or skill content: `bun tools/sync.mjs pstack <pinned sha> --dry-run` and `bun tools/sync.mjs --check-rules`; every new difference from upstream gets a `tools/forks.json` entry.
 - Touched a workflow: `uvx zizmor@1.29.0 --persona pedantic --min-severity low --collect all -- .`
 - Before any push: `node tools/privacy-check.mjs --history` and `gitleaks git . --redact`. This repository is public; no personal paths, names, notes, or secrets.
@@ -34,7 +34,7 @@ No levels: apart from "always ask" below, the AI verifies and merges its own PRs
 - **Before every merge**:
   1. CI passes on the PR's current head; the local checks above pass.
   2. Behavior a user can trigger changed: run it for real in at least one harness (Claude Code or Codex) and paste the output into the PR.
-  3. A bug fix has a regression test that failed first; a new feature's acceptance conditions are tests.
+  3. A bug fix starts with a failing test when it has a cheap local test path; skip that when the test would be expensive, integration-heavy, or unclear, and say why in the PR (Bug fix playbook step 5, the tdd skill). A new feature's acceptance conditions are tests.
   4. The PR description says what changed and gives the test evidence.
   5. An agent that did not write the code has verified the current head and recorded its verdict as the `potluck/verdict` status on that head, which the `main` ruleset requires, and the merge follows the Shipping playbook: once that status and every CI check on the head are green (the quality floor and overview check run in CI), merge with `gh pr merge <pr> --repo Thomas-Melonesoda/potluck --squash --match-head-commit <verified sha> --author-email "$(git config user.email)"`, then read the PR back and confirm the merge commit is on `main`. Never arm `--auto`. Without `--author-email`, GitHub writes the account's primary email into the public merge commit. A changed test assertion passes CI only with the root agent's co-sign comment (Autopilot-full step 6).
 - **Always ask the owner first**: releases (editing `VERSION`, tags, GitHub releases); repository settings, visibility, or rulesets; spending money; any change that sends data off the user's machine; editing `AGENTS.md`; a `tools/forks.json` policy entry the owner has not ruled on; changing the `forks.json` or `upstream.json` formats beyond what the roadmap describes; disabling, skipping, or loosening a check (CI jobs, hooks, privacy rules, deleting tests or weakening assertions).
