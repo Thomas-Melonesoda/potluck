@@ -2,6 +2,10 @@
 
 This file is the release changelog, with one `## <version> - <title>` entry per release, newest first. The Cursor-to-Claude rewrite rules live in [`tools/substitutions.json`](tools/substitutions.json), and the [sync boundary](CONTRIBUTING.md#the-sync-boundary) in `CONTRIBUTING.md` defines how a change to upstream's skill content is declared.
 
+## Unreleased
+
+- **No merge ruleset on potluck's `main`.** The owner disabled the `potluck-verdict` ruleset on 2026-11-26 and kept `protect-main`, since a ruleset cannot tell who wrote a verdict. `AGENTS.md`, `docs/operator-gates.md`, the roadmap and the Shipping playbook no longer say a ruleset requires the verdict or CI; the merge conditions rest on the playbooks and the independent verifier.
+
 ## 0.9.151 - audit follow-ups: PR text privacy, a fail-closed gates lock, required checks, and fewer questions
 
 - **PR text is checked for private content.** The shell hook reads the body of `gh pr`/`gh issue` create, edit, comment and review calls, and `gh api` writes to comments, pulls or issues, including heredocs and named body files, against the private privacy rules. A match asks on Claude Code and blocks on Codex; the matched term is never printed. It is off where no private rules file exists, and a body built from a file the command does not name is not read ([#86](https://github.com/Thomas-Melonesoda/potluck/pull/86)).
