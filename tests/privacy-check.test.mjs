@@ -52,6 +52,16 @@ test("an email address is flagged unless it is a noreply, an SSH remote, or an e
   }
 });
 
+test("at github.com only the SSH remote form and GitHub's noreply addresses pass, and IP and non-ASCII hosts are flagged", () => {
+  // Built at runtime so this file passes the check it tests.
+  for (const address of [["jdoe42", "github.com"], ["git", "github.com"], ["a", "[1.2.3.4]"], ["a", "[IPv6:2001:db8::1]"], ["a", "1.2.3.4"], ["a", "exämple.com"], ["jdoe", "例え.jp"], ["müller", "mail.de"]].map((p) => p.join("@"))) {
+    expect([address, checkEmail(`mail ${address} today`)]).toEqual([address, ["email"]]);
+  }
+  for (const line of ["git@github.com:Me/Widgets.git", "ssh://git@github.com/Me/Widgets", "GitHub <noreply@github.com>", "usr:pw@192.0.2.3:3128", "react@18.3.1", "见 @AGENTS.md"]) {
+    expect([line, checkEmail(line)]).toEqual([line, []]);
+  }
+});
+
 test("commit identities on machine-local hosts are flagged", () => {
   expect(checkIdentity(`A B <ab@${"Someones-MacBook"}.local>`, none)).toEqual(["local-email"]);
   expect(checkIdentity("A B <ab@localhost>", none)).toEqual(["local-email"]);

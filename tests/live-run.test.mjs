@@ -99,7 +99,7 @@ describe("the paid step", () => {
     expect(r.out).not.toContain(hostname);
   });
 
-  test.each([["10.1.2.3:3128", "10.1.2.3:3128"], ["//proxyhost.corp:3128", "proxyhost.corp:3128"], ["proxyhost.corp:3128", "proxyhost.corp:3128"], ["proxyhost.corp/", "proxyhost.corp"], ["usr:pw@10.1.2.3:3128", "10.1.2.3:3128"], ["http://10.1.2.3:3128", "10.1.2.3:3128"]])("prints claude's proxy warning without the proxy %s, and leaves NO_PROXY alone", (proxy, host) => {
+  test.each([["192.0.2.3:3128", "192.0.2.3:3128"], ["//proxyhost.corp:3128", "proxyhost.corp:3128"], ["proxyhost.corp:3128", "proxyhost.corp:3128"], ["proxyhost.corp/", "proxyhost.corp"], ["usr:pw@192.0.2.3:3128", "192.0.2.3:3128"], ["http://192.0.2.3:3128", "192.0.2.3:3128"]])("prints claude's proxy warning without the proxy %s, and leaves NO_PROXY alone", (proxy, host) => {
     const text = (shown) => `Invalid proxy URL in HTTPS_PROXY: "${shown}" cannot be parsed as a URL.`;
     const r = live([...ARGS, "--confirm-paid"], { shell: { ...good().shell, HTTPS_PROXY: proxy, NO_PROXY: "parsed", FAKE_SAY: `${text(proxy)} ${host} ${host.split(":")[0]}` } });
     expect(r.out).toContain(`${text(proxy.endsWith("/") ? "[redacted]/" : "[redacted]")} [redacted] [redacted]`);

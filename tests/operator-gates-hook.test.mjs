@@ -420,6 +420,19 @@ describe("private terms in published gh text", () => {
     `gh api repos/me/app/issues/1/comments -f body=${term}`,
     "gh api -X POST repos/me/app/pulls -F body=@body.md -f title=t",
     `gh pr create --title t --body "$(cat <<'X'\nfixes ${term}\nX\n)"`,
+    `gh api graphql -f query='mutation { addComment(input: {subjectId: "X", body: "${term}"}) { clientMutationId } }'`,
+    `gh api graphql --raw-field body=${term} -f query='mutation($body: String!) { x }'`,
+    "gh api graphql -F query=@body.md",
+    `gh api repos/me/app/releases -f body=${term}`,
+    `gh release create v1 --notes '${term}'`,
+    `gh release edit v1 -n "${term}"`,
+    "gh release create v1 --notes-file body.md",
+    "gh release create v1 -F body.md",
+    `gh pr merge 5 --repo me/app --squash --body '${term}'`,
+    `gh pr merge 5 -b ${term}`,
+    "gh pr merge 5 --body-file=body.md",
+    `gh issue close 9 --comment '${term}'`,
+    'gh pr create --title t --body "$(cat body.md)"',
   ])("asks for %s", (command) => {
     const r = privacy().ask(command);
     expect([r.status, r.decision]).toEqual([0, "ask"]);
@@ -432,8 +445,31 @@ describe("private terms in published gh text", () => {
     "gh pr create --repo me/app --title t --body-file clean.md",
     `git commit -m '${term}'`,
     `gh pr view 5 --repo me/app --json ${term}`,
+    "gh api graphql -f query='query($o: String!) { repository(owner: $o, name: \"app\") { id } }' -F o=me",
+    'gh pr merge 5 --repo me/app --squash --match-head-commit abc --author-email "$(git config user.email)"',
+    "gh pr create --title t --body \"$(cat <<'X'\nnothing $private `here`\nX\n)\"",
+    'gh release create v1 --notes "$(cat clean.md)"',
+    "gh pr create --title t --body-file - <<'X'\nnothing private\nX",
   ])("passes %s", (command) => {
     expect(privacy().ask(command).decision).toBe(null);
+  });
+
+  // A body the shell builds at run time cannot be read, so it asks like a match.
+  test.each([
+    'gh pr create --title t --body "$BODY"',
+    'B=$(cat notes.md); gh pr comment 5 -b "$B"',
+    'gh release create v1 --notes "$(git log -1 --format=%B)"',
+    'gh api graphql -f query="mutation { addComment(input: {subjectId: \\"X\\", body: \\"$B\\"}) { clientMutationId } }"',
+    'gh pr merge 5 --body-file "$F"',
+    "gh pr create --title t --body-file missing.md",
+    "gh pr create --title t --body `cat clean.md`",
+    'gh pr create --title t --body "$(cat <<X\nhi $NAME\nX\n)"',
+    "cat clean.md | gh pr create --title t --body-file -",
+  ])("asks for the unreadable body in %s", (command) => {
+    const r = privacy().ask(command);
+    expect([r.status, r.decision]).toEqual([0, "ask"]);
+    expect(r.reason).toContain("cannot read");
+    expect(privacy({ terms: false }).ask(command).decision).toBe(null);
   });
 
   test("without the private rules file the check is off", () => {
@@ -491,5 +527,18 @@ describe("the gates lock fails closed", () => {
     expect(gates.status).toBe(2);
     expect(gates.stderr).toContain("so it is blocked");
     expect(call(script === "gates-lock.sh" ? { file_path: "notes.md" } : { command: "ls" }).status).toBe(1);
+  });
+
+  // operator-gates.mjs ignores letter case when it fails closed, so the wrappers do too.
+  test.each(["gates-lock.sh", "git-guardrail.sh"])("%s blocks a gates call in another letter case when node itself fails", (script) => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "potluck-failing-node-")));
+    dirs.push(dir);
+    writeFileSync(join(dir, "node"), "#!/bin/sh\necho crashed >&2\nexit 1\n", { mode: 0o755 });
+    const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+    for (const path of [gatesPath.toUpperCase(), gatesPath.replace("potluck", "Potluck")]) {
+      const tool_input = script === "gates-lock.sh" ? { file_path: path } : { command: `cat ${path}` };
+      const r = feed(["sh", join(hooks, script)], JSON.stringify({ tool_name: script === "gates-lock.sh" ? "Write" : "Bash", tool_input, cwd: dir }), env);
+      expect([path, r.status]).toEqual([path, 2]);
+    }
   });
 });

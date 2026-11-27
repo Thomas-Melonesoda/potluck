@@ -11,13 +11,15 @@
 # block, since Codex rejects "ask". Without node on PATH both are off and
 # every call runs, as it did before. If either check fails (any exit but 0 or
 # 2) on a call that names gates.json or .potluck, the call is blocked, so the
-# gates lock fails closed; any other failed check lets the call run.
+# gates lock fails closed; any other failed check lets the call run. Both
+# names match in any letter case, as operator-gates.mjs matches them.
 command -v node >/dev/null 2>&1 || exit 0
 input=$(cat)
+lower=$(printf '%s' "$input" | tr '[:upper:]' '[:lower:]')
 here=$(dirname "$0")
 settle() {
   case $1 in 0) return 0 ;; 2) exit 2 ;; esac
-  case $input in
+  case $lower in
     *gates.json* | *.potluck*)
       echo "potluck: a check failed (exit $1) on a call that names gates.json or .potluck, so it is blocked." >&2
       exit 2 ;;
@@ -26,7 +28,7 @@ settle() {
 }
 printf '%s' "$input" | node "$here/git-guardrail.mjs"
 settle $?
-case $input in
+case $lower in
   *gh* | *gates.json* | *.potluck* | *\'* | *\\* | *'$'* | *'`'* | *'['* | *'*'* | *'?'*)
     printf '%s' "$input" | node "$here/operator-gates.mjs" "$@"
     settle $? ;;
