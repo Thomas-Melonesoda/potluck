@@ -54,7 +54,7 @@ codex plugin add pstack@potluck
 
 Invoke a skill by typing `$` and its name, such as `$poteto-mode` or `$babysit`, then choosing its entry, which inserts `$pstack:<name>`. `/skills` lists every skill.
 
-Then trust potluck's two hooks: run `codex` in a terminal and choose "Trust all and continue" when it says hooks need review. Codex ties that trust to the plugin's contents, so it asks again after any update, including the ones it pulls from `main` on its own under the same version. Until you trust them again the hooks do not run, and Codex shows only `hook: SessionStart Failed` or `hook: PreToolUse Failed`. The prompt can come back once more on the next start, for the hook it did not take the first time. `codex debug app-server send-message-v2 "hi"` prints the reason, `plugin contents changed; hook approval required`. The desktop app's `/hooks` does not show this prompt; use the `codex` command line.
+Then trust potluck's two hooks: run `codex` in a terminal and choose "Trust all and continue" when it says hooks need review. Codex ties that trust to the plugin's contents, so it asks again after any update, even one under the same version; on 2026-11-27 that happened after Codex picked up new content from `main` without a reinstall. Until you trust them again the hooks do not run, and Codex shows only `hook: SessionStart Failed` or `hook: PreToolUse Failed`. The prompt can come back once more on the next start, for the hook it did not take the first time. `codex debug app-server send-message-v2 "hi"` prints the reason, `plugin contents changed; hook approval required`. In the `codex` command line the prompt appears at start, and `/hooks` lists the hooks.
 
 </details>
 

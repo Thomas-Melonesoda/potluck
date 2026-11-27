@@ -45,7 +45,7 @@ codex plugin add pstack@potluck
 
 输入 `$` 加 skill 名（比如 `$poteto-mode`）来调用，`/skills` 会列出所有 skill。
 
-然后信任 potluck 的两个钩子：在终端里运行 `codex`，看到 "Hooks need review" 时选 "Trust all and continue"。Codex 的信任绑在插件内容上，所以插件每次更新后都会再问一次，包括它自己从 `main` 拉下来、版本号没变的更新。重新信任之前钩子不会运行，Codex 只显示 `hook: SessionStart Failed` 或 `hook: PreToolUse Failed`。下次启动时可能还会再问一次，补上第一次没批到的那个钩子。运行 `codex debug app-server send-message-v2 "hi"` 能看到原因：`plugin contents changed; hook approval required`。桌面版的 `/hooks` 不显示这个确认框，要用 `codex` 命令行。
+然后信任 potluck 的两个钩子：在终端里运行 `codex`，看到 "Hooks need review" 时选 "Trust all and continue"。Codex 的信任绑在插件内容上，所以插件每次更新后都会再问一次，版本号没变也一样；2026-11-27 就是 Codex 没重装、从 `main` 拿到新内容以后出现的。重新信任之前钩子不会运行，Codex 只显示 `hook: SessionStart Failed` 或 `hook: PreToolUse Failed`。下次启动时可能还会再问一次，补上第一次没批到的那个钩子。运行 `codex debug app-server send-message-v2 "hi"` 能看到原因：`plugin contents changed; hook approval required`。在 `codex` 命令行里，这个确认框会在启动时出现，`/hooks` 会列出所有钩子。
 
 ## git 护栏
 
