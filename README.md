@@ -54,6 +54,8 @@ codex plugin add pstack@potluck
 
 Invoke a skill by typing `$` and its name, such as `$poteto-mode` or `$babysit`, then choosing its entry, which inserts `$pstack:<name>`. `/skills` lists every skill.
 
+Then trust potluck's two hooks: run `codex` in a terminal and choose "Trust all and continue" when it says hooks need review. Codex ties that trust to the plugin's contents, so it asks again after any update, including the ones it pulls from `main` on its own under the same version. Until you trust them again the hooks do not run, and Codex shows only `hook: SessionStart Failed` or `hook: PreToolUse Failed`. The prompt can come back once more on the next start, for the hook it did not take the first time. `codex debug app-server send-message-v2 "hi"` prints the reason, `plugin contents changed; hook approval required`. The desktop app's `/hooks` does not show this prompt; use the `codex` command line.
+
 </details>
 
 <details>
@@ -237,7 +239,7 @@ It also blocks any shell command that names `gates.json` or `.potluck`, since on
 
 On a machine with the private privacy rules file, it also asks before a `gh` command publishes pull request or issue text that holds a private term; see [who reads it](docs/operator-gates.md#who-reads-it).
 
-A hook reads the command line, so a script file, or a name or command assembled at run time, gets past it. Codex cannot pause a command to ask you, so a check that asks on Claude Code blocks there and leaves the command for you to run, and the Codex hook has not been run live. Other harnesses have no such hook. The gaps that stay open are in [known gaps](docs/operator-gates.md#known-gaps).
+A hook reads the command line, so a script file, or a name or command assembled at run time, gets past it. Codex cannot pause a command to ask you, so a check that asks on Claude Code blocks there and leaves the command for you to run, and the Codex hooks were run live on 2026-11-27 (Codex CLI 0.169). Other harnesses have no such hook. The gaps that stay open are in [known gaps](docs/operator-gates.md#known-gaps).
 
 ## Getting started
 
