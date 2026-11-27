@@ -663,6 +663,7 @@ export function effortSection(levels, defaultEffort) {
     "at every level, and a model name is passed as `model`. " +
     "Pass the level as the dispatch's effort field and keep the `subagent_type` you would otherwise use. " +
     "That is `effort` on the Claude Code `Agent` call and `reasoning_effort` on Codex's `spawn_agent`. " +
+    "On Codex, pass `model` and `reasoning_effort` only as the platform mapping's schema check allows. " +
     "On Muse it is `effort` on a Workflow child; a `subagent_spawn` dispatch keeps the session's effort."
   );
 }
@@ -720,7 +721,9 @@ function overrideSheetBlock(models) {
     "the role's subagent then runs at that level, each entry of a panel list on its own. " +
     "`default effort` sets the level for a value without one; `session` uses the runtime's platform mapping to start from the parent session's effort. On Codex this requires active-turn metadata or an explicit effort choice. " +
     "`session hook: off` stops the supported runtime's pstack routing hook from injecting the poteto-mode mandate; " +
-    "any other value, or no line, leaves it on unless the environment sets `PSTACK_SESSION_HOOK=off`.\n\n" +
+    "any other value, or no line, leaves it on. " +
+    "Setting `PSTACK_SESSION_HOOK=off` in the environment also keeps the hook off on Claude Code, and on Codex, GitHub Copilot, Muse, and Antigravity when the runtime passes the variable to its hooks; " +
+    "MiniMax Code passes its hooks a fixed set of variables, and the OMP, OpenCode, and Pi plugins read only the sheet.\n\n" +
     rows +
     `\n\ndefault effort: ${models.defaultEffort}\nsession hook: on`
   );
