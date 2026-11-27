@@ -434,9 +434,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # This job and the two below reach for their tool through docker or npx
-      # because allowed_actions permits only GitHub-owned actions, verified
-      # creators, oven-sh/setup-bun and zizmorcore/zizmor-action.
+      # This job and the two below reach for their tool through docker or npx,
+      # pinned by digest or exact version, rather than through a marketplace
+      # action. The comment inherited here said allowed_actions permits only
+      # GitHub-owned actions and a few named ones; potluck's setting is "all"
+      # (checked 2026-11-27), so the pins and the read-only token are what
+      # keep this safe.
       #
       # The 1.7.12 tag is mutable, so the digest is what actually pins this.
       # Resolved with: docker buildx imagetools inspect rhysd/actionlint:1.7.12
