@@ -6,6 +6,7 @@ This file is the release changelog, with one `## <version> - <title>` entry per 
 
 - **No merge ruleset on potluck's `main`.** The owner disabled the `potluck-verdict` ruleset on 2026-11-26 and kept `protect-main`, since a ruleset cannot tell who wrote a verdict. `AGENTS.md`, `docs/operator-gates.md`, the roadmap and the Shipping playbook no longer say a ruleset requires the verdict or CI; the merge conditions rest on the playbooks and the independent verifier.
 - **Known gap: overnight questions.** `docs/operator-gates.md` says that only the playbooks keep an unattended agent from asking a question, as in Lauren's pstack and Michael's port; no hook refuses `AskUserQuestion`.
+- **Docs say what two numbers mean.** `CONTRIBUTING.md` says the eval's layer 2 score measures word overlap only; the roadmap says a removed worktree keeps its disk space for 30 days in the trash. A `ci.yml` comment that claimed allowed_actions was restricted now matches potluck's setting, which allows all actions.
 
 ## 0.9.151 - audit follow-ups: PR text privacy, a fail-closed gates lock, required checks, and fewer questions
 
