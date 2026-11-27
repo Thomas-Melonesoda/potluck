@@ -13,12 +13,14 @@
 //   local-json   a committed *.local.json file
 //   local-email  a commit author or committer email on a machine-local host (`<name>@<host>.local`),
 //                which leaks the account and machine name; use a GitHub noreply address
-//   email        an email address in a file or file name, with --staged and --tree; a GitHub
-//                noreply address, an SSH remote such as git@github.com, and a reserved example
-//                domain (example.com, .net, .org, or a name under .example, .invalid, .test, or
-//                .localhost) pass. --history leaves this rule out, because the history already
-//                holds an upstream author's published address and test fixtures, and the owner
-//                never rewrites history
+//   email        an email address in a file or file name, with --staged and --tree, an IP
+//                literal or non-ASCII host included; a GitHub noreply address
+//                (users.noreply.github.com, noreply@github.com), the SSH remote form
+//                git@github.com:owner/name, a reserved example domain (example.com, .net, .org,
+//                or a name under .example, .invalid, .test, or .localhost), and a documentation
+//                IPv4 address (192.0.2.x, 198.51.100.x, 203.0.113.x) pass. --history leaves
+//                this rule out, because the history already holds an upstream author's
+//                published address and test fixtures, and the owner never rewrites history
 //
 // Private rules, which run only where the owner keeps a terms file outside the repository
 // ($POTLUCK_PRIVATE_TERMS, else ${XDG_CONFIG_HOME:-~/.config}/potluck/private-terms.txt;
@@ -82,12 +84,29 @@ export function checkLine(line, rules) {
   return found;
 }
 
-const EMAIL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b/g;
-const PUBLIC_EMAIL_DOMAIN = /^(?:users\.noreply\.github\.com|github\.com|(?:[\w-]+\.)*example\.(?:com|net|org)|(?:[\w-]+\.)*(?:example|invalid|test|localhost))$/i;
+// Letters and digits in any script, so a non-ASCII host is read in full; the host may be an
+// IP literal in brackets ([192.0.2.1], [IPv6:...]), or end in a number, as an IPv4 address does.
+const EMAIL = /([\p{L}\p{N}._%+-]+)@(\[(?:IPv6:[\dA-Fa-f:.]+|\d{1,3}(?:\.\d{1,3}){3})\]|[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.(?:\p{L}{2,}|\d{1,3}))(?![\p{L}\p{N}_-])/gu;
+const PUBLIC_EMAIL_DOMAIN = /^(?:users\.noreply\.github\.com|(?:[\w-]+\.)*example\.(?:com|net|org)|(?:[\w-]+\.)*(?:example|invalid|test|localhost))$/i;
+// The IPv4 blocks reserved for documentation (RFC 5737), the IP form of example.com.
+const DOC_IP = /^(?:192\.0\.2|198\.51\.100|203\.0\.113)\.\d+$/;
 
-// Whether a line holds an email address that is not a noreply, an SSH remote, or an example.
+function isPublicAddress(local, host, after) {
+  if (host.startsWith("[")) return false;
+  if (/^[\d.]+$/.test(host)) {
+    const ip = host.split(".");
+    // A version such as react@18.3.1 is not an address.
+    if (ip.length !== 4 || ip.some((n) => Number(n) > 255)) return true;
+    return DOC_IP.test(host);
+  }
+  if (/^github\.com$/i.test(host)) return /^noreply$/i.test(local) || (/^git$/i.test(local) && /^[:/]/.test(after));
+  return PUBLIC_EMAIL_DOMAIN.test(host);
+}
+
+// Whether a line holds an email address other than a GitHub noreply address, the SSH remote
+// form git@github.com:owner/name, or an example domain or documentation IP.
 export function checkEmail(line) {
-  return [...line.matchAll(EMAIL)].some((m) => !PUBLIC_EMAIL_DOMAIN.test(m[1])) ? ["email"] : [];
+  return [...line.matchAll(EMAIL)].some((m) => !isPublicAddress(m[1], m[2], line.slice(m.index + m[0].length))) ? ["email"] : [];
 }
 
 export function checkIdentity(ident, rules) {

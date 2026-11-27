@@ -122,7 +122,7 @@
     },
     "plugins/pstack/skills/poteto-mode/playbooks/babysit.md": {
       "kind": "policy",
-      "why": "Requires confirming that the first status read reports the requested PR or stack, and naming the merge frontier, before acting on it, and reports the watcher's behind-base gate to the branch owner instead of resolving it, as it does a conflict.",
+      "why": "Requires confirming that the first status read reports the requested PR or stack, and naming the merge frontier, before acting on it, and reports the watcher's behind-base gate to the branch owner instead of resolving it, as it does a conflict. Points a watcher that exits with `graphql-refused`, as in a Claude Code cloud session, at the REST reads in `cloud-session-pr-reads.md`.",
       "since": "0.9.39",
       "upstream": "not-proposed",
       "source": "lauren",
@@ -206,7 +206,7 @@
     },
     "plugins/pstack/skills/poteto-mode/playbooks/shipping.md": {
       "kind": "policy",
-      "why": "Lands one PR at a time under the user's landing authority, cancelling pending merges before any chain change, recording each verifier's result as a potluck/verdict commit status with gh api and merging with gh pr merge --squash --match-head-commit --author-email once that status and every check are green, never --auto, running floor.mjs first where CI does not run the floor, and confirming each landing in the destination's history before advancing, with verifiers that drive the real surface through the driver skill in their own worktrees, a matching patch-id that keeps a review only after its applicability to the new base is checked, and the watcher owning blocker classification, with a branch behind its base routed to the topology owner, and merges a PR with no checks at all on its verdict unless the operator's gates say noCI wait, which leaves it merge-ready for a person.",
+      "why": "Lands one PR at a time under the user's landing authority, cancelling pending merges before any chain change, recording each verifier's result as a potluck/verdict commit status with gh api and merging with gh pr merge --squash --match-head-commit --author-email once that status and every check are green, never --auto, running floor.mjs first where CI does not run the floor, and confirming each landing in the destination's history before advancing, with verifiers that drive the real surface through the driver skill in their own worktrees, a matching patch-id that keeps a review only after its applicability to the new base is checked, and the watcher owning blocker classification, with a branch behind its base routed to the topology owner, and merges a PR with no checks at all on its verdict unless the operator's gates say noCI wait, which leaves it merge-ready for a person. Stops at merge-ready when GitHub refuses GraphQL, as in a Claude Code cloud session, and points at the REST reads in `cloud-session-pr-reads.md`.",
       "since": "0.9.34",
       "upstream": "not-proposed",
       "source": "lauren",
@@ -672,6 +672,18 @@
       "row": "S3-F5",
       "ruling": "Use Michael's review and cleanup rules (group S3-F).",
       "ruling_zh": "采用 Michael 的审查和清理规则（S3-F 组）。",
+      "decided": "2026-11-21"
+    },
+    "plugins/pstack/skills/fix-ci/SKILL.md": {
+      "kind": "port-feature",
+      "why": "When `gh pr checks` fails with a GraphQL refusal, as in a Claude Code cloud session, points at the REST reads in `cloud-session-pr-reads.md` and makes the head's check runs and commit statuses the source of truth there.",
+      "since": "0.9.151",
+      "upstream": "not-proposed",
+      "source": "lauren",
+      "choice": "michael",
+      "row": "S3-H",
+      "ruling": "Keep every technical adaptation as Michael made it (group S3-H).",
+      "ruling_zh": "所有技术适配都照 Michael 的做法保留（S3-H 组）。",
       "decided": "2026-11-21"
     }
   },
