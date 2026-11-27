@@ -26,11 +26,10 @@
 // is out of its reach.
 //
 // And with the owner's private privacy rules on this machine (see
-// private-rules.mjs), a gh command that publishes pull request or issue text
-// (gh pr create, edit, comment, or review, gh issue create, edit, or comment,
-// or gh api on a comments, pulls, or issues path) asks when its words, or a
-// body file it names, hold a private term or a vault note title. The term is
-// never printed. Without the rules file this check is off.
+// private-rules.mjs), a gh command that publishes text (see PUBLISHES) asks
+// when its words, or a body file it names, hold a private term or a vault note
+// title, or when it builds a body at run time, which this check cannot read.
+// The term is never printed. Without the rules file this check is off.
 //
 // hooks/git-guardrail.sh runs it on each call the guardrail lets through, and
 // hooks.json on each file-editing tool call. It reads the hook's JSON on
@@ -296,31 +295,79 @@ export function check(command, cwd) {
   return foreign ? ask(`${found.what} writes to a repository owned by ${foreign.split("/")[0]}, which neither the gh account nor its organizations own, and which the user's trustRepos does not list`) : null;
 }
 
-// gh calls that publish pull request or issue text, and the files a body can
-// come from: --body-file, -F (gh pr and gh issue read it as --body-file, and
-// gh api reads -F body=@file), and gh api's --input.
-const PUBLISHES = /(?:^|[^\w-])gh\s+(?:pr\s+(?:create|edit|comment|review)|issue\s+(?:create|edit|comment)|api\s[^\n]*\/(?:comments|pulls|issues)\b)/;
-const BODY_FILE = /(?:--body-file|--input|(?<![\w-])-F)(?:=|\s+|(?=\S))(["']?)([^\s"';|&)]+)\1/g;
+// gh calls that publish text: pull request, issue, and release text, merge
+// commit messages, closing comments, and gh api writes to comments, pulls,
+// issues, releases, or GraphQL (where a mutation carries the body). The files
+// a body can come from: --body-file, --notes-file, -F (gh pr, issue, and
+// release read it as a body or notes file, and gh api reads -F body=@file),
+// gh api's --field and --input.
+const PUBLISHES = /(?:^|[^\w-])gh\s+(?:pr\s+(?:create|edit|comment|review|merge|close)|issue\s+(?:create|edit|comment|close)|release\s+(?:create|edit)|api\s[^\n]*(?:\/(?:comments|pulls|issues|releases)\b|(?<![\w/-])graphql\b))/;
+const BODY_FILE = /(?:--body-file|--notes-file|--input|--field|(?<![\w-])-F)(?:=|\s+|(?=\S))(["']?)([^\s"';|&)]+)\1/g;
+// Flags whose value is published text or names it.
+const BODY_FLAG = /(?<![\w-])(?:--(?:body|body-file|notes|notes-file|title|subject|comment|input|field|raw-field)|-[bFnftc])(?:=|[ \t]+)/g;
+const CAT = /^\$\(\s*(?:cat\s+<<-?\s*(['"]?)(\w+)\1|(?:cat\s+|<\s*)(["']?)([^\s"'`$;|&()<>]+)\3\s*\))/;
+
+// Whether the shell word at `i` is built at run time from something this check
+// cannot see: a variable, a command, or backticks. A heredoc read with cat,
+// whose text is in the command, and cat or < of a named file, which goes into
+// `files`, can be read.
+function builtAtRunTime(command, i, files) {
+  let quoted = false;
+  for (; i < command.length; i++) {
+    const c = command[i];
+    if (!quoted && /[\s;&|<>()]/.test(c)) return false;
+    if (c === "\\") i++;
+    else if (c === '"') quoted = !quoted;
+    else if (c === "'" && !quoted) {
+      i = command.indexOf("'", i + 1);
+      if (i < 0) return true;
+    } else if (c === "`") return true;
+    else if (c === "$" && /[\w{(@*#?$!-]/.test(command[i + 1] ?? "")) {
+      const sub = CAT.exec(command.slice(i));
+      if (!sub) return true;
+      if (sub[4]) {
+        files.push(sub[4]);
+        i += sub[0].length - 1;
+        continue;
+      }
+      const stop = new RegExp(`\\n[ \\t]*${sub[2]}[ \\t]*\\n\\s*\\)`).exec(command.slice(i));
+      if (!stop || (!sub[1] && /[$`]/.test(command.slice(i + sub[0].length, i + stop.index)))) return true;
+      i += stop.index + stop[0].length - 1;
+    }
+  }
+  return false;
+}
 
 // Why a gh command that publishes text needs the user's yes under the owner's
 // private privacy rules, or null. The text read is the whole command, which
-// holds an inline or heredoc body, plus each body file it names.
+// holds an inline or heredoc body, plus each body file it names. A body this
+// check cannot read, one built at run time or from a file it cannot open,
+// asks as a match does.
 export function privateText(command, cwd, rules = null) {
   if (!PUBLISHES.test(command)) return null;
   const found = rules ?? loadPrivateRules();
   if (!found.source) return null;
   const texts = [command];
+  const files = [];
+  let unreadable = [...command.matchAll(BODY_FLAG)].some((m) => builtAtRunTime(command, m.index + m[0].length, files));
   for (const m of command.matchAll(BODY_FILE)) {
     let path = m[2];
     if (path.includes("=")) {
       if (!/=@/.test(path)) continue;
       path = path.slice(path.indexOf("=@") + 2);
     }
-    if (path === "-") continue;
+    // Standard input is read only from a heredoc, whose text is in the command.
+    if (path === "-") unreadable ||= !/<</.test(command);
+    else files.push(path);
+  }
+  for (const path of files) {
     try {
       texts.push(readFileSync(resolve(cwd, path.replace(/^~(?=\/)/, homedir())), "utf8"));
-    } catch { continue; }
+    } catch {
+      unreadable = true;
+    }
   }
+  if (unreadable) return "potluck privacy: this gh command publishes text this check cannot read (a body built from a variable or a command, or a file it cannot open), so it cannot rule out the owner's private terms. Write the body inline, in a heredoc, or in a file named with --body-file, or have the user approve it";
   if (!texts.some((text) => privateMatches(text, found).length)) return null;
   return `potluck privacy: this gh command publishes text that matches the owner's private privacy rules (${found.source}); the matching term is not shown. Take it out of the title, body, or body file, or have the user approve it`;
 }
