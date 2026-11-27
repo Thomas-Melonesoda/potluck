@@ -4,6 +4,7 @@ This file is the release changelog, with one `## <version> - <title>` entry per 
 
 ## Unreleased
 
+- **Reading a PR when GitHub refuses GraphQL.** A Claude Code cloud session's GitHub proxy answers GraphQL with HTTP 403, which makes `watch-pr` exit 7 with `graphql-refused` and `ship-pr inspect` report `unavailable`. A new reference, `poteto-mode/references/cloud-session-pr-reads.md`, lists the REST reads that still work there (PR state, check runs, commit statuses, check suites, Actions runs and logs, reviews, review comments and threads), each one paginated with `--paginate --slurp` where a list could run past one page. Babysit and Shipping point at it when the watcher refuses GraphQL, Shipping stops at merge-ready since landing needs GraphQL, and Fix CI reads the head's check runs and commit statuses from it as the source of truth there. Follows Michael Denyer's pstack-claude commits 02f3546, 231feff, b26c2b0 and 8d2d4bf.
 - **No merge ruleset on potluck's `main`.** The owner disabled the `potluck-verdict` ruleset on 2026-11-26 and kept `protect-main`, since a ruleset cannot tell who wrote a verdict. `AGENTS.md`, `docs/operator-gates.md`, the roadmap and the Shipping playbook no longer say a ruleset requires the verdict or CI; the merge conditions rest on the playbooks and the independent verifier.
 - **Known gap: overnight questions.** `docs/operator-gates.md` says that only the playbooks keep an unattended agent from asking a question, as in Lauren's pstack and Michael's port; no hook refuses `AskUserQuestion`.
 
