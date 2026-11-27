@@ -5,8 +5,10 @@ This file is the release changelog, with one `## <version> - <title>` entry per 
 ## Unreleased
 
 - **Privacy check follow-ups.** The email rule now flags any address at `github.com` other than `noreply@github.com` and the SSH remote form `git@github.com:owner/name`, and flags IP-literal and non-ASCII hosts (documentation addresses such as `192.0.2.1` pass). The private-terms hook also reads `gh api graphql`, `gh release create` and `edit`, `gh pr merge`, and `gh pr` and `gh issue close`, and asks when a body is built from a variable or a command it cannot read. The shell wrappers fail closed on `gates.json` and `.potluck` in any letter case, as the node hook does. `docs/operator-gates.md` lists what stays out of reach.
+- **A record of merges that broke a rule.** `docs/merge-record.md` lists merges that skipped a step `AGENTS.md` says may not be skipped, starting with #50.
 - **No merge ruleset on potluck's `main`.** The owner disabled the `potluck-verdict` ruleset on 2026-11-26 and kept `protect-main`, since a ruleset cannot tell who wrote a verdict. `AGENTS.md`, `docs/operator-gates.md`, the roadmap and the Shipping playbook no longer say a ruleset requires the verdict or CI; the merge conditions rest on the playbooks and the independent verifier.
 - **Known gap: overnight questions.** `docs/operator-gates.md` says that only the playbooks keep an unattended agent from asking a question, as in Lauren's pstack and Michael's port; no hook refuses `AskUserQuestion`.
+- **Docs say what two numbers mean.** `CONTRIBUTING.md` says the eval's layer 2 score measures word overlap only; the roadmap says a removed worktree keeps its disk space for 30 days in the trash. A `ci.yml` comment that claimed allowed_actions was restricted now matches potluck's setting, which allows all actions.
 
 ## 0.9.151 - audit follow-ups: PR text privacy, a fail-closed gates lock, required checks, and fewer questions
 
