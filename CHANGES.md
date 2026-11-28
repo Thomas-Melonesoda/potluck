@@ -2,7 +2,7 @@
 
 This file is the release changelog, with one `## <version> - <title>` entry per release, newest first. The Cursor-to-Claude rewrite rules live in [`tools/substitutions.json`](tools/substitutions.json), and the [sync boundary](CONTRIBUTING.md#the-sync-boundary) in `CONTRIBUTING.md` defines how a change to upstream's skill content is declared.
 
-## Unreleased
+## 0.9.152 - privacy check follow-ups, Codex hooks after an update, Michael's Codex mapping, and records
 
 - **`watch-pr` reports CI that failed to start.** When a check suite concludes `startup_failure` with no runs, `watch-pr` now reads the head's Actions workflow runs and reports the latest run for each workflow, event, and head as a failed check, instead of reading that suite as clean. Only `startup_failure` counts; a later pending, successful, or `startup_failure` run on the same workflow and event supersedes an earlier one. The read lives in the new port-only `workflow-runs.ts`, called from `check-suites.ts`; `query-error.ts` holds the shared field-read error and helpers so no module `github.ts` imports imports it back. Follows Michael Denyer's pstack-claude commit 4837724.
 - **Codex hook trust after an update.** The README (both languages) and the known gaps say that Codex turns potluck's hooks off after any plugin update, even one under the same version, until you trust them again with `codex`, and how to see the reason ([#96](https://github.com/Thomas-Melonesoda/potluck/issues/96)).
