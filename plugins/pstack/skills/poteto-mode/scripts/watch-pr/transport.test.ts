@@ -504,6 +504,12 @@ it("switches to the REST reader on the first GraphQL refusal and completes", () 
   expect(
     result.calls.some((args) => args[0] === "pr" && args[1] === "checks")
   ).toBe(false);
+  // --pretty renders the REST fallback's facts as a READY report, not a blocker.
+  const pretty = run("graphql-refused", ["--timeout", "2", "--pretty"]);
+  expect(pretty.stdout).toContain(
+    "READY: no merge conflicts, no unresolved review threads, no failing or pending checks"
+  );
+  expect(pretty.stdout).toMatch(/^reviewDecision=APPROVED$/m);
 });
 
 it("still retries a GraphQL 403 that can clear, such as a secondary rate limit", () => {
