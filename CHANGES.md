@@ -2,7 +2,7 @@
 
 This file is the release changelog, with one `## <version> - <title>` entry per release, newest first. The Cursor-to-Claude rewrite rules live in [`tools/substitutions.json`](tools/substitutions.json), and the [sync boundary](CONTRIBUTING.md#the-sync-boundary) in `CONTRIBUTING.md` defines how a change to upstream's skill content is declared.
 
-## Unreleased
+## 0.9.152 - privacy check follow-ups, Codex hooks after an update, Michael's Codex mapping, and records
 
 - **Codex hook trust after an update.** The README (both languages) and the known gaps say that Codex turns potluck's hooks off after any plugin update, even one under the same version, until you trust them again with `codex`, and how to see the reason ([#96](https://github.com/Thomas-Melonesoda/potluck/issues/96)).
 - **Privacy check follow-ups.** The email rule now flags any address at `github.com` other than `noreply@github.com` and the SSH remote form `git@github.com:owner/name`, and flags IP-literal and non-ASCII hosts (documentation addresses such as `192.0.2.1` pass). The private-terms hook also reads `gh api graphql`, `gh release create` and `edit`, `gh pr merge`, and `gh pr` and `gh issue close`, and asks when a body is built from a variable or a command it cannot read. The shell wrappers fail closed on `gates.json` and `.potluck` in any letter case, as the node hook does. `docs/operator-gates.md` lists what stays out of reach.
