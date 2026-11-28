@@ -36,8 +36,15 @@ if (scenario === 'slow') {
 }
 const noCi = scenario.startsWith('no-ci');
 const fail = (stderr) => { console.error(stderr); process.exit(1); };
+// The REST path a gh api call reads (with --paginate --slurp or without), ignoring flags.
+const restPath = (args) => args.filter(a => !a.startsWith('--')).slice(1).join(' ');
+// One check run as the REST check-runs endpoint reports it, for the
+// graphql-refused fallback below.
+const restRun = (name, conclusion) => ({ name, status: 'completed', conclusion, check_suite: { id: 1 }, app: { slug: 'ci-app' } });
 let value;
-if (scenario === 'graphql-rate-limited' && args[0] === 'api' && args[1] === 'graphql') {
+if (scenario === 'graphql-refused' && args[0] === 'api' && args[1] === 'graphql') {
+  fail('gh: GitHub GraphQL is not available from Claude Code sessions; use the REST API (gh api repos/{owner}/{repo}/...). (HTTP 403)');
+} else if (scenario === 'graphql-rate-limited' && args[0] === 'api' && args[1] === 'graphql') {
   fail('gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. (HTTP 403)');
 } else if (args.some(a => a.includes('query PullRequestFacts'))) {
   value = { data: { repository: { pullRequest: { headRefOid: 'head', baseRef: { target: { oid: 'base' } }, mergeable: 'MERGEABLE', mergeStateStatus: scenario === 'no-ci-blocked' ? 'BLOCKED' : 'CLEAN', reviewDecision: noCi ? null : 'APPROVED', headRefName: 'feature', baseRefName: 'main', state: 'OPEN', mergedAt: null, isDraft: false } } } };
@@ -230,6 +237,26 @@ if (scenario === 'graphql-rate-limited' && args[0] === 'api' && args[1] === 'gra
   } } } } };
 } else if (args.some(a => a.includes('query PrCommitStatuses'))) {
   value = { data: { repository: { pullRequest: { commits: { nodes: [{ commit: { oid: 'head', statusCheckRollup: { state: 'SUCCESS' } } }] } } } } };
+} else if (scenario === 'graphql-refused' && args[0] === 'api') {
+  // Everything past the first refusal above is the REST fallback's own
+  // reads (cloud-reader.ts), for a clean, approved, fully-passing PR.
+  const path = restPath(args);
+  if (path === 'repos/owner/repo/pulls/1') {
+    value = { state: 'open', merged_at: null, draft: false, mergeable: true, mergeable_state: 'clean', head: { sha: 'head', ref: 'feature' }, base: { ref: 'main' } };
+  } else if (path === 'repos/owner/repo/pulls/1/reviews?per_page=100') {
+    value = [[{ user: { login: 'reviewer' }, state: 'APPROVED' }]];
+  } else if (path === 'repos/owner/repo/git/ref/heads/main') {
+    value = { object: { sha: 'base' } };
+  } else if (path === 'repos/owner/repo/commits/head/check-runs?per_page=100') {
+    const runs = [restRun('build', 'success'), restRun('test', 'success')];
+    value = [{ total_count: runs.length, check_runs: runs }];
+  } else if (path === 'repos/owner/repo/commits/head/status?per_page=100') {
+    value = [{ total_count: 0, statuses: [] }];
+  } else if (path === 'repos/owner/repo/pulls/1/ccr/review_threads') {
+    value = [];
+  } else if (path === 'repos/owner/repo/pulls/1/comments?per_page=100') {
+    value = [];
+  } else { throw new Error('unexpected REST fixture command: ' + JSON.stringify(args)); }
 } else { throw new Error('unexpected fixture command: ' + JSON.stringify(args)); }
 console.log(JSON.stringify(value));
 `
@@ -438,6 +465,45 @@ it("stops on the first suite read when gh lacks --slurp", () => {
   );
   const pretty = run("unsupported-gh", ["--timeout", "2", "--pretty"]);
   expect(pretty.stdout).toContain("action=upgrade GitHub CLI");
+});
+
+it("switches to the REST reader on the first GraphQL refusal and completes", () => {
+  const result = run("graphql-refused", ["--timeout", "2", "--status-only"]);
+  // The refusal no longer exits 7 as a blocker; the REST fallback finishes the read.
+  expect(result.status).toBe(0);
+  const verdict = JSON.parse(result.stdout.trim());
+  expect(verdict).toMatchObject({
+    kind: "STATUS",
+    rows: [
+      {
+        facts: {
+          mergeable: "MERGEABLE",
+          mergeStateStatus: "CLEAN",
+          reviewDecision: "APPROVED",
+          headRefOid: "head",
+          baseRefOid: "base",
+          state: "OPEN",
+          isDraft: false,
+        },
+        ci: { kind: "ci-clean", failed: [], pending: [] },
+      },
+    ],
+  });
+  // The checks in the report came from the REST check-runs read, not GraphQL.
+  expect(
+    verdict.rows[0].ci.all.map((check: { name: string }) => check.name)
+  ).toEqual(["build", "test"]);
+  // GraphQL was tried exactly once, for the refusal itself.
+  expect(result.calls.filter((args) => args[1] === "graphql")).toHaveLength(1);
+  // Every read after the refusal went through `gh api` against REST paths.
+  expect(
+    result.calls.some((args) => args[0] === "api" && args[1] !== "graphql")
+  ).toBe(true);
+  // The fallback reads checks over REST directly; it never retries the fast
+  // path's `gh pr checks`, which is also refused in a cloud session.
+  expect(
+    result.calls.some((args) => args[0] === "pr" && args[1] === "checks")
+  ).toBe(false);
 });
 
 it("still retries a GraphQL 403 that can clear, such as a secondary rate limit", () => {
